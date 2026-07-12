@@ -1,36 +1,59 @@
 {
-    "compilerOptions": {
-        "target": "ES2017",
-        "lib": ["dom", "dom.iterable", "esnext"],
-        "allowJs": true,
-        "skipLibCheck": true,
-        "strict": true,
-        "noEmit": true,
-        "esModuleInterop": true,
-        "module": "esnext",
-        "moduleResolution": "bundler",
-        "resolveJsonModule": true,
-        "isolatedModules": true,
-        "jsx": "react-jsx",
-        "incremental": true,
-        "plugins": [{ "name": "next" }],
-        "experimentalDecorators": true,
-        "emitDecoratorMetadata": true,
-        "paths": {
-            "@/*": ["./*"],
-            "@do-md/zenith": ["./.packages/@do-md/zenith"],
-            "@do-md/zenith/middleware": ["./.packages/@do-md/zenith/middleware"],
-            "@do-md/common": ["./.packages/@do-md/common"],
-            "@do-md/utils": ["./.packages/@do-md/utils"]
-        }
-    },
-    "include": [
-        "next-env.d.ts",
-        "**/*.ts",
-        "**/*.tsx",
-        ".next/types/**/*.ts",
-        ".packages/**/*.ts",
-        ".packages/**/*.tsx"
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
     ],
-    "exclude": ["node_modules", "engine", "src-tauri"]
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "paths": {
+      "@/*": [
+        "./*"
+      ],
+      "@do-md/zenith": [
+        "./.packages/@do-md/zenith"
+      ],
+      "@do-md/zenith/middleware": [
+        "./.packages/@do-md/zenith/middleware"
+      ],
+      "@do-md/common": [
+        "./.packages/@do-md/common"
+      ],
+      "@do-md/utils": [
+        "./.packages/@do-md/utils"
+      ]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".packages/**/*.ts",
+    ".packages/**/*.tsx",
+    ".next/dev/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "engine",
+    "src-tauri"
+  ]
 }
