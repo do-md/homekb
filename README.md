@@ -23,3 +23,14 @@ homekb register --relay https://你的中继域名
 homekb tunnel                           # 常驻：隧道 + 定时编译
 homekb pair                             # 生成配对码给手机
 ```
+
+## 远端接入（配对后）
+
+- **手机浏览器**：打开中继域名 → 输入配对码 → 搜索/问答/读写笔记。
+- **Claude 手机端 / claude.ai**：添加自定义连接器 `https://中继域名/api/mcp`，授权页输入配对码即可（OAuth 自动完成）。
+- **Claude Code（远程）**：`claude mcp add --transport http homekb https://中继域名/api/mcp --header "Authorization: Bearer <配对换到的token>"`。
+
+## 开发
+
+- Web/中继：`npm run dev`（23333）；测试 `npm test` + `scripts/smoke-relay.sh` + `scripts/smoke-mcp.sh`。
+- 引擎：`cd engine && cargo build && cargo test`；用 `HOMEKB_CONFIG=/tmp/x.toml` 隔离测试环境。
