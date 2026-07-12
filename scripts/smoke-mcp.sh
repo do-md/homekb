@@ -70,8 +70,7 @@ import sys,json
 d=json.load(sys.stdin)
 text=d["result"]["content"][0]["text"]
 payload=json.loads(text)
-assert payload["echo"]["method"]=="kb.query", payload
-assert payload["echo"]["params"]["query"]=="测试查询"
+assert payload["query"]=="测试查询", payload
 assert payload["results"][0]["title"]=="测试笔记"
 print("tools/call 全链路 OK（MCP→隧道→家端→回传）")'
 

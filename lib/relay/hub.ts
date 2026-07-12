@@ -112,6 +112,7 @@ export function hub(): TunnelHub {
 /** 隧道协议允许的 RPC 方法白名单 */
 export const RPC_METHODS = new Set([
   "kb.query",
+  "kb.ask",
   "kb.read",
   "kb.write",
   "kb.create",

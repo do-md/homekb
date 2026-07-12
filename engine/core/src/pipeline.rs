@@ -235,14 +235,13 @@ fn phase1_db(
 
     // Load existing chunks.
     let mut stmt = tx.prepare(
-        "SELECT id, content_hash, chunk_index FROM chunks WHERE doc_id = ?",
+        "SELECT id, content_hash FROM chunks WHERE doc_id = ?",
     )?;
     let old_rows: Vec<ChunkRow> = stmt
         .query_map(params![doc_id], |r| {
             Ok(ChunkRow {
                 id: r.get(0)?,
                 content_hash: r.get(1)?,
-                chunk_index: r.get(2)?,
             })
         })?
         .filter_map(|r| r.ok())

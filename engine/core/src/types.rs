@@ -35,12 +35,11 @@ pub struct DocRow {
     pub index_state: IndexState,
 }
 
-/// A chunk row loaded into memory.
+/// A chunk row loaded into memory (only what the diff needs).
 #[derive(Debug, Clone)]
 pub struct ChunkRow {
     pub id: ChunkId,
     pub content_hash: String,
-    pub chunk_index: i64,
 }
 
 /// The output of the chunker.
