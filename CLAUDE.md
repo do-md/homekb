@@ -4,6 +4,20 @@
 
 > 上面一行继承 workspace 根 CLAUDE.md（包管理规则、zenith 约定、技术栈）。下面是 HomeKB 特有的补充。
 
+## 会话开始：先加载项目图（仅新会话时做一次）
+
+本项目有**独立的 project-nexus 图**（项目名 `homekb`，不是 claude-web-ui）。新会话第一件事，加载它拿到 Goal / 原则 / 进行中任务 / 设计文档索引：
+
+```bash
+node ~/.claude/skills/project-nexus/scripts/nexus.js load-project "homekb"
+```
+
+续聊时若已加载过就别重复；展开某个 Task 用 `layer2 "homekb" <task_id>`，读设计文档/历史详情用 `load-content "homekb" <node_id>`，找历史用 `recall "homekb" "<描述>"`。
+
+**做完一件事就顺手同步图**（新完成的事 / 新决策 / 新设计文档 → `add-node`/`add-edge`/`update-node`；末尾 `embed "homekb"` + `sync-reset "homekb"`）。协议契约唯一权威是 `docs/ARCHITECTURE.md`——**改 RPC/API/token/目录先改它**。
+
+> ⚠️ nexus 写操作要用**全路径、无变量、无管道、无 `$()` 捕获**逐条执行（本沙箱会静默吞掉 `VAR=$(node …)` 和 `node … | grep` 这类构造，命令不执行也不报错）。
+
 ## 这是什么
 
 HomeKB —— 面向 C 端的个人知识库产品，核心卖点：**数据永远在用户自己的电脑上**。
