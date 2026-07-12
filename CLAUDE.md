@@ -9,7 +9,8 @@
 HomeKB —— 面向 C 端的个人知识库产品，核心卖点：**数据永远在用户自己的电脑上**。
 三大件：
 
-1. **engine/**（Rust）：`homekb` CLI —— 知识编译（md → 分块 → OpenAI embedding → sqlite-vec 索引）+ 语义召回（双池 KNN + RRF）+ 本地 MCP（stdio，接 Claude Code / Codex）+ tunnel（连中继的家端常驻进程）。fork 自 kb-compile / kb-query，独立演进。
+1. **engine/**（Rust）：`homekb` CLI —— 知识编译（md → 分块 → OpenAI embedding → sqlite-vec 索引）+ 语义召回（双池 KNN + RRF）+ ask 问答 + 本地 MCP（stdio，接 Claude Code / Codex）+ serve（本机 HTTP RPC）+ tunnel（连中继的家端常驻进程）。fork 自 kb-compile / kb-query，独立演进。
+   **引擎优先原则**：CLI 是自洽完整产品（Git 风格子命令，无 REPL），不依赖客户端；桌面客户端只是纯渲染器（检测/安装引擎 → 连 `homekb serve`），承担安装引擎、辅助配对、编辑配置等本机专属职责。
 2. **Next.js（本目录）**：自托管中继 + Web 版 UI。中继只存「配对关系 + token 哈希」，**不存任何知识库数据**；家端经 SSE 隧道收指令、本地执行、回传结果。含远程 MCP（Streamable HTTP + 配对码 OAuth，接 Claude 手机端）。
 3. **src-tauri/**（后续阶段）：桌面 App，DoMD 模式（静态导出 + Rust invoke 嵌入 engine core）。
 

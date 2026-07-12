@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS oauth_clients (
 CREATE TABLE IF NOT EXISTS oauth_codes (
   code           TEXT PRIMARY KEY,
   client_id      TEXT NOT NULL,
-  grant_id       TEXT NOT NULL,
+  home_id        TEXT NOT NULL,
   code_challenge TEXT NOT NULL DEFAULT '',
   redirect_uri   TEXT NOT NULL DEFAULT '',
   expires_at     INTEGER NOT NULL,
