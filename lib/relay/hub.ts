@@ -25,6 +25,18 @@ export class RpcHubError extends Error {
   }
 }
 
+/**
+ * 鸭子类型判定，代替 instanceof。
+ * dev HMR 下 globalThis 单例 hub 持有旧模块的类，新模块 instanceof 永远 false —— 按 code 判。
+ */
+const HUB_ERROR_CODES = new Set(["home_offline", "timeout", "tunnel_closed", "rpc_error"]);
+export function asRpcHubError(e: unknown): RpcHubError | null {
+  if (e instanceof Error && HUB_ERROR_CODES.has((e as RpcHubError).code)) {
+    return e as RpcHubError;
+  }
+  return null;
+}
+
 interface HomeConn {
   homeId: string;
   connectedAt: number;
@@ -77,9 +89,16 @@ export class TunnelHub {
       try {
         conn.send("rpc", JSON.stringify({ id, method, params: params ?? {} }));
       } catch (e) {
+        // send 抛错 = 连接已死（客户端断开但 abort 尚未触发）：当场摘除，按离线报告
         clearTimeout(timer);
         conn.pending.delete(id);
-        reject(new RpcHubError("tunnel_closed", `failed to send: ${e instanceof Error ? e.message : e}`));
+        this.unregister(homeId, conn);
+        reject(
+          new RpcHubError(
+            "home_offline",
+            `home connection is dead: ${e instanceof Error ? e.message : e}`,
+          ),
+        );
       }
     });
   }

@@ -1,5 +1,5 @@
 import { authGrant, jsonError } from "@/lib/relay/auth";
-import { hub, RPC_METHODS, RpcHubError } from "@/lib/relay/hub";
+import { asRpcHubError, hub, RPC_METHODS } from "@/lib/relay/hub";
 
 export const runtime = "nodejs";
 
@@ -21,11 +21,12 @@ export async function POST(req: Request) {
     const result = await hub().call(grant.home_id, method, body.params ?? {});
     return Response.json({ ok: true, result });
   } catch (e) {
-    if (e instanceof RpcHubError) {
+    const hubErr = asRpcHubError(e);
+    if (hubErr) {
       const status =
-        e.code === "home_offline" ? 502 : e.code === "timeout" ? 504 : 500;
+        hubErr.code === "home_offline" ? 502 : hubErr.code === "timeout" ? 504 : 500;
       return Response.json(
-        { ok: false, error: e.code, message: e.message, detail: e.detail },
+        { ok: false, error: hubErr.code, message: hubErr.message, detail: hubErr.detail },
         { status },
       );
     }

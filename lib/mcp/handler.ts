@@ -1,4 +1,4 @@
-import { hub, RpcHubError } from "@/lib/relay/hub";
+import { asRpcHubError, hub } from "@/lib/relay/hub";
 import { MCP_TOOL_MAP, MCP_TOOLS } from "./tools";
 
 /**
@@ -84,12 +84,13 @@ export async function handleMcpMessage(
         const result = await hub().call(homeId, rpcMethod, rpcParams);
         return rpcResult(id, toolText(result));
       } catch (e) {
-        if (e instanceof RpcHubError) {
+        const hubErr = asRpcHubError(e);
+        if (hubErr) {
           const hint =
-            e.code === "home_offline"
+            hubErr.code === "home_offline"
               ? "The user's home computer is not connected to the relay right now (run `homekb tunnel` on it)."
-              : e.message;
-          return rpcResult(id, toolText(`HomeKB error (${e.code}): ${hint}`, true));
+              : hubErr.message;
+          return rpcResult(id, toolText(`HomeKB error (${hubErr.code}): ${hint}`, true));
         }
         return rpcResult(
           id,
