@@ -35,7 +35,7 @@ interface HomeConn {
 
 const DEFAULT_TIMEOUT = 30_000;
 
-class TunnelHub {
+export class TunnelHub {
   private conns = new Map<string, HomeConn>();
 
   register(homeId: string, send: HomeConn["send"], close: HomeConn["close"]): HomeConn {
