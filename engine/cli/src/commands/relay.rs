@@ -61,8 +61,11 @@ pub fn run_register(relay: Option<String>, name: Option<String>) -> Result<()> {
     Ok(())
 }
 
-/// `homekb pair`
-pub fn run_pair() -> Result<()> {
+/// `homekb pair [--json]`
+///
+/// `--json`：stdout 单行 `{"code","expiresAt","relayUrl","homeName"}`
+/// （epoch 毫秒），供桌面客户端解析（docs/ARCHITECTURE.md）。
+pub fn run_pair(json: bool) -> Result<()> {
     let config = Config::load()?;
     let relay = relay_config(&config)?;
     let rt = super::runtime()?;
@@ -79,6 +82,18 @@ pub fn run_pair() -> Result<()> {
     })?;
 
     let code = body["code"].as_str().context("响应缺 code")?;
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "code": code,
+                "expiresAt": body["expiresAt"],
+                "relayUrl": relay.url,
+                "homeName": relay.name,
+            })
+        );
+        return Ok(());
+    }
     println!("配对码（10 分钟内有效，单次使用）：\n");
     println!("    {code}\n");
     println!("用法：");

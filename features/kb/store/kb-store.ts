@@ -1,14 +1,13 @@
 "use client";
 import { createMemo, createReactStore, ZenithStore } from "@do-md/zenith";
 import {
-  checkHealth,
   claimPairCode,
   clearPairing,
   getPairedHome,
   getToken,
-  RelayError,
-  rpc,
 } from "@/lib/client/relay-client";
+import { isDesktop } from "@/lib/client/desktop";
+import { checkHealth, RelayError, rpc } from "@/lib/client/rpc";
 import type {
   DocMeta,
   KbAnswer,
@@ -20,6 +19,9 @@ import type {
 } from "../type";
 
 interface KbState {
+  // 桌面模式（Tauri webview）：不走配对，直连本机 serve
+  desktop: boolean;
+
   // 配对
   paired: boolean;
   homeName: string;
@@ -67,9 +69,11 @@ export class KbStore extends ZenithStore<KbState> {
   private noticeTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor() {
+    const desktop = isDesktop();
     super({
-      paired: typeof window !== "undefined" && !!getToken(),
-      homeName: getPairedHome()?.homeName ?? "",
+      desktop,
+      paired: desktop || (typeof window !== "undefined" && !!getToken()),
+      homeName: desktop ? "本机" : (getPairedHome()?.homeName ?? ""),
       online: null,
       pairBusy: false,
       pairError: null,
@@ -100,10 +104,15 @@ export class KbStore extends ZenithStore<KbState> {
     });
   }
 
-  @memo((s: KbStore) => [s.state.online, s.state.paired])
+  @memo((s: KbStore) => [s.state.online, s.state.paired, s.state.desktop])
   public get connBadge(): { text: string; cls: string } {
     if (!this.state.paired) return { text: "未配对", cls: "badge-ghost" };
     if (this.state.online === null) return { text: "探测中", cls: "badge-ghost" };
+    if (this.state.desktop) {
+      return this.state.online
+        ? { text: "引擎在线", cls: "badge-success" }
+        : { text: "引擎离线", cls: "badge-error" };
+    }
     return this.state.online
       ? { text: "家中在线", cls: "badge-success" }
       : { text: "家中离线", cls: "badge-error" };
@@ -134,6 +143,7 @@ export class KbStore extends ZenithStore<KbState> {
   }
 
   public unpair() {
+    if (this.state.desktop) return; // 桌面模式无配对概念
     clearPairing();
     this.produce((d) => {
       d.paired = false;

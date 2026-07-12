@@ -1,5 +1,14 @@
 "use client";
 import { useEffect } from "react";
+import { isDesktop } from "@/lib/client/desktop";
+import { BootScreen } from "@/features/desktop/components/boot-screen";
+import { SettingsView } from "@/features/desktop/components/settings";
+import {
+  DesktopStoreProvider,
+  useDesktopStore,
+  useDesktopStoreApi,
+} from "@/features/desktop/store/desktop-store";
+import type { KbView } from "../type";
 import { KbStoreProvider, useKbStore, useKbStoreApi } from "../store/kb-store";
 import { PairScreen } from "./pair-screen";
 import { NewNoteView } from "./views/new-note";
@@ -11,6 +20,14 @@ function Header() {
   const api = useKbStoreApi();
   const view = useKbStore((s) => s.state.view);
   const badge = useKbStore((s) => s.connBadge);
+  const desktop = useKbStore((s) => s.state.desktop);
+
+  const items: [KbView, string][] = [
+    ["recall", "召回"],
+    ["new", "新建"],
+    ["status", "状态"],
+    ...(desktop ? ([["settings", "设置"]] as [KbView, string][]) : []),
+  ];
 
   return (
     <header className="bg-base-100/90 sticky top-0 z-10 backdrop-blur">
@@ -20,13 +37,7 @@ function Header() {
         </button>
         <span className={`badge badge-sm ${badge.cls}`}>{badge.text}</span>
         <nav className="ml-auto flex gap-1">
-          {(
-            [
-              ["recall", "召回"],
-              ["new", "新建"],
-              ["status", "状态"],
-            ] as const
-          ).map(([v, label]) => (
+          {items.map(([v, label]) => (
             <button
               key={v}
               onClick={() => api.go(v)}
@@ -65,6 +76,7 @@ function Main() {
         {view === "reader" && <ReaderView />}
         {view === "new" && <NewNoteView />}
         {view === "status" && <StatusView />}
+        {view === "settings" && <SettingsView />}
       </main>
       {notice && (
         <div className="toast toast-center toast-bottom z-20">
@@ -75,7 +87,32 @@ function Main() {
   );
 }
 
+/** 桌面引导闸：检测/安装引擎并拉起 serve 后才进主界面。 */
+function DesktopGate({ children }: { children: React.ReactNode }) {
+  const api = useDesktopStoreApi();
+  const phase = useDesktopStore((s) => s.state.phase);
+
+  useEffect(() => {
+    void api.bootstrap();
+  }, [api]);
+
+  if (phase !== "ready") return <BootScreen />;
+  return <>{children}</>;
+}
+
 export function Kb() {
+  // 运行时模式检测（页面 ssr:false，仅客户端执行；一次会话内恒定）
+  if (isDesktop()) {
+    return (
+      <DesktopStoreProvider>
+        <KbStoreProvider>
+          <DesktopGate>
+            <Main />
+          </DesktopGate>
+        </KbStoreProvider>
+      </DesktopStoreProvider>
+    );
+  }
   return (
     <KbStoreProvider>
       <Main />

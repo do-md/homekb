@@ -110,7 +110,11 @@ enum Cmd {
         name: Option<String>,
     },
     /// Generate a pairing code via the relay (for phone web / Claude mobile).
-    Pair,
+    Pair {
+        /// Emit machine-readable JSON (desktop client parses this).
+        #[arg(long)]
+        json: bool,
+    },
     /// Resident tunnel to the relay + built-in periodic reindex.
     Tunnel {
         /// Seconds between built-in compile runs (0 = disable).
@@ -168,9 +172,9 @@ fn main() -> Result<()> {
             init_tracing(true);
             commands::relay::run_register(relay, name)
         }
-        Cmd::Pair => {
+        Cmd::Pair { json } => {
             init_tracing(true);
-            commands::relay::run_pair()
+            commands::relay::run_pair(json)
         }
         Cmd::Tunnel { interval } => {
             init_tracing(false);

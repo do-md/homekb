@@ -16,15 +16,25 @@ export function StatusView() {
   const loading = useKbStore((s) => s.state.statusLoading);
   const homeName = useKbStore((s) => s.state.homeName);
   const online = useKbStore((s) => s.state.online);
+  const desktop = useKbStore((s) => s.state.desktop);
+
+  const connText =
+    online === null
+      ? "探测中…"
+      : desktop
+        ? online
+          ? "本机引擎运行中"
+          : "本机引擎未响应"
+        : online
+          ? "隧道在线"
+          : "隧道离线（家中运行 homekb tunnel）";
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <div>
           <div className="font-semibold">{homeName || "家里电脑"}</div>
-          <div className="text-xs opacity-50">
-            {online === null ? "探测中…" : online ? "隧道在线" : "隧道离线（家中运行 homekb tunnel）"}
-          </div>
+          <div className="text-xs opacity-50">{connText}</div>
         </div>
         <button className="btn btn-ghost btn-sm" onClick={() => void api.loadStatus()}>
           刷新
@@ -61,14 +71,16 @@ export function StatusView() {
         <button className="btn btn-sm" onClick={() => void api.reindex()}>
           立即编译
         </button>
-        <button
-          className="btn btn-ghost btn-sm text-error ml-auto"
-          onClick={() => {
-            if (confirm("解除与这台电脑的配对？")) api.unpair();
-          }}
-        >
-          解除配对
-        </button>
+        {!desktop && (
+          <button
+            className="btn btn-ghost btn-sm text-error ml-auto"
+            onClick={() => {
+              if (confirm("解除与这台电脑的配对？")) api.unpair();
+            }}
+          >
+            解除配对
+          </button>
+        )}
       </div>
     </div>
   );

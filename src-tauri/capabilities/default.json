@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "主窗口默认能力：仅 core（自定义命令 invoke 不需要额外插件权限）",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

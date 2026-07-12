@@ -18,7 +18,7 @@
 │  ~/.homekb/            数据根（md/图片/附件/索引快照）│
 │  homekb CLI(引擎)      编译+召回+MCP(stdio)+配对+隧道  │
 │  homekb serve          本机 HTTP RPC（客户端渲染数据源）│
-│  Tauri App(后续)       纯渲染器：检测/安装引擎→连 serve │
+│  Tauri App(src-tauri)  纯渲染器：检测/安装引擎→连 serve │
 └──────────────┬─────────────────────────────┘
                │ 出站 SSE 长连（家里无公网 IP 也通）
 ┌─ 中继服务器（自托管 Next.js，无用户数据） ──┴──┐
@@ -84,7 +84,7 @@ homekb rebuild --force
 homekb mcp                   # 暴露给其他 Agent：本地 MCP server（stdio）
 homekb serve [--port 8765]   # 本机 HTTP RPC（127.0.0.1，桌面客户端的数据源）
 homekb register --relay URL [--name NAME]                    # 注册家设备 → 写 [relay]
-homekb pair                  # 生成配对码（打给中继）
+homekb pair [--json]         # 生成配对码（打给中继）；--json 供桌面客户端解析
 homekb tunnel [--interval SECS=300]                          # 常驻：隧道 + 内置定时编译
 ```
 
@@ -94,7 +94,27 @@ Claude Code 接入本地 MCP：`claude mcp add homekb -- homekb mcp`。
 
 ### 本机 HTTP RPC（homekb serve）
 
-`POST http://127.0.0.1:8765/rpc` `{method, params}` → `{ok, result}` | `{ok:false, error}`。方法集与隧道 RPC 完全一致（下表）。只绑 127.0.0.1，无认证（v1）。桌面客户端与本机脚本用它；公网直连模式（用户有公网 IP/域名）后续基于它加认证开放。
+`POST http://127.0.0.1:8765/rpc` `{method, params}` → `{ok, result}` | `{ok:false, error, message}`。方法集与隧道 RPC 完全一致（下表）。只绑 127.0.0.1，无认证（v1）。桌面客户端与本机脚本用它；公网直连模式（用户有公网 IP/域名）后续基于它加认证开放。
+
+- `GET /health` → `{ok:true}`（探活：桌面客户端判断 serve 是否已在跑）。
+- **CORS 白名单**（桌面 webview 跨源访问 serve 的唯一放行面，不得放 `*`，防浏览器网页驱动本机召回）：
+  `tauri://localhost`、`http://tauri.localhost`、`http://localhost:23333`、`http://127.0.0.1:23333`（后两个是 `next dev` 调试来源）。
+
+### `homekb pair --json`
+
+供桌面客户端解析：stdout 输出单行 JSON `{"code","expiresAt","relayUrl","homeName"}`（expiresAt 为 epoch 毫秒；来自中继 `POST /api/relay/pair`）。无 `--json` 时维持人类可读输出。
+
+## 桌面客户端（Tauri，src-tauri/）
+
+**纯渲染器**：UI 与 Web 版是同一份 `features/kb`；数据面只是把 base URL 从 `/api/relay/rpc`（Bearer clientToken）换成 `http://127.0.0.1:8765/rpc`（serve，无认证）。保存/新建仍是点按钮的受控流程（`kb.write`/`kb.create` 直落 `~/.homekb/notes`），**桌面端不触发任何系统弹框**（不引入 dialog 插件）。
+
+- **模式检测（运行时）**：`window.__TAURI_INTERNALS__` 存在 = 桌面模式。不用构建期 env 区分，同一个 `next dev`(23333) 既服务浏览器（Web 模式）又服务 `tauri dev` 的 webview（桌面模式）。
+- **构建**：桌面 = 静态导出。`npm run build:tauri` → `scripts/tauri-build.mjs`：临时把服务端专属路由（`app/api`、`app/oauth`、`app/.well-known`）移出 → `BUILD_TARGET=tauri next build`（`output:"export"` → `out/`）→ 还原。Web 版继续 SSR（`next build` 不受影响）。
+- **引擎获取**：App 资源里捆绑 `homekb` 二进制（构建时从 `engine/target/release/homekb` 拷入）。启动检测顺序：env `HOMEKB_BIN` > `~/.local/bin/homekb` > `$PATH`；都没有 → 自动安装捆绑二进制到 `~/.local/bin/homekb`（无弹框）。
+- **serve 生命周期**：启动时先 `GET /health` 探活；已在跑 → 直接附着（外部进程，不接管）；没在跑 → spawn `homekb serve` 子进程，App 退出时回收。tunnel 同理由 App spawn/kill（`tunnel_stop` 优先杀自己管理的子进程，否则 `pkill -f "homekb tunnel"`）。
+- **Tauri 命令面**（invoke，仅桌面 UI 使用，不属于 RPC 协议）：
+  `engine_status`（安装/版本/serve 探活/config 概要）、`engine_install`、`engine_init`、`serve_ensure`、`config_get` / `config_set_openai_key`（直接读写 config.toml，同机职责）、`relay_register`（包 `homekb register`）、`pair_new`（包 `homekb pair --json`）、`tunnel_start` / `tunnel_stop` / `tunnel_status`。
+- 桌面端多一个「设置」视图：引擎/目录信息、OpenAI key、中继注册、配对码生成、tunnel 开关。Web 版不渲染该视图。
 
 ## Token 格式
 

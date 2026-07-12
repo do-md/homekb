@@ -36,6 +36,7 @@ export interface DocMeta {
   sizeBytes: number;
 }
 
-export type KbView = "recall" | "reader" | "new" | "status";
+/** "settings" 仅桌面模式（Tauri）可达，Web 版不渲染入口。 */
+export type KbView = "recall" | "reader" | "new" | "status" | "settings";
 export type RecallMode = "list" | "answer";
 export type RecallPhase = "idle" | "searching" | "done";
