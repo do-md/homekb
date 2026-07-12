@@ -1,8 +1,8 @@
 //! homekb — CLI front-end over homekb-core.
 //!
-//! Implemented: init / reindex / watch / query / status / rebuild.
-//! Reserved (stubs, exit 1): mcp / register / pair / tunnel — each will get
-//! its own module under `commands/` as it lands.
+//! Git-style subcommand CLI — the engine itself is the complete product
+//! (docs/ARCHITECTURE.md「引擎优先」): compile, recall, Q&A, local MCP,
+//! localhost HTTP RPC, relay pairing & tunnel.
 
 mod commands;
 mod output;
@@ -77,19 +77,43 @@ enum Cmd {
         #[arg(long)]
         force: bool,
     },
-    /// Local MCP server over stdio. (not implemented yet)
+    /// Ask a question: semantic recall + LLM-synthesized answer with citations.
+    Ask {
+        /// Question. If omitted, read from stdin.
+        question: Option<String>,
+        /// Emit machine-readable JSON instead of human-readable text.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Create a note from FILE or stdin.
+    New {
+        /// Title (decides the filename); defaults to first heading / first line.
+        #[arg(long)]
+        title: Option<String>,
+        /// Markdown file to import; omit to read stdin.
+        file: Option<PathBuf>,
+    },
+    /// Local MCP server over stdio (for Claude Code / Codex: `claude mcp add homekb -- homekb mcp`).
     Mcp,
-    /// Register this machine with a relay server, writes [relay] to config. (not implemented yet)
+    /// Localhost HTTP RPC on 127.0.0.1 (desktop client data source).
+    Serve {
+        #[arg(long, default_value_t = 8765)]
+        port: u16,
+    },
+    /// Register this machine with a relay server; writes [relay] to config.
     Register {
+        /// Relay base URL, e.g. https://kb.example.com
         #[arg(long)]
         relay: Option<String>,
+        /// Device name shown to paired clients (default: hostname).
         #[arg(long)]
         name: Option<String>,
     },
-    /// Generate a pairing code via the relay. (not implemented yet)
+    /// Generate a pairing code via the relay (for phone web / Claude mobile).
     Pair,
-    /// Persistent tunnel to the relay + built-in periodic reindex. (not implemented yet)
+    /// Resident tunnel to the relay + built-in periodic reindex.
     Tunnel {
+        /// Seconds between built-in compile runs (0 = disable).
         #[arg(long, default_value_t = 300)]
         interval: u64,
     },
@@ -123,10 +147,35 @@ fn main() -> Result<()> {
             init_tracing(false);
             commands::rebuild::run(force)
         }
-        Cmd::Mcp => commands::not_implemented("mcp"),
-        Cmd::Register { .. } => commands::not_implemented("register"),
-        Cmd::Pair => commands::not_implemented("pair"),
-        Cmd::Tunnel { .. } => commands::not_implemented("tunnel"),
+        Cmd::Ask { question, json } => {
+            init_tracing(true);
+            commands::ask::run(question, json)
+        }
+        Cmd::New { title, file } => {
+            init_tracing(true);
+            commands::new::run(title, file)
+        }
+        Cmd::Mcp => {
+            // stdout 是 MCP 协议通道，日志只走 stderr 且保持安静
+            init_tracing(true);
+            commands::mcp::run()
+        }
+        Cmd::Serve { port } => {
+            init_tracing(false);
+            commands::serve::run(port)
+        }
+        Cmd::Register { relay, name } => {
+            init_tracing(true);
+            commands::relay::run_register(relay, name)
+        }
+        Cmd::Pair => {
+            init_tracing(true);
+            commands::relay::run_pair()
+        }
+        Cmd::Tunnel { interval } => {
+            init_tracing(false);
+            commands::tunnel::run(interval)
+        }
     }
 }
 

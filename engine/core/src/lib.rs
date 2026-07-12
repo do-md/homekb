@@ -10,6 +10,7 @@
 
 mod ai;
 mod api;
+mod ask;
 mod chunker;
 mod config;
 mod db;
@@ -17,6 +18,7 @@ mod hasher;
 mod notes;
 mod pipeline;
 mod reconciler;
+mod rpc;
 mod scanner;
 mod search;
 mod types;
@@ -25,7 +27,9 @@ pub use api::{
     Hit, ReindexReport, SearchOptions, SearchOutput, StatusReport, TypeCount, ensure_dirs,
     list_types, rebuild, reindex, search, status,
 };
+pub use ask::{AskOutput, Citation, ask};
 pub use config::{Config, ConfigOverrides, RelayConfig, config_path};
 pub use notes::{
     CreatedNote, DocMeta, NoteContent, create_note, list_notes, read_note, write_note,
 };
+pub use rpc::{RPC_METHODS, RpcFailure, dispatch};

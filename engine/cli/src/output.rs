@@ -67,7 +67,7 @@ pub fn write_human(out: &mut impl Write, resp: &SearchOutput) -> Result<()> {
                     score = hit.score,
                 )?;
                 if let Some(h) = &hit.heading_path {
-                    writeln!(out, "    path : {h}")?;
+                    writeln!(out, "    at   : {h}")?;
                 }
                 let preview = truncate(&collapse_ws(&hit.content), 600);
                 writeln!(out, "    text : {preview}")?;
