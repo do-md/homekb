@@ -1,0 +1,36 @@
+{
+  "name": "homekb",
+  "version": "0.1.0",
+  "private": true,
+  "description": "HomeKB —— 数据在你自己电脑上的个人知识库：本地编译+语义召回引擎（Rust CLI/MCP），Web 中继远程访问，Agent 原生接入",
+  "scripts": {
+    "dev": "next dev -p 23333",
+    "build": "next build",
+    "start": "next start -p 3333",
+    "tauri": "tauri",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@iconify/react": "^6.0.2",
+    "better-sqlite3": "^12.8.0",
+    "clsx": "^2.1.1",
+    "daisyui": "^5.5.19",
+    "immer": "^11.1.4",
+    "nanoid": "^5.1.6",
+    "next": "16.1.6",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "tailwind-merge": "^3.5.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "20.19.43",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "tailwindcss": "^4",
+    "typescript": "5.9.3",
+    "vitest": "^4.1.1"
+  }
+}

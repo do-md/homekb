@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+/* 复制式包（.packages/）被 .gitignore 排除，显式 @source 强制 Tailwind v4 扫描 */
+@source "../.packages";
+
+@plugin "daisyui" {
+    themes:
+        light --default,
+        dark --prefersdark;
+}
+
+/* HomeKB 不写 data-theme，纯跟随系统；分明暗样式一律用 @media (prefers-color-scheme) */
+
+html,
+body {
+    height: 100%;
+}

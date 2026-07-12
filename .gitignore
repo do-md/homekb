@@ -1,0 +1,22 @@
+# deps / build
+node_modules/
+.next/
+out/
+next-env.d.ts
+tsconfig.tsbuildinfo
+
+# 复制式包产物（npx i 生成，不进 git）
+.packages/
+
+# Rust
+engine/target/
+src-tauri/target/
+src-tauri/gen/
+
+# 本机态
+.env.local
+*.log
+.DS_Store
+.dev.log
+relay.db
+relay.db-*
