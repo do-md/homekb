@@ -53,11 +53,27 @@ struct RelayStatus {
     name: String,
 }
 
+/// Launchd daemon status (shared by the tunnel and compile agents).
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct TunnelStatus {
+struct DaemonStatus {
     running: bool,
     managed: bool,
+}
+
+/// Parse `homekb <watch|tunnel> --status --json` output into a DaemonStatus.
+fn parse_daemon_status(out: &str, what: &str) -> Result<DaemonStatus, String> {
+    let line = out
+        .lines()
+        .rev()
+        .find(|l| l.trim_start().starts_with('{'))
+        .ok_or_else(|| format!("no JSON in {what} --status output"))?;
+    let v: serde_json::Value =
+        serde_json::from_str(line).map_err(|e| format!("failed to parse {what} status: {e}"))?;
+    Ok(DaemonStatus {
+        running: v["running"].as_bool().unwrap_or(false),
+        managed: v["installed"].as_bool().unwrap_or(false),
+    })
 }
 
 fn bundled_engine(app: &tauri::AppHandle) -> Option<PathBuf> {
@@ -183,6 +199,25 @@ async fn config_set_openai_key(key: String) -> Result<(), String> {
 
 // ---------- relay ----------
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RelayCredentials {
+    url: String,
+    home_secret: String,
+}
+
+/// Relay URL + homeSecret from config.toml — lets the desktop UI call the
+/// homeSecret-authenticated relay endpoints (grants list/revoke, docs contract).
+#[tauri::command]
+async fn relay_credentials() -> Result<RelayCredentials, String> {
+    blocking(|| {
+        let (url, home_secret) = engine::relay_credentials()
+            .ok_or("not registered with a relay")?;
+        Ok(RelayCredentials { url, home_secret })
+    })
+    .await
+}
+
 #[tauri::command]
 async fn relay_register(url: String) -> Result<(), String> {
     blocking(move || {
@@ -239,21 +274,77 @@ async fn tunnel_stop() -> Result<(), String> {
 /// Query daemon status: parse `homekb tunnel --status --json`.
 /// `managed` = registered with launchd (plist exists); `running` = launchd reports running.
 #[tauri::command]
-async fn tunnel_status() -> Result<TunnelStatus, String> {
+async fn tunnel_status() -> Result<DaemonStatus, String> {
     blocking(|| {
         let bin = require_engine()?;
         let out = engine::run_cli(&bin, &["tunnel", "--status", "--json"])?;
-        let line = out
-            .lines()
-            .rev()
-            .find(|l| l.trim_start().starts_with('{'))
-            .ok_or("no JSON in tunnel --status output")?;
-        let v: serde_json::Value =
-            serde_json::from_str(line).map_err(|e| format!("failed to parse tunnel status: {e}"))?;
-        Ok(TunnelStatus {
-            running: v["running"].as_bool().unwrap_or(false),
-            managed: v["installed"].as_bool().unwrap_or(false),
-        })
+        parse_daemon_status(&out, "tunnel")
+    })
+    .await
+}
+
+// ---------- compile scheduler (launchd-managed, single source of truth) ----------
+//
+// Thin wrappers around `homekb watch --install/--uninstall/--status` — the
+// com.homekb.compile LaunchAgent is the sole scheduled-compile source
+// (docs/ARCHITECTURE.md "compile lifecycle"). Drives the Status scheduler card
+// and the Settings engine toggle.
+
+/// Enable the compile scheduler: `homekb watch --install`.
+#[tauri::command]
+async fn compile_start() -> Result<(), String> {
+    blocking(|| {
+        let bin = require_engine()?;
+        engine::run_cli(&bin, &["watch", "--install"])?;
+        Ok(())
+    })
+    .await
+}
+
+/// Disable the compile scheduler: `homekb watch --uninstall`.
+#[tauri::command]
+async fn compile_stop() -> Result<(), String> {
+    blocking(|| {
+        let bin = require_engine()?;
+        engine::run_cli(&bin, &["watch", "--uninstall"])?;
+        Ok(())
+    })
+    .await
+}
+
+/// Compile scheduler status: parse `homekb watch --status --json`.
+#[tauri::command]
+async fn compile_status() -> Result<DaemonStatus, String> {
+    blocking(|| {
+        let bin = require_engine()?;
+        let out = engine::run_cli(&bin, &["watch", "--status", "--json"])?;
+        parse_daemon_status(&out, "watch")
+    })
+    .await
+}
+
+// ---------- desktop affordances ----------
+
+/// Reveal the notes directory in the OS file manager (design 4a "Open HomeKB folder").
+/// An allowed desktop affordance — still no system *dialogs* anywhere.
+#[tauri::command]
+async fn open_notes_dir() -> Result<(), String> {
+    blocking(|| {
+        let dir = engine::read_config().notes_dir;
+        if !dir.is_dir() {
+            return Err(format!("notes directory does not exist: {}", dir.display()));
+        }
+        #[cfg(target_os = "macos")]
+        let opener = "open";
+        #[cfg(target_os = "windows")]
+        let opener = "explorer";
+        #[cfg(all(unix, not(target_os = "macos")))]
+        let opener = "xdg-open";
+        Command::new(opener)
+            .arg(&dir)
+            .spawn()
+            .map_err(|e| format!("failed to open folder: {e}"))?;
+        Ok(())
     })
     .await
 }
@@ -267,10 +358,15 @@ fn main() {
             serve_ensure,
             config_set_openai_key,
             relay_register,
+            relay_credentials,
             pair_new,
             tunnel_status,
             tunnel_start,
             tunnel_stop,
+            compile_status,
+            compile_start,
+            compile_stop,
+            open_notes_dir,
         ])
         .build(tauri::generate_context!())
         .expect("build tauri app")

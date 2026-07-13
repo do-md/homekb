@@ -54,6 +54,31 @@ export function clearConnection(): void {
   window.localStorage.removeItem(CONN_KEY);
 }
 
+/**
+ * Parse a pairing-link payload (docs/ARCHITECTURE.md "Pairing link (QR payload)"):
+ * `<webBase>/?relay=<relayUrl>&code=<pairingCode>`. Used both by the landing-page
+ * auto-claim and by the camera QR scanner (8b) — any web origin is accepted, the
+ * relay URL + single-use code are what matter. Returns null for anything else.
+ */
+export function parsePairingLink(text: string): { relayUrl: string; code: string } | null {
+  let url: URL;
+  try {
+    url = new URL(text.trim());
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+  const relay = url.searchParams.get("relay");
+  const code = url.searchParams.get("code");
+  if (!relay || !code) return null;
+  try {
+    new URL(relay); // relay must itself be a URL
+  } catch {
+    return null;
+  }
+  return { relayUrl: normalizeBaseUrl(relay), code: code.toUpperCase() };
+}
+
 /** Human-readable label for the connected target (header/status display). */
 export function connectionLabel(conn: Connection): string {
   if (conn.mode === "relay") return conn.home.homeName || "Home";

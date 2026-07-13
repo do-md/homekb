@@ -7,6 +7,12 @@
  * "your data stays local" story.
  */
 
+import { useEffect } from "react";
+import { isDesktop } from "@/lib/client/desktop";
+import {
+  useDesktopStore,
+  useDesktopStoreApi,
+} from "@/features/desktop/store/desktop-store";
 import { useKbStore, useKbStoreApi } from "../../store/kb-store";
 import { IconCheck, IconRefresh, Spinner, StatusDot } from "../icons";
 
@@ -37,6 +43,86 @@ function StatCard({
         {value}
       </div>
       {sub && <div className="mt-1.5 text-xs text-hk-faint">{sub}</div>}
+    </div>
+  );
+}
+
+/**
+ * Compile scheduler card (design 6a/6b) — desktop only: drives the
+ * com.homekb.compile LaunchAgent through the compile_* Tauri commands.
+ * Web/remote modes have no scheduler visibility (kb.status carries no such field).
+ */
+function SchedulerCard() {
+  const api = useDesktopStoreApi();
+  const running = useDesktopStore((s) => s.state.schedulerRunning);
+  const managed = useDesktopStore((s) => s.state.schedulerManaged);
+  const busy = useDesktopStore((s) => s.state.schedulerBusy);
+
+  useEffect(() => {
+    void api.refreshScheduler();
+  }, [api]);
+
+  const active = managed && running;
+  return (
+    <div className="rounded-2xl border border-hk-border bg-hk-card p-4">
+      <div className="flex items-center justify-between gap-3">
+        <span className="flex items-center gap-2 text-[14px] font-semibold text-hk-text">
+          <span className={active ? "text-hk-green" : "text-hk-amber"}>
+            <StatusDot />
+          </span>
+          {active ? "Scheduler running" : "Scheduler stopped"}
+        </span>
+        <button
+          onClick={() => void api.toggleScheduler()}
+          disabled={busy}
+          className={
+            active
+              ? "flex items-center gap-1.5 rounded-xl border border-hk-border px-3.5 py-2 text-[13px] font-semibold text-hk-text-2 transition-colors hover:bg-hk-card disabled:opacity-60"
+              : "flex items-center gap-1.5 rounded-xl bg-hk-coral px-3.5 py-2 text-[13px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover disabled:opacity-60"
+          }
+        >
+          {busy && <Spinner size={12} />}
+          {active ? "Stop scheduler" : "Start scheduler"}
+        </button>
+      </div>
+      <p className="mt-2 text-xs leading-relaxed text-hk-faint">
+        <code className="font-mono">com.homekb.compile</code> · launchd — recompiles your
+        notes on a schedule while it runs.
+      </p>
+    </div>
+  );
+}
+
+/** Paths table (design 6a: label · monospace path · tag) — desktop only. */
+function PathsCard() {
+  const engine = useDesktopStore((s) => s.state.engine);
+  if (!engine) return null;
+  const rows: [string, string, string][] = [
+    ["Notes", engine.notesDir, "md"],
+    ["Data root", engine.root, "data"],
+    ["Config", engine.configPath, "toml"],
+  ];
+  return (
+    <div className="rounded-2xl border border-hk-border bg-hk-card-soft p-4">
+      <div className="hk-label">Paths</div>
+      <div className="mt-2 flex flex-col">
+        {rows.map(([label, path, tag], i) => (
+          <div
+            key={label}
+            className={`flex items-center gap-3 py-2 text-[13px] ${
+              i > 0 ? "border-t border-hk-hairline" : ""
+            }`}
+          >
+            <span className="w-20 shrink-0 text-hk-weak">{label}</span>
+            <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-hk-text-2">
+              {path}
+            </span>
+            <span className="shrink-0 rounded-[7px] border border-hk-hairline bg-hk-card-strong px-2 py-0.5 text-[11px] font-medium text-hk-weak">
+              {tag}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -101,6 +187,9 @@ export function StatusView() {
           </div>
         ) : status ? (
           <div className="mt-5 flex flex-col gap-4">
+            {/* Compile scheduler (6a/6b) — the home machine's launchd agent */}
+            {isDesktop() && <SchedulerCard />}
+
             {/* Compiling state (6b) */}
             {compiling && (
               <div className="rounded-2xl border border-hk-border bg-hk-card p-4">
@@ -178,13 +267,16 @@ export function StatusView() {
                 <span className="text-hk-faint">→</span>
                 <FlowBox label="index.db" highlight />
                 <span className="text-hk-faint">→</span>
-                <FlowBox label="query" />
+                <FlowBox label="homekb query" />
               </div>
               <p className="mt-2.5 text-xs leading-relaxed text-hk-faint">
                 Notes compile into a read-only snapshot on your computer — search runs
                 against it locally; nothing is uploaded.
               </p>
             </div>
+
+            {/* Paths (6a) — where everything lives on the home machine */}
+            {isDesktop() && <PathsCard />}
 
             {/* Failures section */}
             <div className="flex items-center gap-2 rounded-2xl border border-hk-border bg-hk-card-soft px-4 py-3 text-[13px] text-hk-text-2">

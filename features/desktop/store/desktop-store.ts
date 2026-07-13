@@ -1,12 +1,14 @@
 "use client";
 import { createReactStore, ZenithStore } from "@do-md/zenith";
 import {
+  type DaemonStatus,
   type EngineStatus,
   invoke,
   invokeErrorMessage,
   type PairInfo,
-  type TunnelStatus,
+  type RelayCredentials,
 } from "@/lib/client/desktop";
+import { listGrants, type RelayGrant, revokeGrant } from "@/lib/client/relay-admin";
 
 /** Boot phase: detect engine → (if missing) install/init → launch serve → ready. */
 export type BootPhase = "checking" | "installing" | "starting" | "ready" | "error";
@@ -36,6 +38,17 @@ interface DesktopState {
   tunnelManaged: boolean;
   tunnelBusy: boolean;
 
+  // Status: compile scheduler (com.homekb.compile LaunchAgent)
+  schedulerRunning: boolean;
+  schedulerManaged: boolean;
+  schedulerBusy: boolean;
+
+  // Remote: paired devices (relay grants)
+  grants: RelayGrant[];
+  grantsLoaded: boolean;
+  grantsError: string | null;
+  revokingGrantId: string | null;
+
   notice: string | null;
 }
 
@@ -58,6 +71,13 @@ export class DesktopStore extends ZenithStore<DesktopState> {
       tunnelRunning: false,
       tunnelManaged: false,
       tunnelBusy: false,
+      schedulerRunning: false,
+      schedulerManaged: false,
+      schedulerBusy: false,
+      grants: [],
+      grantsLoaded: false,
+      grantsError: null,
+      revokingGrantId: null,
       notice: null,
     });
   }
@@ -84,11 +104,16 @@ export class DesktopStore extends ZenithStore<DesktopState> {
       });
       await invoke<string>("serve_ensure");
       engine = await invoke<EngineStatus>("engine_status");
-      const tunnel = await invoke<TunnelStatus>("tunnel_status");
+      const [tunnel, scheduler] = await Promise.all([
+        invoke<DaemonStatus>("tunnel_status"),
+        invoke<DaemonStatus>("compile_status"),
+      ]);
       this.produce((d) => {
         d.engine = engine;
         d.tunnelRunning = tunnel.running;
         d.tunnelManaged = tunnel.managed;
+        d.schedulerRunning = scheduler.running;
+        d.schedulerManaged = scheduler.managed;
         d.phase = "ready";
       });
     } catch (e) {
@@ -102,11 +127,16 @@ export class DesktopStore extends ZenithStore<DesktopState> {
   public async refreshEngine() {
     try {
       const engine = await invoke<EngineStatus>("engine_status");
-      const tunnel = await invoke<TunnelStatus>("tunnel_status");
+      const [tunnel, scheduler] = await Promise.all([
+        invoke<DaemonStatus>("tunnel_status"),
+        invoke<DaemonStatus>("compile_status"),
+      ]);
       this.produce((d) => {
         d.engine = engine;
         d.tunnelRunning = tunnel.running;
         d.tunnelManaged = tunnel.managed;
+        d.schedulerRunning = scheduler.running;
+        d.schedulerManaged = scheduler.managed;
       });
     } catch (e) {
       this.flash(invokeErrorMessage(e, "Refresh failed"));
@@ -201,7 +231,7 @@ export class DesktopStore extends ZenithStore<DesktopState> {
     });
     try {
       await invoke(this.state.tunnelRunning ? "tunnel_stop" : "tunnel_start");
-      const tunnel = await invoke<TunnelStatus>("tunnel_status");
+      const tunnel = await invoke<DaemonStatus>("tunnel_status");
       this.produce((d) => {
         d.tunnelBusy = false;
         d.tunnelRunning = tunnel.running;
@@ -213,6 +243,94 @@ export class DesktopStore extends ZenithStore<DesktopState> {
       });
       this.flash(invokeErrorMessage(e, "Tunnel operation failed"));
       void this.refreshEngine();
+    }
+  }
+
+  // ---------- Compile scheduler (Status card, design 6a/6b) ----------
+  public async refreshScheduler() {
+    try {
+      const scheduler = await invoke<DaemonStatus>("compile_status");
+      this.produce((d) => {
+        d.schedulerRunning = scheduler.running;
+        d.schedulerManaged = scheduler.managed;
+      });
+    } catch {
+      // Non-fatal: the card simply keeps its last known state.
+    }
+  }
+
+  public async toggleScheduler() {
+    if (this.state.schedulerBusy) return;
+    this.produce((d) => {
+      d.schedulerBusy = true;
+    });
+    try {
+      await invoke(this.state.schedulerManaged ? "compile_stop" : "compile_start");
+      const scheduler = await invoke<DaemonStatus>("compile_status");
+      this.produce((d) => {
+        d.schedulerBusy = false;
+        d.schedulerRunning = scheduler.running;
+        d.schedulerManaged = scheduler.managed;
+      });
+    } catch (e) {
+      this.produce((d) => {
+        d.schedulerBusy = false;
+      });
+      this.flash(invokeErrorMessage(e, "Scheduler operation failed"));
+      void this.refreshScheduler();
+    }
+  }
+
+  // ---------- Paired devices (relay grants, design 7b) ----------
+  public async loadGrants() {
+    if (!this.state.engine?.relay) return;
+    this.produce((d) => {
+      d.grantsError = null;
+    });
+    try {
+      const creds = await invoke<RelayCredentials>("relay_credentials");
+      const grants = await listGrants(creds.url, creds.homeSecret);
+      this.produce((d) => {
+        d.grants = grants;
+        d.grantsLoaded = true;
+      });
+    } catch (e) {
+      this.produce((d) => {
+        d.grantsLoaded = true;
+        d.grantsError = invokeErrorMessage(e, "Failed to load paired devices");
+      });
+    }
+  }
+
+  /** Unpair one device: revoke its grant at the relay (its token stops working immediately). */
+  public async revokeDevice(grantId: string) {
+    if (this.state.revokingGrantId) return;
+    this.produce((d) => {
+      d.revokingGrantId = grantId;
+    });
+    try {
+      const creds = await invoke<RelayCredentials>("relay_credentials");
+      await revokeGrant(creds.url, creds.homeSecret, grantId);
+      this.produce((d) => {
+        d.grants = d.grants.filter((g) => g.id !== grantId);
+        d.revokingGrantId = null;
+      });
+      this.flash("Device unpaired");
+    } catch (e) {
+      this.produce((d) => {
+        d.revokingGrantId = null;
+      });
+      this.flash(invokeErrorMessage(e, "Failed to unpair device"));
+    }
+  }
+
+  // ---------- Desktop affordances ----------
+  /** Reveal the notes directory in the OS file manager (design 4a). */
+  public async openNotesDir() {
+    try {
+      await invoke("open_notes_dir");
+    } catch (e) {
+      this.flash(invokeErrorMessage(e, "Failed to open folder"));
     }
   }
 

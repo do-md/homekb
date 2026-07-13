@@ -15,6 +15,8 @@ import {
   oauthAuthorizePost,
   oauthRegister,
   oauthToken,
+  relayGrantRevoke,
+  relayGrantsList,
   relayHealth,
   relayPair,
   relayRegister,
@@ -40,6 +42,7 @@ const ROUTES: Record<string, Handler> = {
   "POST /api/relay/register": relayRegister,
   "POST /api/relay/pair": relayPair,
   "GET /api/relay/health": relayHealth,
+  "GET /api/relay/grants": relayGrantsList,
   "POST /api/relay/rpc": relayRpc,
   "POST /api/relay/tunnel/result": tunnelResult,
   "POST /api/oauth/token": oauthToken,
@@ -231,6 +234,14 @@ async function handle(nodeReq: IncomingMessage, nodeRes: ServerResponse): Promis
       nodeRes,
       decodeURIComponent(path.slice(RELAY_ASSET.length)),
     );
+  }
+  const RELAY_GRANT = "/api/relay/grants/";
+  if (method === "DELETE" && path.startsWith(RELAY_GRANT)) {
+    const webRes = await relayGrantRevoke(
+      toWebRequest(nodeReq),
+      decodeURIComponent(path.slice(RELAY_GRANT.length)),
+    );
+    return sendWebResponse(webRes, nodeRes, CORS_HEADERS);
   }
 
   const handler = ROUTES[`${method} ${path}`];

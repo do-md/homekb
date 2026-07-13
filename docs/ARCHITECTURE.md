@@ -182,7 +182,7 @@ The desktop Remote tab renders a QR code next to the pairing code so a phone can
 - **compile lifecycle**: background scheduled compilation is kept resident by the `com.homekb.compile` LaunchAgent (**single source of truth**); the desktop does not self-spawn it. `compile_start/compile_stop/compile_status` are thin wrappers around `homekb watch --install/--uninstall/--status --json`. The Settings engine toggle drives these — turning it off pauses compilation while serve and the tunnel keep running.
 - **tunnel lifecycle**: kept resident by the `com.homekb.tunnel` LaunchAgent (**single source of truth**); the desktop **does not self-spawn and does not pkill**. `tunnel_start/tunnel_stop/tunnel_status` are thin wrappers around `homekb tunnel --install/--uninstall/--status --json`. The desktop installs the tunnel with `--interval 0` (compilation is owned by the compile agent). On app exit only serve is reclaimed; the compile and tunnel agents are kept alive by launchd.
 - **Tauri command surface** (invoke, used only by the desktop UI, not part of the RPC protocol):
-  `engine_status` (install/version/serve liveness/config summary), `engine_install`, `engine_init`, `serve_ensure`, `config_get` / `config_set_openai_key` (read/write config.toml directly, a same-machine responsibility), `relay_register` (wraps `homekb register`), `pair_new` (wraps `homekb pair --json`), `compile_start` / `compile_stop` / `compile_status` (wrap `homekb watch --install` / `--uninstall` / `--status --json`), `tunnel_start` / `tunnel_stop` / `tunnel_status` (wrap `homekb tunnel --install --interval 0` / `--uninstall` / `--status --json`). All launchd-managed, not self-spawned.
+  `engine_status` (install/version/serve liveness/config summary), `engine_install`, `engine_init`, `serve_ensure`, `config_set_openai_key` (writes config.toml directly, a same-machine responsibility), `relay_register` (wraps `homekb register`), `pair_new` (wraps `homekb pair --json`), `relay_credentials` (returns `{url, homeSecret}` from config.toml `[relay]` so the desktop UI can call the homeSecret-authenticated relay endpoints — grants list/revoke; the secret never leaves the machine except toward its own relay), `compile_start` / `compile_stop` / `compile_status` (wrap `homekb watch --install` / `--uninstall` / `--status --json`), `tunnel_start` / `tunnel_stop` / `tunnel_status` (wrap `homekb tunnel --install --interval 0` / `--uninstall` / `--status --json`), `open_notes_dir` (reveal the notes directory in the OS file manager — an allowed desktop affordance; still no system *dialogs*). All daemons launchd-managed, not self-spawned.
 - The desktop has one extra "Settings" view: engine/directory info, the auto-compile (engine) toggle, OpenAI key, relay registration, pairing-code generation, and the tunnel toggle. The Web version does not render this view.
 
 ## Token formats
@@ -219,6 +219,8 @@ The relay lives in `relay/` as a **standalone Node HTTP service** — it is **no
 | `POST /api/relay/rpc` `{method, params}` | clientToken | Forward to the home device, 30s timeout; offline → 502 `{error:"home_offline"}` |
 | `GET  /api/relay/asset/<path>` | clientToken | Binary asset fetch through the tunnel (see below); streams the home's bytes to the client without buffering |
 | `GET  /api/relay/health` | clientToken | → `{online}` whether the home device is online |
+| `GET  /api/relay/grants` | homeSecret | → `{grants: [{id, label, createdAt, lastUsedAt}]}` — every paired device / MCP grant of this home, newest first. Feeds the desktop "Paired devices" list. The relay knows only labels + hashes, so per-grant liveness is not reported (only the home itself has an online state); clients show `lastUsedAt` instead |
+| `DELETE /api/relay/grants/:id` | homeSecret | Revoke one grant (unpair a device): its clientToken stops authenticating immediately → `{ok:true}`; unknown id → 404. Only the owning home can revoke its grants |
 
 SSE `rpc` event data: `{"id":"<reqId>","method":"kb.query","params":{...}}`.
 SSE `asset` event data: `{"id":"<reqId>","path":"images/foo.png"}`.
@@ -250,6 +252,8 @@ Clients never put tokens in asset URLs: the Web UI fetches with an `Authorizatio
 | `kb.reindex` | `{}` | `{started: true}` (executed asynchronously inside the tunnel process) |
 
 `Hit = {kind: "chunk"|"doc"|"doc_full", path, title, headingPath?, content, score, mtime, docType?, matches?}`
+
+`kb.ask` returns the complete answer in a single response — there is **no streaming in the protocol yet**. The UI's "writing" effect is a client-side typewriter reveal over the finished answer (an honest simulation of design 3b); real chunked/SSE answer streaming would be a protocol change that lands here first.
 
 `group: true` = source-aggregation mode (used by the UI "hit list"): internally amplifies retrieval (the fusion pool takes `limit*5`), and after narrowing by `maxDistance` **merges the same path into a single entry** (kind is always `doc`; content/headingPath take that document's top-ranked hit; `matches` = the number of merged hit segments). The source order = the position of each document's first hit in the fusion ranking, and `limit` applies to the merged document count. When both `full` and `group` are given, `full` takes precedence. There is still only one embedding request and zero LLM calls.
 

@@ -105,6 +105,41 @@ export async function relayHealth(req: Request): Promise<Response> {
   return Response.json({ ok: true, online: hub().online(grant.home_id) });
 }
 
+/**
+ * Paired-devices list (home device authenticated): every grant of this home, newest
+ * first. The relay stores only labels + token hashes, so there is no per-grant
+ * liveness — clients render lastUsedAt instead (docs/ARCHITECTURE.md, grants API).
+ */
+export async function relayGrantsList(req: Request): Promise<Response> {
+  const home = authHome(req);
+  if (!home) return jsonError(401, "unauthorized");
+  const rows = relayDb()
+    .prepare(
+      "SELECT id, label, created_at, last_used_at FROM grants WHERE home_id = ? ORDER BY created_at DESC",
+    )
+    .all(home.id) as { id: string; label: string; created_at: number; last_used_at: number | null }[];
+  return Response.json({
+    ok: true,
+    grants: rows.map((r) => ({
+      id: r.id,
+      label: r.label,
+      createdAt: r.created_at,
+      lastUsedAt: r.last_used_at,
+    })),
+  });
+}
+
+/** Revoke one grant (unpair a device). Scoped to the authenticated home — a home can only revoke its own grants. */
+export async function relayGrantRevoke(req: Request, grantId: string): Promise<Response> {
+  const home = authHome(req);
+  if (!home) return jsonError(401, "unauthorized");
+  const res = relayDb()
+    .prepare("DELETE FROM grants WHERE id = ? AND home_id = ?")
+    .run(grantId, home.id);
+  if (res.changes === 0) return jsonError(404, "not_found");
+  return Response.json({ ok: true });
+}
+
 /** Remote client RPC: forwarded through the tunnel to the home device for execution */
 export async function relayRpc(req: Request): Promise<Response> {
   const grant = authGrant(req);

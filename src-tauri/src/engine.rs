@@ -134,6 +134,23 @@ pub fn read_config() -> ConfigSummary {
     }
 }
 
+/// Relay credentials for the homeSecret-authenticated relay endpoints (grants
+/// list/revoke). Read directly from config.toml `[relay]`; the secret stays on
+/// this machine and only ever travels to the relay this home registered with.
+pub fn relay_credentials() -> Option<(String, String)> {
+    let tbl: toml::Table = fs::read_to_string(config_path())
+        .ok()
+        .and_then(|raw| toml::from_str(&raw).ok())?;
+    let r = tbl.get("relay")?.as_table()?;
+    let url = r.get("url")?.as_str().filter(|s| !s.is_empty())?.to_string();
+    let secret = r
+        .get("home_secret")?
+        .as_str()
+        .filter(|s| !s.is_empty())?
+        .to_string();
+    Some((url, secret))
+}
+
 /// Write openai_api_key: read-modify-write the whole table (toml::Table preserves
 /// unknown fields; comments are not preserved — config is machine-written by init/register).
 pub fn set_openai_key(key: &str) -> Result<(), String> {

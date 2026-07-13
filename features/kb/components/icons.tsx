@@ -165,6 +165,17 @@ export function IconPencil(p: IconProps) {
   );
 }
 
+export function IconQr(p: IconProps) {
+  return (
+    <svg {...base(p)}>
+      <rect x="4" y="4" width="6" height="6" rx="1" />
+      <rect x="14" y="4" width="6" height="6" rx="1" />
+      <rect x="4" y="14" width="6" height="6" rx="1" />
+      <path d="M14 14h2v2h-2zM18 14h2M14 18h2M18 18h2v2h-2z" />
+    </svg>
+  );
+}
+
 export function IconX(p: IconProps) {
   return (
     <svg {...base(p)}>

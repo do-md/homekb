@@ -187,10 +187,10 @@ body {
 @keyframes homekb-scan {
     0%,
     100% {
-        transform: translateY(-38px);
+        transform: translateY(calc(var(--hk-scan-amp, 38px) * -1));
     }
     50% {
-        transform: translateY(38px);
+        transform: translateY(var(--hk-scan-amp, 38px));
     }
 }
 
@@ -204,6 +204,17 @@ body {
 
 .hk-spin {
     animation: homekb-spin 0.8s linear infinite;
+}
+
+/* QR viewfinder scan line (amplitude via --hk-scan-amp on the element) */
+.hk-scan {
+    animation: homekb-scan 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .hk-scan {
+        animation: none;
+    }
 }
 
 /* Bottom scrim behind the pinned composer — the only gradient allowed */
@@ -250,4 +261,82 @@ body {
         --domd-font-size-base: 1rem;
         font-size: 16px;
     }
+}
+
+/* Bullet lists carry coral markers (design 5a editor + consistent reading view) */
+.hk-domd :where(ul) > li::marker {
+    color: var(--hk-coral);
+}
+
+/*
+ * Answer card numbered points (design 3a): ordered-list markers become coral
+ * number chips. Scoped to .hk-answer so ordinary notes keep normal numbering.
+ */
+.hk-answer .hk-domd ol {
+    list-style: none;
+    counter-reset: hk-answer-item;
+    padding-left: 0.25rem;
+}
+
+.hk-answer .hk-domd ol > li {
+    counter-increment: hk-answer-item;
+    position: relative;
+    padding-left: 2rem;
+    margin: 0.4em 0;
+}
+
+.hk-answer .hk-domd ol > li::before {
+    content: counter(hk-answer-item);
+    position: absolute;
+    left: 0;
+    top: 0.28em;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 9999px;
+    background: var(--hk-coral-chip-bg);
+    color: var(--hk-coral-text);
+    font-size: 11px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Inline [n] citation markers upgraded into clickable coral chips (design 3a) */
+.hk-cite-ref {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    margin: 0 2px;
+    border-radius: 9999px;
+    background: var(--hk-coral-chip-bg);
+    color: var(--hk-coral-text);
+    font-size: 10.5px;
+    font-weight: 600;
+    line-height: 1;
+    vertical-align: 0.12em;
+    cursor: pointer;
+    user-select: none;
+}
+
+.hk-cite-ref:hover {
+    background: var(--hk-coral-chip-border);
+}
+
+/* Citation row flash after jumping from an inline [n] chip */
+@keyframes homekb-cite-flash {
+    0% {
+        background-color: var(--hk-coral-chip-bg);
+    }
+    100% {
+        background-color: transparent;
+    }
+}
+
+.hk-cite-flash {
+    animation: homekb-cite-flash 1.2s ease-out;
 }

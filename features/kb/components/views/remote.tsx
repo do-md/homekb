@@ -185,6 +185,109 @@ function PairingCard() {
   );
 }
 
+function agoLabel(ts: number | null): string {
+  if (!ts) return "never used";
+  const mins = Math.max(0, Math.round((Date.now() - ts) / 60_000));
+  if (mins < 1) return "active just now";
+  if (mins < 60) return `active ${mins} min ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `active ${hours} h ago`;
+  return `active ${Math.round(hours / 24)} d ago`;
+}
+
+/** One paired device row: label + activity, with an in-app confirmed Unpair. */
+function DeviceRow({
+  grant,
+  border,
+}: {
+  grant: { id: string; label: string; createdAt: number; lastUsedAt: number | null };
+  border: boolean;
+}) {
+  const api = useDesktopStoreApi();
+  const revokingId = useDesktopStore((s) => s.state.revokingGrantId);
+  const [confirming, setConfirming] = useState(false);
+  const busy = revokingId === grant.id;
+
+  return (
+    <div
+      className={`flex items-center gap-3 py-2.5 ${border ? "border-t border-hk-hairline" : ""}`}
+    >
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[13.5px] font-medium text-hk-text">
+          {grant.label || "Unnamed device"}
+        </span>
+        <span className="block text-xs text-hk-faint">
+          Paired {new Date(grant.createdAt).toLocaleDateString()} · {agoLabel(grant.lastUsedAt)}
+        </span>
+      </span>
+      {confirming ? (
+        <span className="flex shrink-0 items-center gap-2">
+          <button
+            className="text-[12.5px] font-medium text-hk-weak transition-colors hover:text-hk-text-2"
+            onClick={() => setConfirming(false)}
+          >
+            Keep
+          </button>
+          <button
+            className="flex items-center gap-1 rounded-lg bg-hk-coral px-2.5 py-1 text-[12.5px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover disabled:opacity-60"
+            disabled={busy}
+            onClick={() => void api.revokeDevice(grant.id)}
+          >
+            {busy && <Spinner size={11} />}
+            Unpair
+          </button>
+        </span>
+      ) : (
+        <button
+          className="shrink-0 text-[12.5px] font-medium text-hk-weak transition-colors hover:text-hk-orange-text"
+          onClick={() => setConfirming(true)}
+        >
+          Unpair
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Paired devices (design 7b): every grant this home has issued at the relay.
+ * The relay stores only labels + token hashes — no per-device liveness exists
+ * (docs/ARCHITECTURE.md grants API), so rows show last activity instead of a dot.
+ */
+function PairedDevicesCard() {
+  const api = useDesktopStoreApi();
+  const grants = useDesktopStore((s) => s.state.grants);
+  const loaded = useDesktopStore((s) => s.state.grantsLoaded);
+  const error = useDesktopStore((s) => s.state.grantsError);
+
+  useEffect(() => {
+    void api.loadGrants();
+  }, [api]);
+
+  return (
+    <Card title="Paired devices">
+      {error ? (
+        <p className="text-xs text-hk-orange-text">{error}</p>
+      ) : !loaded ? (
+        <div className="flex justify-center py-3 text-hk-coral-text">
+          <Spinner size={16} />
+        </div>
+      ) : grants.length === 0 ? (
+        <p className="text-[13px] leading-relaxed text-hk-text-2">
+          Nothing is paired yet — generate a code above and scan it with your phone, or
+          authorize Claude&apos;s connector with it.
+        </p>
+      ) : (
+        <div className="flex flex-col">
+          {grants.map((g, i) => (
+            <DeviceRow key={g.id} grant={g} border={i > 0} />
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function DesktopRemote() {
   const api = useDesktopStoreApi();
   const engine = useDesktopStore((s) => s.state.engine);
@@ -248,6 +351,7 @@ function DesktopRemote() {
           />
         </div>
       </Card>
+      <PairedDevicesCard />
     </>
   );
 }

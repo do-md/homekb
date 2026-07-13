@@ -56,6 +56,18 @@ wait $ASSET_PID
 grep -qi "content-type: image/png" "$TMP/asset.hdr" && cmp -s "$TMP/asset.out" "$TMP/pixel.png" && echo "asset bytes + content-type OK" || { echo "asset channel failed"; exit 1; }
 test "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/relay/asset/images/pixel.png")" = "401" && echo "asset 401 without token OK"
 
+echo "== 6.8 Grants list + revoke (paired devices) =="
+GRANTS=$(curl -s "$BASE/api/relay/grants" -H "Authorization: Bearer $SECRET")
+echo "$GRANTS" | grep -q 'smoke-phone' && echo "grants list OK"
+GRANT_ID=$(echo "$GRANTS" | python3 -c 'import sys,json;print(json.load(sys.stdin)["grants"][0]["id"])')
+test "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/relay/grants" -H "Authorization: Bearer $TOKEN")" = "401" && echo "grants 401 with clientToken OK"
+curl -s -X DELETE "$BASE/api/relay/grants/$GRANT_ID" -H "Authorization: Bearer $SECRET" | grep -q '"ok":true' && echo "revoke OK"
+test "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "$BASE/api/relay/grants/$GRANT_ID" -H "Authorization: Bearer $SECRET")" = "404" && echo "revoke 404 on unknown id OK"
+test "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/relay/health" -H "Authorization: Bearer $TOKEN")" = "401" && echo "revoked token rejected OK"
+# Re-pair so the later steps still have a working client token
+CODE2=$(curl -s -X POST "$BASE/api/relay/pair" -H "Authorization: Bearer $SECRET" -H 'Content-Type: application/json' -d '{"action":"new"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["code"])')
+TOKEN=$(curl -s -X POST "$BASE/api/relay/pair" -H 'Content-Type: application/json' -d "{\"action\":\"claim\",\"code\":\"$CODE2\",\"label\":\"smoke-phone-2\"}" | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])')
+
 echo "== 7. Unauthenticated access must return 401 =="
 test "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/relay/rpc" -d '{}')" = "401" && echo "401 OK"
 

@@ -6,6 +6,8 @@
  * Note: the retry/primary action is coral, never green; offline accent is orange.
  */
 
+import { useState } from "react";
+import { getConnection } from "@/lib/client/connection";
 import { useKbStore, useKbStoreApi } from "../store/kb-store";
 import { Spinner, StatusDot } from "./icons";
 
@@ -25,10 +27,51 @@ const WAKE_STEPS = [
   "Then retry the connection here.",
 ];
 
+/** Deeper checklist behind the "Connection help" link (design 4b). */
+function ConnectionHelp() {
+  const relayMode = getConnection()?.mode !== "direct";
+  return (
+    <div className="mt-4 w-full rounded-2xl border border-hk-border bg-hk-card-soft p-4 text-left">
+      <div className="hk-label">Connection help</div>
+      <ul className="mt-3 flex flex-col gap-2.5 text-[13px] leading-relaxed text-hk-text-2">
+        {relayMode ? (
+          <>
+            <li>
+              On your home computer, run{" "}
+              <code className="font-mono text-[12px]">homekb tunnel --status</code> — it
+              should say <span className="font-medium">running</span>. If not,{" "}
+              <code className="font-mono text-[12px]">homekb tunnel --install</code>{" "}
+              (or turn on “Keep tunnel alive” in the HomeKB app’s Remote tab).
+            </li>
+            <li>
+              The tunnel reconnects on its own after sleep or a network change — give it a
+              minute after the computer wakes.
+            </li>
+          </>
+        ) : (
+          <>
+            <li>
+              On your home computer, check that{" "}
+              <code className="font-mono text-[12px]">homekb serve</code> is running on a
+              public address and that the address hasn’t changed.
+            </li>
+            <li>Verify the URL and port are still reachable from this network.</li>
+          </>
+        )}
+        <li>
+          Still stuck? Disconnect on the Remote tab and pair again with a fresh code from
+          your home computer.
+        </li>
+      </ul>
+    </div>
+  );
+}
+
 export function OfflineScreen() {
   const api = useKbStoreApi();
   const connState = useKbStore((s) => s.connState);
   const lastConnectedAt = useKbStore((s) => s.state.lastConnectedAt);
+  const [helpOpen, setHelpOpen] = useState(false);
   const retrying = connState === "connecting";
   const ago = agoLabel(lastConnectedAt);
 
@@ -67,6 +110,14 @@ export function OfflineScreen() {
         {retrying && <Spinner size={15} />}
         {retrying ? "Retrying…" : "Retry connection"}
       </button>
+
+      <button
+        onClick={() => setHelpOpen((v) => !v)}
+        className="mt-4 text-[13.5px] font-semibold text-hk-coral-text transition-colors hover:text-hk-coral-hover"
+      >
+        Connection help
+      </button>
+      {helpOpen && <ConnectionHelp />}
 
       {ago && <p className="mt-4 text-xs text-hk-faint">Last connected · {ago}</p>}
     </div>

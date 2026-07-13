@@ -6,6 +6,12 @@
  * List (whole notes, document-level cards — never fragment chunks).
  */
 
+import { useEffect, useRef, useState } from "react";
+import { isDesktop } from "@/lib/client/desktop";
+import {
+  useDesktopStore,
+  useDesktopStoreApi,
+} from "@/features/desktop/store/desktop-store";
 import type { KbHit } from "../../type";
 import { useKbStore, useKbStoreApi } from "../../store/kb-store";
 import { Composer, ModeToggle } from "../composer";
@@ -107,37 +113,167 @@ function AnswerSkeleton() {
   );
 }
 
-/** Answer result (design 3a): flat neutral card; coral only on the label + chips. */
+/**
+ * Typewriter reveal over a finished answer (design 3b "streaming"). This is an
+ * honest client-side simulation — kb.ask returns the whole answer in one response
+ * (see docs/ARCHITECTURE.md, RPC methods); real chunked streaming is a future
+ * protocol change. Duration scales with length, capped so long answers stay quick.
+ */
+function useTypewriter(text: string): { shown: string; writing: boolean } {
+  const reduced =
+    typeof window !== "undefined" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const [count, setCount] = useState(() => (reduced ? text.length : 0));
+
+  useEffect(() => {
+    if (reduced) {
+      setCount(text.length);
+      return;
+    }
+    setCount(0);
+    let raf = 0;
+    const started = performance.now();
+    const total = Math.min(2600, Math.max(700, text.length * 5.5));
+    const step = (now: number) => {
+      const p = Math.min(1, (now - started) / total);
+      setCount(Math.round(p * text.length));
+      if (p < 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [text, reduced]);
+
+  return { shown: text.slice(0, count), writing: count < text.length };
+}
+
+/**
+ * Wrap inline `[n]` citation markers (n within the citation count) in clickable
+ * coral chips after DOMD has rendered. DOM post-processing: the read-only DOMD
+ * renders once per mount (remounted per answer), so the mutation is stable.
+ */
+function decorateCitationRefs(root: HTMLElement, citationCount: number) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const targets: Text[] = [];
+  while (walker.nextNode()) {
+    const t = walker.currentNode as Text;
+    if (/\[\d+\]/.test(t.data) && !t.parentElement?.closest("code, pre, .hk-cite-ref")) {
+      targets.push(t);
+    }
+  }
+  for (const t of targets) {
+    const frag = document.createDocumentFragment();
+    const re = /\[(\d+)\]/g;
+    let last = 0;
+    let m: RegExpExecArray | null;
+    let any = false;
+    while ((m = re.exec(t.data))) {
+      const n = parseInt(m[1], 10);
+      if (n < 1 || n > citationCount) continue;
+      any = true;
+      frag.appendChild(document.createTextNode(t.data.slice(last, m.index)));
+      const chip = document.createElement("span");
+      chip.className = "hk-cite-ref";
+      chip.dataset.cite = String(n);
+      chip.setAttribute("role", "button");
+      chip.setAttribute("tabindex", "0");
+      chip.textContent = String(n);
+      frag.appendChild(chip);
+      last = m.index + m[0].length;
+    }
+    if (!any) continue;
+    frag.appendChild(document.createTextNode(t.data.slice(last)));
+    t.replaceWith(frag);
+  }
+}
+
+/**
+ * Answer result (design 3a, writing state 3b): flat neutral card; coral only on
+ * the label + chips. While "writing", the text types in as plain text with a
+ * blinking coral caret; the rich Markdown render + citations land on completion.
+ */
 function AnswerResult() {
   const api = useKbStoreApi();
   const answer = useKbStore((s) => s.state.answer);
   const answerMs = useKbStore((s) => s.state.answerMs);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const citationCount = answer?.citations?.length ?? 0;
+  const { shown, writing } = useTypewriter(answer?.answer ?? "");
+
+  // After the writing phase, upgrade inline [n] markers into clickable chips.
+  useEffect(() => {
+    if (writing || !bodyRef.current || citationCount === 0) return;
+    decorateCitationRefs(bodyRef.current, citationCount);
+  }, [writing, citationCount]);
+
   if (!answer) return null;
   const secs = answerMs != null ? `${(answerMs / 1000).toFixed(1)}s` : null;
+
+  const jumpToCitation = (target: EventTarget | null) => {
+    const chip = target instanceof Element ? target.closest<HTMLElement>(".hk-cite-ref") : null;
+    if (!chip) return;
+    const row = document.getElementById(`answer-cite-${chip.dataset.cite}`);
+    if (!row) return;
+    row.scrollIntoView({ behavior: "smooth", block: "center" });
+    row.classList.remove("hk-cite-flash");
+    // Restart the flash animation even when re-clicking the same chip.
+    void row.offsetWidth;
+    row.classList.add("hk-cite-flash");
+  };
 
   return (
     <div className="flex flex-col gap-5">
       <div className="rounded-2xl border border-hk-border bg-hk-card p-4">
         <div className="flex items-center gap-1.5 text-[12px] font-semibold tracking-wide text-hk-coral-text uppercase">
-          <IconSpark size={13} strokeWidth={1.5} />
-          Answer
+          {writing ? (
+            <>
+              <Spinner size={12} />
+              Writing…
+            </>
+          ) : (
+            <>
+              <IconSpark size={13} strokeWidth={1.5} />
+              Answer
+            </>
+          )}
         </div>
-        <KbMarkdown content={answer.answer} notePath="" className="mt-2" />
-        <div className="mt-3 border-t border-hk-hairline pt-2.5 text-xs text-hk-faint">
-          from {answer.citations?.length ?? 0} of your notes
-          {secs ? ` · ${secs}` : ""}
-        </div>
+        {writing ? (
+          <p className="mt-2 text-[15.5px] leading-[1.65] whitespace-pre-wrap text-hk-text">
+            {shown}
+            <span
+              className="hk-blink ml-0.5 inline-block h-[1.05em] w-[2px] translate-y-[0.15em] rounded-full bg-hk-coral"
+              aria-hidden
+            />
+          </p>
+        ) : (
+          <div
+            ref={bodyRef}
+            className="hk-answer"
+            onClick={(e) => jumpToCitation(e.target)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") jumpToCitation(e.target);
+            }}
+          >
+            <KbMarkdown content={answer.answer} notePath="" className="mt-2" />
+          </div>
+        )}
+        {!writing && (
+          <div className="mt-3 border-t border-hk-hairline pt-2.5 text-xs text-hk-faint">
+            from {citationCount} of your notes
+            {secs ? ` · ${secs}` : ""}
+          </div>
+        )}
       </div>
 
-      {(answer.citations?.length ?? 0) > 0 && (
+      {!writing && citationCount > 0 && (
         <div>
           <div className="hk-label">Based on your notes</div>
           <div className="mt-2 flex flex-col">
             {answer.citations.map((c, i) => (
               <button
                 key={c.path}
+                id={`answer-cite-${i + 1}`}
                 onClick={() => void api.openDoc(c.path)}
-                className={`flex items-center gap-3 px-1 py-2.5 text-left transition-colors hover:bg-hk-card-soft ${
+                className={`flex items-center gap-3 rounded-lg px-1 py-2.5 text-left transition-colors hover:bg-hk-card-soft ${
                   i > 0 ? "border-t border-hk-hairline" : ""
                 }`}
               >
@@ -229,15 +365,41 @@ function NoResults() {
   );
 }
 
+/** Desktop-only 4a extras: the real notes path + an "Open HomeKB folder" ghost action. */
+function DesktopNotesDir() {
+  const notesDir = useDesktopStore((s) => s.state.engine?.notesDir);
+  return (
+    <code className="font-mono text-[12px]">{notesDir || "~/.homekb/notes"}</code>
+  );
+}
+
+function DesktopOpenFolder() {
+  const api = useDesktopStoreApi();
+  return (
+    <button
+      onClick={() => void api.openNotesDir()}
+      className="mt-2.5 w-full rounded-xl border border-hk-border px-4 py-3 text-[15px] font-semibold text-hk-text-2 transition-colors hover:bg-hk-card"
+    >
+      Open HomeKB folder
+    </button>
+  );
+}
+
 /** Empty knowledge base / new user (design 4a top). */
 function EmptyLibrary() {
   const api = useKbStoreApi();
+  const desktop = isDesktop();
   const paths: [string, React.ReactNode][] = [
     [
       "Add Markdown files",
       <>
         Drop <code className="font-mono text-[12px]">.md</code> files into{" "}
-        <code className="font-mono text-[12px]">~/.homekb/notes</code> on your home computer.
+        {desktop ? (
+          <DesktopNotesDir />
+        ) : (
+          <code className="font-mono text-[12px]">~/.homekb/notes</code>
+        )}{" "}
+        on your home computer.
       </>,
     ],
     ["Write one here", "Start with the New note tab — the first line becomes the title."],
@@ -275,6 +437,7 @@ function EmptyLibrary() {
       >
         New note
       </button>
+      {desktop && <DesktopOpenFolder />}
     </div>
   );
 }
@@ -316,6 +479,7 @@ function EntryBody() {
   const api = useKbStoreApi();
   const suggestions = useKbStore((s) => s.state.suggestions);
   const recentDocs = useKbStore((s) => s.state.recentDocs);
+  const openedDocs = useKbStore((s) => s.state.openedDocs);
 
   return (
     <div className="flex flex-col gap-6">
@@ -347,11 +511,22 @@ function EntryBody() {
 
       <HealthStrip />
 
-      {recentDocs.length > 0 && (
+      {/* Genuine open history when it exists (design 2a "Recently opened");
+          a fresh device falls back to the recently *updated* list from kb.list. */}
+      {(openedDocs.length > 0 || recentDocs.length > 0) && (
         <div>
-          <div className="hk-label">Recently opened</div>
+          <div className="hk-label">
+            {openedDocs.length > 0 ? "Recently opened" : "Recently updated"}
+          </div>
           <div className="mt-2 flex flex-col">
-            {recentDocs.map((doc, i) => (
+            {(openedDocs.length > 0
+              ? openedDocs.map((d) => ({
+                  path: d.path,
+                  title: d.title,
+                  mtimeSec: Math.round(d.at / 1000),
+                }))
+              : recentDocs.map((d) => ({ path: d.path, title: d.title, mtimeSec: d.mtime }))
+            ).map((doc, i) => (
               <button
                 key={doc.path}
                 onClick={() => void api.openDoc(doc.path)}
@@ -363,7 +538,9 @@ function EntryBody() {
                 <span className="min-w-0 flex-1 truncate text-[14px] text-hk-text">
                   {doc.title || doc.path}
                 </span>
-                <span className="shrink-0 text-xs text-hk-faint">{dateLabel(doc.mtime)}</span>
+                <span className="shrink-0 text-xs text-hk-faint">
+                  {dateLabel(doc.mtimeSec)}
+                </span>
               </button>
             ))}
           </div>

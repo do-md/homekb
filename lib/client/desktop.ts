@@ -35,9 +35,16 @@ export interface PairInfo {
   homeName: string;
 }
 
-export interface TunnelStatus {
+/** Launchd daemon status (tunnel_status / compile_status). */
+export interface DaemonStatus {
   running: boolean;
-  managed: boolean; // whether this process was spawned by the App
+  managed: boolean; // registered with launchd (plist installed)
+}
+
+/** Return type of Tauri `relay_credentials` (config.toml [relay]). */
+export interface RelayCredentials {
+  url: string;
+  homeSecret: string;
 }
 
 /** invoke wrapper: dynamic import so this chunk is never loaded in the Web bundle. */

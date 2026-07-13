@@ -24,6 +24,35 @@ import type {
 
 const DRAFTS_KEY = "homekb.drafts.v1";
 const LAST_CONNECTED_KEY = "homekb.lastConnectedAt.v1";
+const OPENED_KEY = "homekb.recentOpened.v1";
+const OPENED_MAX = 8;
+
+/** "Recently opened" is genuinely open history (design 2a), kept per device. */
+export interface OpenedDoc {
+  path: string;
+  title: string;
+  at: number; // epoch ms
+}
+
+function loadOpenedDocs(): OpenedDoc[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(OPENED_KEY);
+    if (!raw) return [];
+    const list = JSON.parse(raw) as OpenedDoc[];
+    return Array.isArray(list) ? list.slice(0, OPENED_MAX) : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistOpenedDocs(docs: OpenedDoc[]) {
+  try {
+    window.localStorage.setItem(OPENED_KEY, JSON.stringify(docs));
+  } catch {
+    // Best-effort only.
+  }
+}
 
 function loadDrafts(): Draft[] {
   if (typeof window === "undefined") return [];
@@ -76,6 +105,7 @@ interface KbState {
   answerMs: number | null;
   searchError: string | null;
   recentDocs: DocMeta[];
+  openedDocs: OpenedDoc[];
   suggestions: KbSuggestion[];
   docTypes: string[];
   typeFilter: string | null;
@@ -134,6 +164,7 @@ export class KbStore extends ZenithStore<KbState> {
       answerMs: null,
       searchError: null,
       recentDocs: [],
+      openedDocs: loadOpenedDocs(),
       suggestions: [],
       docTypes: [],
       typeFilter: null,
@@ -231,7 +262,10 @@ export class KbStore extends ZenithStore<KbState> {
       d.hits = [];
       d.answer = null;
       d.view = "recall";
+      // Open history belongs to the previous home — a future pairing may be a different one.
+      d.openedDocs = [];
     });
+    persistOpenedDocs([]);
   }
 
   public async refreshHealth() {
@@ -417,12 +451,30 @@ export class KbStore extends ZenithStore<KbState> {
         d.readerVersion += 1;
         d.readerLoading = false;
       });
+      this.recordOpened(path, res.content);
     } catch (e) {
       this.produce((d) => {
         d.readerLoading = false;
         d.readerError = e instanceof Error ? e.message : "Failed to load";
       });
     }
+  }
+
+  /** Open history for the entry screen's "Recently opened" (design 2a semantics). */
+  private recordOpened(path: string, content: string) {
+    const firstLine =
+      content
+        .split("\n")
+        .map((l) => l.trim())
+        .find(Boolean) ?? "";
+    const title = firstLine.replace(/^#{1,6}\s+/, "").replace(/[*_`]/g, "").trim();
+    this.produce((d) => {
+      d.openedDocs = [
+        { path, title, at: Date.now() },
+        ...d.openedDocs.filter((x) => x.path !== path),
+      ].slice(0, OPENED_MAX);
+    });
+    persistOpenedDocs(this.state.openedDocs);
   }
 
   public startEdit() {
