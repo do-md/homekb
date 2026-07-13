@@ -75,6 +75,7 @@ name = "MacBook"
 homekb                       # 无子命令 = 打印帮助（同 git）
 homekb ask [--json] <QUESTION>   # 问答：召回 + LLM 综合答案（带引用）
 homekb query [--json] [--limit N] [--type T] [--full] [--max-distance D] QUERY
+homekb query --list-types [--json]  # 列出 doc_type 词表（名称+计数，供检索前类目路由）
 homekb new [--title T] [FILE]    # 新笔记入库（无 FILE 时读 stdin）
 homekb init [--root PATH] [--notes PATH] [--openai-key KEY]  # 建目录树+写配置
 homekb reindex [--quiet]     # 增量编译一次
@@ -98,7 +99,7 @@ Claude Code 接入本地 MCP：`claude mcp add homekb -- homekb mcp`。
 
 - `GET /health` → `{ok:true}`（探活：桌面客户端判断 serve 是否已在跑）。
 - **CORS 白名单**（桌面 webview 跨源访问 serve 的唯一放行面，不得放 `*`，防浏览器网页驱动本机召回）：
-  `tauri://localhost`、`http://tauri.localhost`、`http://localhost:23333`、`http://127.0.0.1:23333`（后两个是 `next dev` 调试来源）。
+  `tauri://localhost`、`http://tauri.localhost`、`http://localhost:3000`、`http://127.0.0.1:3000`（后两个是 `next dev` 调试来源）。
 
 ### `homekb pair --json`
 
@@ -108,7 +109,7 @@ Claude Code 接入本地 MCP：`claude mcp add homekb -- homekb mcp`。
 
 **纯渲染器**：UI 与 Web 版是同一份 `features/kb`；数据面只是把 base URL 从 `/api/relay/rpc`（Bearer clientToken）换成 `http://127.0.0.1:8765/rpc`（serve，无认证）。保存/新建仍是点按钮的受控流程（`kb.write`/`kb.create` 直落 `~/.homekb/notes`），**桌面端不触发任何系统弹框**（不引入 dialog 插件）。
 
-- **模式检测（运行时）**：`window.__TAURI_INTERNALS__` 存在 = 桌面模式。不用构建期 env 区分，同一个 `next dev`(23333) 既服务浏览器（Web 模式）又服务 `tauri dev` 的 webview（桌面模式）。
+- **模式检测（运行时）**：`window.__TAURI_INTERNALS__` 存在 = 桌面模式。不用构建期 env 区分，同一个 `next dev`(3000) 既服务浏览器（Web 模式）又服务 `tauri dev` 的 webview（桌面模式）。
 - **构建**：桌面 = 静态导出。`npm run build:tauri` → `scripts/tauri-build.mjs`：临时把服务端专属路由（`app/api`、`app/oauth`、`app/.well-known`）移出 → `BUILD_TARGET=tauri next build`（`output:"export"` → `out/`）→ 还原。Web 版继续 SSR（`next build` 不受影响）。
 - **引擎获取**：App 资源里捆绑 `homekb` 二进制（构建时从 `engine/target/release/homekb` 拷入）。启动检测顺序：env `HOMEKB_BIN` > `~/.local/bin/homekb` > `$PATH`；都没有 → 自动安装捆绑二进制到 `~/.local/bin/homekb`（无弹框）。
 - **serve 生命周期**：启动时先 `GET /health` 探活；已在跑 → 直接附着（外部进程，不接管）；没在跑 → spawn `homekb serve` 子进程，App 退出时回收。tunnel 同理由 App spawn/kill（`tunnel_stop` 优先杀自己管理的子进程，否则 `pkill -f "homekb tunnel"`）。

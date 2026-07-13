@@ -11,7 +11,11 @@ pub fn run(
     doc_type: Option<String>,
     full: bool,
     max_distance: f64,
+    list_types: bool,
 ) -> Result<()> {
+    if list_types {
+        return run_list_types(json);
+    }
     let query = match query {
         Some(s) => s,
         None => read_stdin()?,
@@ -38,6 +42,24 @@ pub fn run(
         crate::output::write_json(&mut stdout, &out)?;
     } else {
         crate::output::write_human(&mut stdout, &out)?;
+    }
+    Ok(())
+}
+
+/// `homekb query --list-types` — doc_type vocabulary of the snapshot,
+/// same shape as the `kb.listTypes` RPC: `{"types":[{"docType":..,"count":..}]}`.
+fn run_list_types(json: bool) -> Result<()> {
+    let cfg = Config::load()?;
+    let types = homekb_core::list_types(&cfg)?;
+
+    let mut stdout = std::io::stdout().lock();
+    if json {
+        crate::output::write_json(&mut stdout, &serde_json::json!({ "types": types }))?;
+    } else {
+        use std::io::Write;
+        for t in &types {
+            writeln!(stdout, "{:<24} {}", t.doc_type, t.count)?;
+        }
     }
     Ok(())
 }

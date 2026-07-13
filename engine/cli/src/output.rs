@@ -2,9 +2,10 @@
 
 use anyhow::Result;
 use homekb_core::SearchOutput;
+use serde::Serialize;
 use std::io::Write;
 
-pub fn write_json(out: &mut impl Write, resp: &SearchOutput) -> Result<()> {
+pub fn write_json<T: Serialize + ?Sized>(out: &mut impl Write, resp: &T) -> Result<()> {
     serde_json::to_writer_pretty(&mut *out, resp)?;
     writeln!(out)?;
     Ok(())

@@ -66,6 +66,9 @@ enum Cmd {
         /// Drop results whose embedding distance exceeds this (0 = no filter).
         #[arg(long, default_value_t = 0.0)]
         max_distance: f64,
+        /// List the doc_type vocabulary (name + count) instead of searching.
+        #[arg(long)]
+        list_types: bool,
     },
     /// Print index status (counts, last compile, generation).
     Status {
@@ -138,10 +141,10 @@ fn main() -> Result<()> {
             init_tracing(false);
             commands::watch::run(interval)
         }
-        Cmd::Query { query, json, limit, doc_type, full, max_distance } => {
+        Cmd::Query { query, json, limit, doc_type, full, max_distance, list_types } => {
             // Keep stdout clean for results; only warnings/errors on stderr.
             init_tracing(true);
-            commands::query::run(query, json, limit, doc_type, full, max_distance)
+            commands::query::run(query, json, limit, doc_type, full, max_distance, list_types)
         }
         Cmd::Status { json } => {
             init_tracing(true);
