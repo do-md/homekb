@@ -7,6 +7,9 @@
     "dev": "next dev -p 3000",
     "build": "next build",
     "start": "next start -p 3333",
+    "relay:build": "esbuild relay/src/server.ts --bundle --platform=node --format=esm --external:better-sqlite3 --outfile=relay/dist/server.mjs --log-level=warning",
+    "relay:dev": "npm run relay:build && node relay/dist/server.mjs --port 8787",
+    "relay:start": "node relay/dist/server.mjs",
     "build:tauri": "node scripts/tauri-build.mjs",
     "tauri": "tauri",
     "test": "vitest run"
@@ -32,6 +35,7 @@
     "@types/node": "20.19.43",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "esbuild": "^0.28.1",
     "tailwindcss": "^4",
     "typescript": "5.9.3",
     "vitest": "^4.1.1"

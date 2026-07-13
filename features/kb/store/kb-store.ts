@@ -1,11 +1,11 @@
 "use client";
 import { createMemo, createReactStore, ZenithStore } from "@do-md/zenith";
+import { claimPairCode, connectDirect } from "@/lib/client/relay-client";
 import {
-  claimPairCode,
-  clearPairing,
-  getPairedHome,
-  getToken,
-} from "@/lib/client/relay-client";
+  clearConnection,
+  connectionLabel,
+  getConnection,
+} from "@/lib/client/connection";
 import { isDesktop } from "@/lib/client/desktop";
 import { checkHealth, RelayError, rpc } from "@/lib/client/rpc";
 import type {
@@ -72,10 +72,11 @@ export class KbStore extends ZenithStore<KbState> {
 
   constructor() {
     const desktop = isDesktop();
+    const conn = typeof window !== "undefined" ? getConnection() : null;
     super({
       desktop,
-      paired: desktop || (typeof window !== "undefined" && !!getToken()),
-      homeName: desktop ? "This machine" : (getPairedHome()?.homeName ?? ""),
+      paired: desktop || !!conn,
+      homeName: desktop ? "This machine" : conn ? connectionLabel(conn) : "",
       online: null,
       pairBusy: false,
       pairError: null,
@@ -122,17 +123,34 @@ export class KbStore extends ZenithStore<KbState> {
   }
 
   // ---------- Pairing ----------
-  public async pair(code: string) {
+  /** Relay mode: claim a pairing code at the chosen relay (URL editable on the pairing screen). */
+  public async pairRelay(relayUrl: string, code: string) {
+    await this.runPairing(async () => {
+      const label = typeof navigator !== "undefined" ? navigator.platform || "web" : "web";
+      const home = await claimPairCode(relayUrl, code, `web:${label}`);
+      return home.homeName || "Home";
+    });
+  }
+
+  /** Direct mode: verify a publicly bound serve (URL + serveToken) and connect. */
+  public async pairDirect(baseUrl: string, token: string) {
+    await this.runPairing(async () => {
+      await connectDirect(baseUrl, token);
+      const conn = getConnection();
+      return conn ? connectionLabel(conn) : "Direct";
+    });
+  }
+
+  private async runPairing(establish: () => Promise<string>) {
     this.produce((d) => {
       d.pairBusy = true;
       d.pairError = null;
     });
     try {
-      const label = typeof navigator !== "undefined" ? navigator.platform || "web" : "web";
-      const home = await claimPairCode(code, `web:${label}`);
+      const homeName = await establish();
       this.produce((d) => {
         d.paired = true;
-        d.homeName = home.homeName;
+        d.homeName = homeName;
         d.pairBusy = false;
       });
       void this.refreshHealth();
@@ -148,7 +166,7 @@ export class KbStore extends ZenithStore<KbState> {
 
   public unpair() {
     if (this.state.desktop) return; // Desktop mode has no pairing concept
-    clearPairing();
+    clearConnection();
     this.produce((d) => {
       d.paired = false;
       d.homeName = "";

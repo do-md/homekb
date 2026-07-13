@@ -117,10 +117,15 @@ enum Cmd {
     },
     /// Local MCP server over stdio (for Claude Code / Codex: `claude mcp add homekb -- homekb mcp`).
     Mcp,
-    /// Localhost HTTP RPC on 127.0.0.1 (desktop client data source).
+    /// HTTP RPC + /assets. Loopback bind (default) = desktop data source, no auth;
+    /// a non-loopback --host enables direct mode (Bearer serveToken, auto-generated).
     Serve {
-        #[arg(long, default_value_t = 8765)]
-        port: u16,
+        /// Bind address (default 127.0.0.1; e.g. 0.0.0.0 for direct mode).
+        #[arg(long)]
+        host: Option<String>,
+        /// Port (default 8765, or [serve] port in config.toml).
+        #[arg(long)]
+        port: Option<u16>,
     },
     /// Register this machine with a relay server; writes [relay] to config.
     Register {
@@ -207,9 +212,9 @@ fn main() -> Result<()> {
             init_tracing(true);
             commands::mcp::run()
         }
-        Cmd::Serve { port } => {
+        Cmd::Serve { host, port } => {
             init_tracing(false);
-            commands::serve::run(port)
+            commands::serve::run(host, port)
         }
         Cmd::Register { relay, name } => {
             init_tracing(true);

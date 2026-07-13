@@ -3,6 +3,7 @@
 //! stub in main.rs.
 
 pub mod ask;
+pub mod assets;
 pub mod init;
 #[cfg(target_os = "macos")]
 pub mod launchd;

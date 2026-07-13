@@ -1,8 +1,8 @@
 #!/bin/bash
 # Remote MCP + OAuth smoke test: dynamic registration → pairing code auth → PKCE token → MCP initialize/tools/list/tools/call
-# Prerequisites: dev server running on port 3000; scripts/fake-home.mjs is started automatically by this script.
+# Prerequisites: standalone relay running (npm run relay:dev, port 8787); scripts/fake-home.mjs is started automatically by this script.
 set -e
-BASE="http://localhost:3000"
+BASE="${BASE:-http://localhost:8787}"
 TMP=$(mktemp -d)
 trap '[ -n "$HOME_PID" ] && kill $HOME_PID 2>/dev/null; rm -rf "$TMP"; true' EXIT
 

@@ -28,7 +28,7 @@ pub use api::{
     list_types, rebuild, reindex, search, status,
 };
 pub use ask::{AskOutput, Citation, ask};
-pub use config::{Config, ConfigOverrides, RelayConfig, config_path};
+pub use config::{Config, ConfigOverrides, RelayConfig, ServeConfig, config_path};
 pub use notes::{
     CreatedNote, DocMeta, NoteContent, create_note, list_notes, read_note, write_note,
 };

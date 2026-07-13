@@ -169,10 +169,12 @@ async fn pump(
         buf.push_str(&String::from_utf8_lossy(&bytes));
         while let Some(idx) = buf.find("\n\n") {
             let raw: String = buf.drain(..idx + 2).collect();
-            if let Some((event, data)) = parse_sse(&raw)
-                && event == "rpc"
-            {
-                handle_rpc(&data, client, config, relay);
+            if let Some((event, data)) = parse_sse(&raw) {
+                match event.as_str() {
+                    "rpc" => handle_rpc(&data, client, config, relay),
+                    "asset" => handle_asset(&data, client, config, relay),
+                    _ => {}
+                }
             }
         }
     }
@@ -189,6 +191,63 @@ fn parse_sse(raw: &str) -> Option<(String, String)> {
         }
     }
     Some((event?, data.join("\n")))
+}
+
+/// Binary asset channel (docs/ARCHITECTURE.md "Binary asset channel"): the relay asks
+/// for `{id, path}` over SSE; we read the file under <root>/assets/ and POST the raw
+/// bytes back to /api/relay/tunnel/asset/<id> (empty body + X-Asset-Error on failure).
+/// Runs in its own task so large files do not block the tunnel read loop.
+fn handle_asset(
+    data: &str,
+    client: &reqwest::Client,
+    config: &Arc<Config>,
+    relay: &homekb_core::RelayConfig,
+) {
+    let Ok(msg) = serde_json::from_str::<Value>(data) else {
+        tracing::warn!("bad asset event payload: {data}");
+        return;
+    };
+    let Some(id) = msg.get("id").and_then(|v| v.as_str()).map(str::to_string) else {
+        return;
+    };
+    let path = msg
+        .get("path")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let client = client.clone();
+    let config = config.clone();
+    let upload_url = format!("{}/api/relay/tunnel/asset/{}", relay.url, id);
+    let secret = relay.home_secret.clone();
+
+    tokio::spawn(async move {
+        tracing::info!("asset {path}");
+        let resolved = super::assets::resolve_asset_path(&config, &path);
+        let req = match resolved {
+            Some(full) => match tokio::fs::read(&full).await {
+                Ok(bytes) => client
+                    .post(&upload_url)
+                    .bearer_auth(&secret)
+                    .header("Content-Type", super::assets::guess_mime(&full))
+                    .body(bytes),
+                Err(_) => client
+                    .post(&upload_url)
+                    .bearer_auth(&secret)
+                    .header("X-Asset-Error", "not_found"),
+            },
+            None => client
+                .post(&upload_url)
+                .bearer_auth(&secret)
+                .header("X-Asset-Error", "not_found"),
+        };
+        match req.send().await {
+            Ok(res) if !res.status().is_success() => {
+                tracing::warn!("asset upload rejected: HTTP {}", res.status());
+            }
+            Ok(_) => {}
+            Err(e) => tracing::warn!("failed to post asset: {e}"),
+        }
+    });
 }
 
 /// Each RPC is executed in its own task and the result posted back, so slow queries do not block the tunnel read loop.

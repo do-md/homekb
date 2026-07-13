@@ -30,9 +30,23 @@ pub struct RelayConfig {
     pub name: String,
 }
 
+/// `[serve]` section — HTTP RPC bind address + direct-mode credential
+/// (docs/ARCHITECTURE.md "HTTP RPC (homekb serve)"). All optional:
+/// host defaults to 127.0.0.1, port to 8765; token (`hkd_…`) is required
+/// only for non-loopback binds and is auto-generated on first public bind.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ServeConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
+}
+
 /// On-disk shape of config.toml: everything optional.
-/// NOTE: `relay` must stay the last field — TOML requires tables after
-/// plain values when serializing.
+/// NOTE: the table sections (`serve`, `relay`) must stay the last fields —
+/// TOML requires tables after plain values when serializing.
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct ConfigFile {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -62,6 +76,8 @@ struct ConfigFile {
     #[serde(skip_serializing_if = "Option::is_none")]
     embed_batch_size: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    serve: Option<ServeConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     relay: Option<RelayConfig>,
 }
 
@@ -85,6 +101,7 @@ pub struct Config {
     pub embed_concurrency: usize,
     pub embed_batch_size: usize,
 
+    pub serve: Option<ServeConfig>,
     pub relay: Option<RelayConfig>,
 }
 
@@ -163,6 +180,7 @@ impl Config {
             summary_diff_threshold: file.summary_diff_threshold.unwrap_or(0.15),
             embed_concurrency: file.embed_concurrency.unwrap_or(8),
             embed_batch_size: file.embed_batch_size.unwrap_or(100),
+            serve: file.serve,
             relay: file.relay,
         })
     }
@@ -190,6 +208,7 @@ impl Config {
             summary_diff_threshold: Some(self.summary_diff_threshold),
             embed_concurrency: Some(self.embed_concurrency),
             embed_batch_size: Some(self.embed_batch_size),
+            serve: self.serve.clone(),
             relay: self.relay.clone(),
         };
         let body = toml::to_string_pretty(&file).context("serialize config")?;

@@ -4,8 +4,9 @@ import { nanoid } from "nanoid";
  * Tunnel Hub: home device SSE connection registry + RPC request/response correlation.
  * globalThis singleton (prevents duplicate initialization under dev HMR).
  *
- * Downstream: home opens GET /api/relay/tunnel (SSE); hub pushes rpc events via send.
- * Upstream: home POSTs /api/relay/tunnel/result; hub resolves the pending promise by requestId.
+ * Downstream: home opens GET /api/relay/tunnel (SSE); hub pushes rpc/asset events via send.
+ * Upstream: home POSTs /api/relay/tunnel/result (RPC) or /api/relay/tunnel/asset/<id>
+ * (binary asset channel); hub resolves the pending promise by requestId.
  */
 
 export interface RpcError {
@@ -46,6 +47,19 @@ interface HomeConn {
   pending: Map<string, Pending>;
 }
 
+/**
+ * What the home device delivered on the asset channel. `stream` is a node Readable
+ * (typed loosely so this module has no node type dependency); `done()` lets the
+ * consumer ACK the home's upload once fully piped.
+ */
+export interface AssetDelivery {
+  error?: string;
+  contentType?: string;
+  contentLength?: string;
+  stream?: unknown;
+  done?: () => void;
+}
+
 const DEFAULT_TIMEOUT = 30_000;
 
 export class TunnelHub {
@@ -78,17 +92,42 @@ export class TunnelHub {
   }
 
   call(homeId: string, method: string, params: unknown, timeoutMs = DEFAULT_TIMEOUT): Promise<unknown> {
+    return this.request(homeId, "rpc", (id) => JSON.stringify({ id, method, params: params ?? {} }), `rpc ${method}`, timeoutMs);
+  }
+
+  /**
+   * Binary asset channel: push an `asset` event to the home device and wait for it to
+   * stream the bytes back via POST /api/relay/tunnel/asset/<id>. The delivery object is
+   * produced by that route (hub itself stays transport-agnostic).
+   */
+  requestAsset(homeId: string, path: string, timeoutMs = DEFAULT_TIMEOUT): Promise<AssetDelivery> {
+    return this.request(
+      homeId,
+      "asset",
+      (id) => JSON.stringify({ id, path }),
+      `asset ${path}`,
+      timeoutMs,
+    ) as Promise<AssetDelivery>;
+  }
+
+  private request(
+    homeId: string,
+    event: string,
+    payload: (id: string) => string,
+    label: string,
+    timeoutMs: number,
+  ): Promise<unknown> {
     const conn = this.conns.get(homeId);
     if (!conn) return Promise.reject(new RpcHubError("home_offline", "home device is not connected"));
     const id = nanoid(12);
     return new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
         conn.pending.delete(id);
-        reject(new RpcHubError("timeout", `rpc ${method} timed out after ${timeoutMs}ms`));
+        reject(new RpcHubError("timeout", `${label} timed out after ${timeoutMs}ms`));
       }, timeoutMs);
       conn.pending.set(id, { resolve, reject, timer });
       try {
-        conn.send("rpc", JSON.stringify({ id, method, params: params ?? {} }));
+        conn.send(event, payload(id));
       } catch (e) {
         // send threw = connection is dead (client disconnected but abort not yet fired): evict immediately and report as offline
         clearTimeout(timer);
@@ -104,14 +143,16 @@ export class TunnelHub {
     });
   }
 
-  resolveResult(homeId: string, id: string, ok: boolean, result: unknown, error?: RpcError) {
+  /** Returns false when the request is no longer pending (timed out / reconnected) so the caller can NACK. */
+  resolveResult(homeId: string, id: string, ok: boolean, result: unknown, error?: RpcError): boolean {
     const conn = this.conns.get(homeId);
     const p = conn?.pending.get(id);
-    if (!conn || !p) return; // late result (already timed out or reconnected) — silently discard
+    if (!conn || !p) return false; // late result (already timed out or reconnected) — discard
     conn.pending.delete(id);
     clearTimeout(p.timer);
     if (ok) p.resolve(result);
     else p.reject(new RpcHubError("rpc_error", error?.message || "home execution failed", error));
+    return true;
   }
 
   private failAll(conn: HomeConn, err: RpcHubError) {

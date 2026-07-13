@@ -1,12 +1,39 @@
 #!/usr/bin/env node
 /**
- * Fake home simulator (for testing): connects to the relay SSE tunnel and auto-replies to all RPC calls (echoes received method/params).
- * Usage: node scripts/fake-home.mjs <BASE> <HOME_SECRET>
+ * Fake home simulator (for testing): connects to the relay SSE tunnel, auto-replies to
+ * all RPC calls (canned/echo) and serves the binary asset channel from a fixture dir.
+ * Usage: node scripts/fake-home.mjs <BASE> <HOME_SECRET> [ASSETS_DIR]
  */
-const [BASE, SECRET] = process.argv.slice(2);
+import fs from "node:fs";
+import path from "node:path";
+const [BASE, SECRET, ASSETS_DIR] = process.argv.slice(2);
 if (!BASE || !SECRET) {
-  console.error("usage: fake-home.mjs <BASE> <HOME_SECRET>");
+  console.error("usage: fake-home.mjs <BASE> <HOME_SECRET> [ASSETS_DIR]");
   process.exit(1);
+}
+
+const MIME = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".pdf": "application/pdf", ".txt": "text/plain" };
+
+/** Binary asset channel: read the requested file from ASSETS_DIR and stream it back. */
+async function serveAsset(id, assetPath) {
+  const post = (body, headers) =>
+    fetch(`${BASE}/api/relay/tunnel/asset/${id}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${SECRET}`, ...headers },
+      body,
+    });
+  const safe =
+    assetPath && !assetPath.startsWith("/") &&
+    assetPath.split("/").every((s) => s && s !== "." && s !== "..");
+  const file = safe && ASSETS_DIR ? path.join(ASSETS_DIR, assetPath) : null;
+  if (!file || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
+    console.log("[fake-home] asset miss:", assetPath);
+    await post(null, { "X-Asset-Error": "not_found" });
+    return;
+  }
+  const type = MIME[path.extname(file).toLowerCase()] ?? "application/octet-stream";
+  console.log("[fake-home] asset:", assetPath, `(${type})`);
+  await post(fs.readFileSync(file), { "Content-Type": type });
 }
 
 const res = await fetch(`${BASE}/api/relay/tunnel`, {
@@ -28,7 +55,13 @@ for await (const chunk of res.body) {
     buf = buf.slice(idx + 2);
     const event = /^event: (.+)$/m.exec(raw)?.[1];
     const data = /^data: (.+)$/m.exec(raw)?.[1];
-    if (event !== "rpc" || !data) continue;
+    if (!data) continue;
+    if (event === "asset") {
+      const { id, path: assetPath } = JSON.parse(data);
+      serveAsset(id, assetPath);
+      continue;
+    }
+    if (event !== "rpc") continue;
     const { id, method, params } = JSON.parse(data);
     console.log("[fake-home] rpc:", method, JSON.stringify(params));
     const HIT = {

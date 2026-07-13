@@ -25,3 +25,6 @@ src-tauri/gen/
 .dev.log
 relay.db
 relay.db-*
+
+# Relay build output
+relay/dist/

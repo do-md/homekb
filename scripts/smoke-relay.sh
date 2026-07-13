@@ -1,8 +1,9 @@
 #!/bin/bash
-# Relay link smoke test: register → tunnel(SSE) → pair → rpc → result relay-back
-# Uses curl to simulate the home device and mobile client. Prerequisites: dev server already running on port 3000.
+# Relay link smoke test: register → tunnel(SSE) → pair → rpc → result relay-back → asset channel
+# Uses curl to simulate the home device and mobile client.
+# Prerequisites: standalone relay running (npm run relay:dev, port 8787). Override with BASE env.
 set -e
-BASE="http://localhost:3000"
+BASE="${BASE:-http://localhost:8787}"
 TMP=$(mktemp -d)
 trap '[ -n "$SSE_PID" ] && kill $SSE_PID 2>/dev/null; rm -rf "$TMP"; true' EXIT
 
@@ -41,6 +42,19 @@ curl -s -X POST "$BASE/api/relay/tunnel/result" -H "Authorization: Bearer $SECRE
   -d "{\"id\":\"$REQID\",\"ok\":true,\"result\":{\"docs\":42,\"generation\":7}}" -o /dev/null -w "result relay-back HTTP %{http_code}\n"
 wait $RPC_PID
 echo "client received: $(cat "$TMP/rpc.out")"
+
+echo "== 6.5 Binary asset channel (SSE asset event → home posts bytes → client receives) =="
+curl -s -D "$TMP/asset.hdr" "$BASE/api/relay/asset/images/pixel.png" -H "Authorization: Bearer $TOKEN" -o "$TMP/asset.out" &
+ASSET_PID=$!
+sleep 2
+ASSET_ID=$(grep -A1 "event: asset" "$TMP/sse.log" | grep -o '"id":"[^"]*"' | tail -1 | cut -d'"' -f4)
+echo "home received asset id: $ASSET_ID (path should be images/pixel.png)"
+printf 'FAKEPNGBYTES' > "$TMP/pixel.png"
+curl -s -X POST "$BASE/api/relay/tunnel/asset/$ASSET_ID" -H "Authorization: Bearer $SECRET" -H 'Content-Type: image/png' \
+  --data-binary "@$TMP/pixel.png" -o /dev/null -w "asset upload HTTP %{http_code}\n"
+wait $ASSET_PID
+grep -qi "content-type: image/png" "$TMP/asset.hdr" && cmp -s "$TMP/asset.out" "$TMP/pixel.png" && echo "asset bytes + content-type OK" || { echo "asset channel failed"; exit 1; }
+test "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/relay/asset/images/pixel.png")" = "401" && echo "asset 401 without token OK"
 
 echo "== 7. Unauthenticated access must return 401 =="
 test "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/relay/rpc" -d '{}')" = "401" && echo "401 OK"

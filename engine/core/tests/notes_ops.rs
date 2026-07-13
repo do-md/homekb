@@ -28,6 +28,7 @@ fn test_cfg(root: &Path) -> Config {
         summary_diff_threshold: 0.15,
         embed_concurrency: 8,
         embed_batch_size: 100,
+        serve: None,
         relay: None,
     }
 }
