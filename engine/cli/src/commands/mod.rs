@@ -4,6 +4,8 @@
 
 pub mod ask;
 pub mod init;
+#[cfg(target_os = "macos")]
+pub mod launchd;
 pub mod mcp;
 pub mod new;
 pub mod query;

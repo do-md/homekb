@@ -18,7 +18,7 @@ pub fn run(title: Option<String>, file: Option<PathBuf>) -> Result<()> {
     let config = Config::load()?;
     ensure_dirs(&config)?;
     let created = create_note(&config, &content, title)?;
-    println!("已入库：{}（{}）", created.path, created.title);
-    println!("提示：下次编译（reindex/watch/tunnel）后即可被召回。");
+    println!("saved: {} ({})", created.path, created.title);
+    println!("tip: the note will be searchable after the next compile run (reindex / watch / tunnel).");
     Ok(())
 }

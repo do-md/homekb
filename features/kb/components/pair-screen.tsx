@@ -13,9 +13,9 @@ export function PairScreen() {
       <div className="w-full max-w-sm">
         <h1 className="text-center text-3xl font-bold">HomeKB</h1>
         <p className="mt-2 text-center text-sm opacity-60">
-          你的知识库在你自己的电脑上。
+          Your knowledge base lives on your own computer.
           <br />
-          在家里电脑运行 <code>homekb pair</code> 获取配对码。
+          Run <code>homekb pair</code> on your home machine to get a pairing code.
         </p>
         <form
           className="mt-6 flex flex-col gap-3"
@@ -27,7 +27,7 @@ export function PairScreen() {
           <input
             value={code}
             onChange={(e) => setCode(e.target.value.toUpperCase())}
-            placeholder="配对码，如 A7KM2XQ9"
+            placeholder="Pairing code, e.g. A7KM2XQ9"
             maxLength={8}
             autoFocus
             className="input input-bordered input-lg w-full text-center font-mono uppercase tracking-widest"
@@ -39,11 +39,11 @@ export function PairScreen() {
             disabled={busy || code.trim().length < 4}
             className="btn btn-primary btn-lg w-full"
           >
-            {busy ? <span className="loading loading-spinner" /> : "配对"}
+            {busy ? <span className="loading loading-spinner" /> : "Connect"}
           </button>
         </form>
         <p className="mt-6 text-center text-xs opacity-40">
-          本服务器只做转发与配对，不存储任何知识库内容。
+          This server only handles routing and pairing — no knowledge base content is stored here.
         </p>
       </div>
     </main>

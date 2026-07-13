@@ -1,36 +1,36 @@
 # HomeKB
 
-个人知识库，数据永远在你自己的电脑上。
+A personal knowledge base — your data always stays on your own computer.
 
-- **本地引擎**（Rust）：Markdown 知识编译（OpenAI embedding + sqlite-vec）+ 语义召回（双池 KNN + RRF）。
-- **Agent 原生**：`homekb mcp` 一行接入 Claude Code / Codex；远程 MCP 接 Claude 手机端。
-- **远程访问**：自托管中继（本 Next.js 应用），手机 Web 经 SSE 隧道读写家里电脑的数据；服务器零用户数据。
-- **无账号**：配对码一次绑定，服务器只存 token 哈希。
+- **Local engine** (Rust): Markdown knowledge compilation (OpenAI embedding + sqlite-vec) + semantic retrieval (dual-pool KNN + RRF).
+- **Agent-native**: `homekb mcp` integrates with Claude Code / Codex in one line; the remote MCP connects the Claude mobile app.
+- **Remote access**: a self-hosted relay (this Next.js app) lets the mobile Web read and write the data on your home computer over an SSE tunnel; the server holds zero user data.
+- **Account-free**: the pairing code binds once, and the server stores only token hashes.
 
-架构与协议见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，开发约定见 [CLAUDE.md](CLAUDE.md)。
+For architecture and protocol see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); for development conventions see [CLAUDE.md](CLAUDE.md).
 
-## 快速开始（家里电脑）
+## Quick start (home computer)
 
 ```bash
 cd engine && cargo build --release
-./target/release/homekb init            # 建 ~/.homekb + 配置
-./target/release/homekb reindex         # 编译索引
-./target/release/homekb query "..."     # 语义召回
-claude mcp add homekb -- homekb mcp     # 接入 Claude Code
+./target/release/homekb init            # Create ~/.homekb + config
+./target/release/homekb reindex         # Compile the index
+./target/release/homekb query "..."     # Semantic retrieval
+claude mcp add homekb -- homekb mcp     # Integrate with Claude Code
 
-# 远程访问（可选）
-homekb register --relay https://你的中继域名
-homekb tunnel                           # 常驻：隧道 + 定时编译
-homekb pair                             # 生成配对码给手机
+# Remote access (optional)
+homekb register --relay https://your-relay-domain
+homekb tunnel                           # Daemon: tunnel + scheduled compile
+homekb pair                             # Generate a pairing code for your phone
 ```
 
-## 远端接入（配对后）
+## Remote access (after pairing)
 
-- **手机浏览器**：打开中继域名 → 输入配对码 → 搜索/问答/读写笔记。
-- **Claude 手机端 / claude.ai**：添加自定义连接器 `https://中继域名/api/mcp`，授权页输入配对码即可（OAuth 自动完成）。
-- **Claude Code（远程）**：`claude mcp add --transport http homekb https://中继域名/api/mcp --header "Authorization: Bearer <配对换到的token>"`。
+- **Mobile browser**: open the relay domain → enter the pairing code → search / ask / read and write notes.
+- **Claude mobile app / claude.ai**: add a custom connector `https://your-relay-domain/api/mcp` and enter the pairing code on the authorization page (OAuth completes automatically).
+- **Claude Code (remote)**: `claude mcp add --transport http homekb https://your-relay-domain/api/mcp --header "Authorization: Bearer <token obtained from pairing>"`.
 
-## 开发
+## Development
 
-- Web/中继：`npm run dev`（23333）；测试 `npm test` + `scripts/smoke-relay.sh` + `scripts/smoke-mcp.sh`。
-- 引擎：`cd engine && cargo build && cargo test`；用 `HOMEKB_CONFIG=/tmp/x.toml` 隔离测试环境。
+- Web/relay: `npm run dev` (3000); tests `npm test` + `scripts/smoke-relay.sh` + `scripts/smoke-mcp.sh`.
+- Engine: `cd engine && cargo build && cargo test`; use `HOMEKB_CONFIG=/tmp/x.toml` to isolate the test environment.

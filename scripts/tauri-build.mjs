@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * 桌面静态导出构建（docs/ARCHITECTURE.md「桌面客户端」）：
- *   1. 引擎 release 二进制 → src-tauri/resources/engine/homekb（App 捆绑资源）
- *   2. 临时移出服务端专属路由（app/api、app/oauth、app/.well-known）
- *   3. BUILD_TARGET=tauri next build（output:"export" → out/，distDir .next-tauri）
- *   4. 无论成败还原路由（try/finally）
+ * Desktop static export build (docs/ARCHITECTURE.md "desktop client"):
+ *   1. Engine release binary → src-tauri/resources/engine/homekb (bundled app resource)
+ *   2. Temporarily move out server-only routes (app/api, app/oauth, app/.well-known)
+ *   3. BUILD_TARGET=tauri next build (output:"export" → out/, distDir .next-tauri)
+ *   4. Restore routes regardless of success/failure (try/finally)
  *
- * 注意：构建窗口内正在跑的 next dev(23333) 会短暂丢失这些路由，结束即恢复。
+ * Note: any next dev(3000) running during the build window will briefly lose these routes; they are restored on completion.
  */
 import { execSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
@@ -17,16 +17,16 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SERVER_ONLY = ["app/api", "app/oauth", "app/.well-known"];
 const staging = path.join(root, ".tauri-staging");
 
-// 1) 引擎二进制拷入资源
+// 1) Copy engine binary into resources
 const engineBin = path.join(root, "engine/target/release/homekb");
 if (!existsSync(engineBin)) {
-  console.error("缺少引擎二进制：先运行  cd engine && cargo build --release");
+  console.error("Engine binary missing: run  cd engine && cargo build --release  first");
   process.exit(1);
 }
 mkdirSync(path.join(root, "src-tauri/resources/engine"), { recursive: true });
 cpSync(engineBin, path.join(root, "src-tauri/resources/engine/homekb"));
 
-// 2~4) 移出 → 构建 → 还原
+// 2–4) Move out → build → restore
 rmSync(staging, { recursive: true, force: true });
 mkdirSync(staging, { recursive: true });
 const moved = [];
@@ -48,14 +48,14 @@ try {
   rmSync(staging, { recursive: true, force: true });
 }
 
-// Next 16 + 自定义 distDir：导出产物直接落在 distDir（.next-tauri/）。
-// 拷到 out/ 维持 tauri.conf frontendDist("../out") 的稳定契约。
+// Next 16 + custom distDir: export output lands directly in distDir (.next-tauri/).
+// Copy to out/ to maintain the stable tauri.conf frontendDist("../out") contract.
 const exportDir = path.join(root, ".next-tauri");
 if (!existsSync(path.join(exportDir, "index.html"))) {
-  console.error("静态导出产物缺失 .next-tauri/index.html");
+  console.error("Static export artifact missing: .next-tauri/index.html not found");
   process.exit(1);
 }
 const outDir = path.join(root, "out");
 rmSync(outDir, { recursive: true, force: true });
 cpSync(exportDir, outDir, { recursive: true });
-console.log("✅ 桌面静态导出完成 → out/");
+console.log("✅ Desktop static export complete → out/");

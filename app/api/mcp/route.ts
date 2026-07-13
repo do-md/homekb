@@ -24,7 +24,7 @@ function unauthorized(req: Request): Response {
   );
 }
 
-/** 远程 MCP（Streamable HTTP，无状态 JSON 响应模式） */
+/** Remote MCP (Streamable HTTP, stateless JSON response mode) */
 export async function POST(req: Request) {
   const grant = authGrant(req);
   if (!grant) return unauthorized(req);
@@ -39,7 +39,7 @@ export async function POST(req: Request) {
     );
   }
 
-  // 规范上 Streamable HTTP 每请求一条消息；宽容处理数组（逐条处理，返回数组）
+  // Streamable HTTP spec: one message per request; handle arrays leniently (process each, return array)
   const messages = Array.isArray(body) ? body : [body];
   const responses = [];
   for (const msg of messages) {
@@ -56,7 +56,7 @@ export async function POST(req: Request) {
 }
 
 export function GET() {
-  // 不支持服务端主动流
+  // Server-initiated streaming is not supported
   return new Response(null, { status: 405, headers: CORS_HEADERS });
 }
 

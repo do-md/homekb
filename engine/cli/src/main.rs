@@ -1,7 +1,7 @@
 //! homekb — CLI front-end over homekb-core.
 //!
 //! Git-style subcommand CLI — the engine itself is the complete product
-//! (docs/ARCHITECTURE.md「引擎优先」): compile, recall, Q&A, local MCP,
+//! (docs/ARCHITECTURE.md "engine-first"): compile, recall, Q&A, local MCP,
 //! localhost HTTP RPC, relay pairing & tunnel.
 
 mod commands;
@@ -42,10 +42,25 @@ enum Cmd {
         quiet: bool,
     },
     /// Foreground loop: reindex every N seconds. Errors are logged, not fatal.
+    ///
+    /// No flag = run in the foreground (this is the launchd compile-service target).
+    /// --install/--uninstall/--status manage the `com.homekb.compile` LaunchAgent (macOS).
     Watch {
         /// Seconds between compile runs.
         #[arg(long, default_value_t = 300)]
         interval: u64,
+        /// Install as the launchd compile service (KeepAlive) and start it; then exit.
+        #[arg(long, group = "watch_mode")]
+        install: bool,
+        /// Stop and remove the launchd compile service.
+        #[arg(long, group = "watch_mode")]
+        uninstall: bool,
+        /// Report whether the launchd compile service is installed / running.
+        #[arg(long, group = "watch_mode")]
+        status: bool,
+        /// With --status: emit machine-readable JSON.
+        #[arg(long)]
+        json: bool,
     },
     /// Semantic search against the snapshot.
     Query {
@@ -63,6 +78,10 @@ enum Cmd {
         /// Return one entry per unique document with FULL file contents.
         #[arg(long)]
         full: bool,
+        /// Merge hits from the same source document into one entry
+        /// (best snippet + match count); limit then counts documents.
+        #[arg(long)]
+        group: bool,
         /// Drop results whose embedding distance exceeds this (0 = no filter).
         #[arg(long, default_value_t = 0.0)]
         max_distance: f64,
@@ -119,10 +138,25 @@ enum Cmd {
         json: bool,
     },
     /// Resident tunnel to the relay + built-in periodic reindex.
+    ///
+    /// No flag = run in the foreground (this is the launchd target).
+    /// --install/--uninstall/--status manage a launchd LaunchAgent (macOS).
     Tunnel {
         /// Seconds between built-in compile runs (0 = disable).
         #[arg(long, default_value_t = 300)]
         interval: u64,
+        /// Install as a launchd LaunchAgent (KeepAlive) and start it; then exit.
+        #[arg(long, group = "tunnel_mode")]
+        install: bool,
+        /// Stop and remove the launchd LaunchAgent.
+        #[arg(long, group = "tunnel_mode")]
+        uninstall: bool,
+        /// Report whether the launchd tunnel is installed / running.
+        #[arg(long, group = "tunnel_mode")]
+        status: bool,
+        /// With --status: emit machine-readable JSON.
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -137,14 +171,20 @@ fn main() -> Result<()> {
             init_tracing(quiet);
             commands::reindex::run(quiet)
         }
-        Cmd::Watch { interval } => {
-            init_tracing(false);
-            commands::watch::run(interval)
+        Cmd::Watch { interval, install, uninstall, status, json } => {
+            let managing = install || uninstall || status;
+            init_tracing(managing);
+            match (install, uninstall, status) {
+                (true, _, _) => commands::watch::run_install(interval),
+                (_, true, _) => commands::watch::run_uninstall(),
+                (_, _, true) => commands::watch::run_status(json),
+                _ => commands::watch::run(interval),
+            }
         }
-        Cmd::Query { query, json, limit, doc_type, full, max_distance, list_types } => {
+        Cmd::Query { query, json, limit, doc_type, full, group, max_distance, list_types } => {
             // Keep stdout clean for results; only warnings/errors on stderr.
             init_tracing(true);
-            commands::query::run(query, json, limit, doc_type, full, max_distance, list_types)
+            commands::query::run(query, json, limit, doc_type, full, group, max_distance, list_types)
         }
         Cmd::Status { json } => {
             init_tracing(true);
@@ -163,7 +203,7 @@ fn main() -> Result<()> {
             commands::new::run(title, file)
         }
         Cmd::Mcp => {
-            // stdout 是 MCP 协议通道，日志只走 stderr 且保持安静
+            // stdout is the MCP protocol channel; logging goes to stderr only (quiet)
             init_tracing(true);
             commands::mcp::run()
         }
@@ -179,17 +219,26 @@ fn main() -> Result<()> {
             init_tracing(true);
             commands::relay::run_pair(json)
         }
-        Cmd::Tunnel { interval } => {
-            init_tracing(false);
-            commands::tunnel::run(interval)
+        Cmd::Tunnel { interval, install, uninstall, status, json } => {
+            let managing = install || uninstall || status;
+            // Foreground: emit info logs; management ops: suppress to warn so results go to stdout.
+            init_tracing(managing);
+            match (install, uninstall, status) {
+                (true, _, _) => commands::tunnel::run_install(interval),
+                (_, true, _) => commands::tunnel::run_uninstall(),
+                (_, _, true) => commands::tunnel::run_status(json),
+                _ => commands::tunnel::run(interval),
+            }
         }
     }
 }
 
 fn init_tracing(quiet: bool) {
     let level = if quiet { "warn" } else { "info" };
+    // `homekb` = the binary crate (tunnel/serve emit under this target); prefix-matches
+    // homekb_core / homekb_cli too. Without it the resident tunnel's launchd log is empty.
     let filter = std::env::var("RUST_LOG")
-        .unwrap_or_else(|_| format!("homekb_core={level},homekb_cli={level}"));
+        .unwrap_or_else(|_| format!("homekb={level},homekb_core={level},homekb_cli={level}"));
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_target(false)

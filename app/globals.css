@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* 复制式包（.packages/）被 .gitignore 排除，显式 @source 强制 Tailwind v4 扫描 */
+/* Copied packages (.packages/) are excluded by .gitignore; explicit @source forces Tailwind v4 to scan them */
 @source "../.packages";
 
 @plugin "daisyui" {
@@ -9,7 +9,7 @@
         dark --prefersdark;
 }
 
-/* HomeKB 不写 data-theme，纯跟随系统；分明暗样式一律用 @media (prefers-color-scheme) */
+/* HomeKB does not set data-theme; it follows the system theme entirely. Use @media (prefers-color-scheme) for all light/dark styles. */
 
 html,
 body {

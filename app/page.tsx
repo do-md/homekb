@@ -1,7 +1,7 @@
 "use client";
 import dynamic from "next/dynamic";
 
-// 纯客户端渲染：配对态存 localStorage，SSR 无法得知，禁 SSR 防 hydration 抖动
+// Pure client-side rendering: pairing state is stored in localStorage, unknown to SSR — disable SSR to prevent hydration mismatch
 const Kb = dynamic(() => import("@/features/kb/components/kb").then((m) => m.Kb), {
   ssr: false,
   loading: () => (

@@ -4,7 +4,7 @@ import { hub } from "@/lib/relay/hub";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** 客户端探活：家设备是否在线 */
+/** Client health check: whether the home device is online */
 export async function GET(req: Request) {
   const grant = authGrant(req);
   if (!grant) return jsonError(401, "unauthorized");

@@ -6,10 +6,26 @@ use async_openai::{
     Client,
     types::embeddings::{CreateEmbeddingRequestArgs, EmbeddingInput},
 };
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use tokio::sync::Semaphore;
 
 type OpenAIClient = Client<async_openai::config::OpenAIConfig>;
+
+static SHARED_CLIENT: OnceLock<OpenAIClient> = OnceLock::new();
+
+/// Process-wide OpenAI client for one-off calls (query embedding, ask's
+/// route/synthesize). Sharing it keeps the underlying reqwest connection
+/// pool alive across requests in long-lived processes (serve / tunnel),
+/// saving a DNS + TLS handshake per call. The API key is captured on first
+/// use; a changed key requires a process restart.
+pub fn shared_client(api_key: &str) -> OpenAIClient {
+    SHARED_CLIENT
+        .get_or_init(|| {
+            let cfg = async_openai::config::OpenAIConfig::default().with_api_key(api_key);
+            Client::with_config(cfg)
+        })
+        .clone()
+}
 
 pub struct Embedder {
     client: OpenAIClient,
@@ -93,8 +109,7 @@ pub async fn embed_query(
     query: &str,
     expected_dim: usize,
 ) -> Result<Vec<f32>> {
-    let cfg = async_openai::config::OpenAIConfig::default().with_api_key(api_key);
-    let client: OpenAIClient = Client::with_config(cfg);
+    let client = shared_client(api_key);
 
     let mut attempt = 0u32;
     loop {

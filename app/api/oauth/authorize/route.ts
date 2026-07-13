@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 
 const CODE_TTL_MS = 5 * 60 * 1000;
 
-/** 授权页表单提交：校验配对码 → 发授权码 → 302 回客户端 */
+/** Authorization page form submission: validate pairing code → issue auth code → 302 redirect to client */
 export async function POST(req: Request) {
   const form = await req.formData();
   const get = (k: string) => String(form.get(k) ?? "");
@@ -28,13 +28,13 @@ export async function POST(req: Request) {
     return new Response("unsupported code_challenge_method", { status: 400 });
   }
 
-  // 校验并消费配对码
+  // Validate and consume the pairing code
   db.prepare("DELETE FROM pair_codes WHERE expires_at < ?").run(Date.now());
   const pc = db
     .prepare("SELECT code, home_id FROM pair_codes WHERE code = ? AND used = 0 AND expires_at >= ?")
     .get(pairCode, Date.now()) as { code: string; home_id: string } | undefined;
   if (!pc) {
-    // 回授权页并带上错误标记（保留原参数）
+    // Redirect back to the authorization page with an error flag (preserving original params)
     const back = new URL("/oauth/authorize", requestOrigin(req));
     for (const k of ["client_id", "redirect_uri", "state", "code_challenge", "code_challenge_method", "scope", "response_type"]) {
       if (get(k)) back.searchParams.set(k, get(k));

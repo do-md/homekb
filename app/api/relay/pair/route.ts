@@ -13,9 +13,9 @@ export const runtime = "nodejs";
 const PAIR_TTL_MS = 10 * 60 * 1000;
 
 /**
- * 配对：
- * - {action:"new"}（家设备认证）→ 生成配对码
- * - {action:"claim", code, label?}（公开）→ 换长期 clientToken
+ * Pairing:
+ * - {action:"new"} (home device authenticated) → generate pairing code
+ * - {action:"claim", code, label?} (public) → exchange for long-lived clientToken
  */
 export async function POST(req: Request) {
   let body: { action?: string; code?: string; label?: string };

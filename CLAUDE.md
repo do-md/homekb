@@ -2,49 +2,58 @@
 
 @../../CLAUDE.md
 
-> 上面一行继承 workspace 根 CLAUDE.md（包管理规则、zenith 约定、技术栈）。下面是 HomeKB 特有的补充。
+> The line above inherits the workspace root CLAUDE.md (package-management rules, zenith conventions, tech stack). Below are the HomeKB-specific additions.
 
-## 会话开始：先加载项目图（仅新会话时做一次）
+## Language & commit rules (must follow)
 
-本项目有**独立的 project-nexus 图**（项目名 `homekb`，不是 claude-web-ui）。新会话第一件事，加载它拿到 Goal / 原则 / 进行中任务 / 设计文档索引：
+- **English-only codebase.** Everything committed to this repo — code, comments, string literals, UI copy, scripts, docs, README, config, and these instruction files — must be in English. Do NOT introduce Chinese (or any CJK) characters into any file that is version-controlled and pushed to GitHub. The GitHub version of this project is English.
+- **English commit messages.** Write clear, semantic English commit messages (e.g. `feat(cli): ...`, `fix(relay): ...`). No Chinese in commit messages.
+- **No AI attribution in commits.** Do NOT add any `Co-Authored-By: Claude`/`Anthropic` trailer or any "Generated with Claude" line to commits or PR bodies. Commits are authored solely under the user's git identity.
+- The project graph (project-nexus, stored outside this repo) may stay in Chinese — it is cross-session state, not part of the shipped repo.
+
+## Session start: load the project graph (once per new session)
+
+This project has its **own project-nexus graph** (project name `homekb`, not claude-web-ui). The first thing in a new session is to load it to get the Goal / principles / in-progress tasks / design-doc index:
 
 ```bash
 node ~/.claude/skills/project-nexus/scripts/nexus.js load-project "homekb"
 ```
 
-续聊时若已加载过就别重复；展开某个 Task 用 `layer2 "homekb" <task_id>`，读设计文档/历史详情用 `load-content "homekb" <node_id>`，找历史用 `recall "homekb" "<描述>"`。
+When continuing a session, don't reload if already loaded; expand a Task with `layer2 "homekb" <task_id>`, read design docs / historical detail with `load-content "homekb" <node_id>`, and find history with `recall "homekb" "<description>"`.
 
-**做完一件事就顺手同步图**（新完成的事 / 新决策 / 新设计文档 → `add-node`/`add-edge`/`update-node`；末尾 `embed "homekb"` + `sync-reset "homekb"`）。协议契约唯一权威是 `docs/ARCHITECTURE.md`——**改 RPC/API/token/目录先改它**。
+**Sync the graph right after finishing something** (newly completed work / new decision / new design doc → `add-node`/`add-edge`/`update-node`; finish with `embed "homekb"` + `sync-reset "homekb"`). The single source of truth for the protocol contract is `docs/ARCHITECTURE.md` — **change RPC/API/token/layout there first**.
 
-> ⚠️ nexus 写操作要用**全路径、无变量、无管道、无 `$()` 捕获**逐条执行（本沙箱会静默吞掉 `VAR=$(node …)` 和 `node … | grep` 这类构造，命令不执行也不报错）。
+> ⚠️ Run nexus write operations one at a time with **full paths, no variables, no pipes, no `$()` capture** (this sandbox silently swallows constructs like `VAR=$(node …)` and `node … | grep` — the command neither runs nor errors).
 
-## 这是什么
+## What this is
 
-HomeKB —— 面向 C 端的个人知识库产品，核心卖点：**数据永远在用户自己的电脑上**。
-三大件：
+HomeKB — a consumer-facing personal knowledge base whose core selling point is: **your data always stays on your own computer**.
+Four pieces:
 
-1. **engine/**（Rust）：`homekb` CLI —— 知识编译（md → 分块 → OpenAI embedding → sqlite-vec 索引）+ 语义召回（双池 KNN + RRF）+ ask 问答 + 本地 MCP（stdio，接 Claude Code / Codex）+ serve（本机 HTTP RPC）+ tunnel（连中继的家端常驻进程）。fork 自 kb-compile / kb-query，独立演进。
-   **引擎优先原则**：CLI 是自洽完整产品（Git 风格子命令，无 REPL），不依赖客户端；桌面客户端只是纯渲染器（检测/安装引擎 → 连 `homekb serve`），承担安装引擎、辅助配对、编辑配置等本机专属职责。
-2. **Next.js（本目录）**：自托管中继 + Web 版 UI。中继只存「配对关系 + token 哈希」，**不存任何知识库数据**；家端经 SSE 隧道收指令、本地执行、回传结果。含远程 MCP（Streamable HTTP + 配对码 OAuth，接 Claude 手机端）。
-3. **src-tauri/**（后续阶段）：桌面 App，DoMD 模式（静态导出 + Rust invoke 嵌入 engine core）。
+1. **engine/** (Rust): the `homekb` CLI — knowledge compilation (md → chunking → OpenAI embedding → sqlite-vec index) + semantic retrieval (dual-pool KNN + RRF) + ask (Q&A) + local MCP (stdio, for Claude Code / Codex) + serve (HTTP RPC + `/assets`; loopback for the desktop, public bind = direct mode with Bearer auth) + tunnel (the home-side resident process that connects to a relay). Forked from kb-compile / kb-query and evolving independently.
+   **Engine-first principle**: the CLI is a self-contained, complete product (Git-style subcommands, no REPL) and does not depend on any client; the desktop client is just a pure renderer (detect/install engine → connect to `homekb serve`) that handles machine-local duties such as installing the engine, assisting pairing, and editing config.
+2. **relay/**: a **standalone multi-tenant Node service** — the pipe between remote clients and home devices. Operated by the product as shared infrastructure (lowest user barrier; self-hosting the same file is possible). Stores only "pairing relationships + token hashes", **no knowledge-base data whatsoever**; the home side receives commands over an SSE tunnel, executes locally, and returns results; binary assets stream through a dedicated channel (never base64 in SSE). Includes remote MCP (Streamable HTTP + pairing-code OAuth, for the Claude mobile app).
+3. **Next.js (this directory)**: the Web UI — a **pure frontend deployed on Vercel**; no server routes, no data flows through it. Clients pick relay mode or direct mode on the pairing screen.
+4. **src-tauri/**: the desktop app, DoMD-style (static export + Rust invoke, pure renderer over local serve).
 
-协议契约（RPC 方法、API、目录布局、token 格式）见 `docs/ARCHITECTURE.md`，**改协议先改文档**。
+The protocol contract (RPC methods, API, directory layout, token format) lives in `docs/ARCHITECTURE.md` — **change the doc before changing the protocol**.
 
-## 端口与运行
+## Ports & running
 
-- 开发：`npm run dev`（端口 **23333**）；生产：`npm start`（端口 3333）。
-- 引擎构建：`cd engine && cargo build --release`，二进制 `engine/target/release/homekb`。
-- 中继服务端库：`relay.db`（better-sqlite3），路径 env `HOMEKB_RELAY_DB`，默认 `~/.homekb-relay/relay.db`。
+- Web UI dev: `npm run dev` (port **3000**); production build deploys to Vercel.
+- Relay: `npm run relay:dev` (port **8787**); production: `npm run relay:build` → `node relay/dist/server.mjs`.
+- Engine build: `cd engine && cargo build --release`; binary at `engine/target/release/homekb`.
+- Relay server DB: `relay.db` (better-sqlite3), path via env `HOMEKB_RELAY_DB`, defaults to `~/.homekb-relay/relay.db`.
 
-## 数据目录（用户侧）
+## Data directories (user side)
 
-- 数据根 `~/.homekb/`：`notes/`（md 正文，引擎只扫这里）、`assets/images/`、`assets/attachments/`、`index/index.db`（索引快照，单文件、网盘同步安全）。
-- live.db（编译工作库）在 `~/Library/Application Support/homekb/`，**故意不放数据根**——防用户网盘同步 WAL 坏写路径（claude-os 踩过的坑）。
-- 配置 `~/.config/homekb/config.toml`（含 OpenAI key，不进数据根防随网盘外泄）；`notes_dir` 可覆盖指向任意已有目录。
+- Data root `~/.homekb/`: `notes/` (md content, the only thing the engine scans), `assets/images/`, `assets/attachments/`, `index/index.db` (index snapshot — single file, safe for cloud-drive sync).
+- live.db (the compile working DB) lives in `~/Library/Application Support/homekb/`, **deliberately not under the data root** — to avoid corrupt WAL write paths from cloud-drive sync (a pitfall claude-os hit).
+- Config `~/.config/homekb/config.toml` (contains the OpenAI key, kept out of the data root so it can't leak via cloud sync); `notes_dir` can be overridden to point at any existing directory.
 
-## 约定
+## Conventions
 
-- 状态管理 zenith（`npx i @do-md/zenith`），store 写法遵循根 CLAUDE.md。
-- 不写 data-theme，纯跟随系统；分明暗样式一律 `@media (prefers-color-scheme)`。
-- 服务端单例（隧道 hub）必须挂 globalThis，防 dev HMR 重复初始化。
-- 本仓库是独立 git 仓库（apps/homekb 下 git init），语义化中文 commit，直接上 main。
+- State management with zenith (`npx i @do-md/zenith`); store style follows the root CLAUDE.md.
+- No `data-theme` — follow the system theme purely; light/dark styling always via `@media (prefers-color-scheme)`.
+- Server-side singletons (the tunnel hub) must hang off `globalThis` to avoid duplicate initialization under dev HMR.
+- This is a standalone git repo (`git init` under apps/homekb); semantic English commits straight to main.

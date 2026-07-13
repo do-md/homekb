@@ -8,7 +8,88 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::Duration;
 
-/// 超过这个时间没有任何字节（含 25s 间隔的 ping）判定连接已死。
+// ---- launchd daemon management (macOS only) ----
+
+#[cfg(target_os = "macos")]
+pub fn run_install(interval: u64) -> Result<()> {
+    use super::launchd;
+    let bin = launchd::home_bin_path()?;
+    let log = launchd::log_path("tunnel")?;
+    let interval_s = interval.to_string();
+    let body = launchd::daemon_plist(
+        launchd::TUNNEL_LABEL,
+        &[&bin, "tunnel", "--interval", &interval_s],
+        &log,
+    );
+    launchd::install(launchd::TUNNEL_LABEL, &body)?;
+    let compile_note = if interval == 0 {
+        "relay tunnel only (compilation owned by the compile service)".to_string()
+    } else {
+        format!("with built-in reindex every {interval}s")
+    };
+    println!("tunnel installed and started as a background service ({compile_note}, auto-restart on crash)");
+    println!("   label : {}", launchd::TUNNEL_LABEL);
+    println!("   log   : {log}");
+    println!("   status: homekb tunnel --status");
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+pub fn run_uninstall() -> Result<()> {
+    use super::launchd;
+    launchd::uninstall(launchd::TUNNEL_LABEL)?;
+    println!("tunnel background service stopped and removed");
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+pub fn run_status(json_out: bool) -> Result<()> {
+    use super::launchd;
+    let st = launchd::status(launchd::TUNNEL_LABEL)?;
+    if json_out {
+        println!(
+            "{}",
+            json!({
+                "installed": st.installed,
+                "loaded": st.loaded,
+                "running": st.running,
+                "pid": st.pid,
+            })
+        );
+    } else {
+        println!("installed : {}", st.installed);
+        println!("running   : {}", st.running);
+        if let Some(pid) = st.pid {
+            println!("pid       : {pid}");
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn run_install(_interval: u64) -> Result<()> {
+    anyhow::bail!("tunnel daemon install is currently macOS-only (Linux systemd --user support planned)")
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn run_uninstall() -> Result<()> {
+    anyhow::bail!("tunnel daemon uninstall is currently macOS-only")
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn run_status(json_out: bool) -> Result<()> {
+    if json_out {
+        println!(
+            "{}",
+            json!({ "installed": false, "loaded": false, "running": false, "pid": null })
+        );
+    } else {
+        println!("tunnel daemon management is currently macOS-only");
+    }
+    Ok(())
+}
+
+/// Connection is considered dead if no bytes arrive within this window (includes the 25 s ping).
 const READ_TIMEOUT: Duration = Duration::from_secs(90);
 const MAX_BACKOFF_SECS: u64 = 60;
 
@@ -17,7 +98,7 @@ pub fn run(interval: u64) -> Result<()> {
     let relay = super::relay::relay_config(&config)?;
     let rt = super::runtime()?;
     rt.block_on(async move {
-        // 内置定时编译（interval=0 关闭）
+        // Built-in periodic reindex (interval=0 disables it)
         if interval > 0 {
             let cfg = config.clone();
             tokio::spawn(async move {
@@ -65,7 +146,7 @@ async fn connect(
         .await
         .context("connect")?;
     if res.status().as_u16() == 401 {
-        anyhow::bail!("中继拒绝凭据（401）：请重新 `homekb register`");
+        anyhow::bail!("relay rejected credentials (401): run `homekb register` again");
     }
     anyhow::ensure!(res.status().is_success(), "HTTP {}", res.status());
     Ok(res)
@@ -83,7 +164,7 @@ async fn pump(
             .await
             .map_err(|_| anyhow!("no data for {}s (missed pings)", READ_TIMEOUT.as_secs()))??;
         let Some(bytes) = chunk else {
-            return Ok(()); // 服务端正常关闭
+            return Ok(()); // server closed cleanly
         };
         buf.push_str(&String::from_utf8_lossy(&bytes));
         while let Some(idx) = buf.find("\n\n") {
@@ -110,7 +191,7 @@ fn parse_sse(raw: &str) -> Option<(String, String)> {
     Some((event?, data.join("\n")))
 }
 
-/// 每条 RPC 独立 task 执行并回传，慢查询不阻塞隧道读循环。
+/// Each RPC is executed in its own task and the result posted back, so slow queries do not block the tunnel read loop.
 fn handle_rpc(
     data: &str,
     client: &reqwest::Client,

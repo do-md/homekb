@@ -1,9 +1,10 @@
 import type { NextConfig } from "next";
 
-// BUILD_TARGET=tauri 时静态导出（Tauri 桌面壳打包用，DoMD 模式）。
-// 静态导出不含服务端专属路由（app/api、app/oauth、app/.well-known），
-// 由 scripts/tauri-build.mjs 临时移出再还原（docs/ARCHITECTURE.md「桌面客户端」）。
-// distDir 与 dev/Web 版隔离，避免与正在跑的 next dev 抢 .next。
+// When BUILD_TARGET=tauri: static export for the Tauri desktop shell bundle (DoMD mode).
+// The static export excludes server-only routes (app/api, app/oauth, app/.well-known);
+// scripts/tauri-build.mjs temporarily moves them out and restores them afterward
+// (see docs/ARCHITECTURE.md "desktop client").
+// distDir is isolated from the dev/web build to avoid contention with a running next dev.
 const isTauriBuild = process.env.BUILD_TARGET === "tauri";
 
 const nextConfig: NextConfig = {

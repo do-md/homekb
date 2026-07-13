@@ -3,7 +3,7 @@ import { hub, type RpcError } from "@/lib/relay/hub";
 
 export const runtime = "nodejs";
 
-/** 家设备上行：回传 RPC 执行结果 */
+/** Home device upstream: return RPC execution result */
 export async function POST(req: Request) {
   const home = authHome(req);
   if (!home) return jsonError(401, "unauthorized");

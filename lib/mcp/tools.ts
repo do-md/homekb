@@ -1,13 +1,13 @@
 /**
- * 远程 MCP 工具定义（与本地 `homekb mcp` 完全一致，见 docs/ARCHITECTURE.md）。
- * 每个工具映射为一条隧道 RPC。
+ * Remote MCP tool definitions (identical to the local `homekb mcp` tool set; see docs/ARCHITECTURE.md).
+ * Each tool maps to a single tunnel RPC call.
  */
 
 export interface McpToolDef {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
-  /** 翻译为隧道 RPC */
+  /** Translate to a tunnel RPC call. */
   rpc: (args: Record<string, unknown>) => { method: string; params: unknown };
 }
 

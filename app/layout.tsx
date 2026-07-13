@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "HomeKB",
-  description: "你的知识库，数据在你自己的电脑上",
+  description: "Your knowledge base, with data stored on your own computer",
 };
 
 export const viewport: Viewport = {
@@ -16,7 +16,7 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="zh-CN" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning>
       <body className="antialiased">{children}</body>
     </html>
   );

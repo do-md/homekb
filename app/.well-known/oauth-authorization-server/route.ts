@@ -3,7 +3,7 @@ import { CORS_HEADERS, corsPreflight, requestOrigin } from "@/lib/relay/origin";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** RFC 8414 授权服务器元数据 */
+/** RFC 8414 authorization server metadata */
 export function GET(req: Request) {
   const origin = requestOrigin(req);
   return Response.json(

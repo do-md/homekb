@@ -5,12 +5,12 @@ export function sha256hex(s: string): string {
   return crypto.createHash("sha256").update(s).digest("hex");
 }
 
-/** 生成 token：前缀 + 48 hex（24 随机字节） */
+/** Generate a token: prefix + 48 hex characters (24 random bytes). */
 export function randomToken(prefix: "hks_" | "hkt_"): string {
   return prefix + crypto.randomBytes(24).toString("hex");
 }
 
-/** 配对码：8 位，去易混淆字符（无 I/O/0/1） */
+/** Pairing code: 8 characters, ambiguous characters excluded (no I/O/0/1). */
 const PAIR_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 export function randomPairCode(): string {
   const bytes = crypto.randomBytes(8);
@@ -31,7 +31,7 @@ export interface HomeRow {
   name: string;
 }
 
-/** 家设备认证（homeSecret），成功则顺手更新 last_seen_at */
+/** Authenticate a home device (homeSecret); on success also updates last_seen_at. */
 export function authHome(req: Request): HomeRow | null {
   const token = bearerToken(req);
   if (!token || !token.startsWith("hks_")) return null;
@@ -50,7 +50,7 @@ export interface GrantRow {
   label: string;
 }
 
-/** 远端客户端认证（clientToken / OAuth access token，同一种东西） */
+/** Authenticate a remote client (clientToken / OAuth access token — same thing). */
 export function authGrant(req: Request): GrantRow | null {
   const token = bearerToken(req);
   if (!token || !token.startsWith("hkt_")) return null;

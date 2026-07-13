@@ -1,18 +1,18 @@
 "use client";
 
 /**
- * 桌面模式（Tauri webview）检测与命令桥。
+ * Desktop mode (Tauri webview) detection and command bridge.
  *
- * 运行时检测 window.__TAURI_INTERNALS__ —— 不用构建期 env 区分，
- * 同一个 next dev(23333) 既服务浏览器（Web 模式）又服务 tauri dev 的
- * webview（桌面模式）。见 docs/ARCHITECTURE.md「桌面客户端」。
+ * Runtime detection via window.__TAURI_INTERNALS__ — no build-time env split needed:
+ * the same next dev (port 3000) serves both the browser (Web mode) and the Tauri
+ * webview (desktop mode). See docs/ARCHITECTURE.md "Desktop Client".
  */
 
 export function isDesktop(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
-/** Tauri `engine_status` 返回：引擎安装/初始化/serve 探活 + config 概要。 */
+/** Return type of Tauri `engine_status`: engine install/init/serve liveness + config summary. */
 export interface EngineStatus {
   installed: boolean;
   path: string | null;
@@ -27,20 +27,20 @@ export interface EngineStatus {
   relay: { url: string; homeId: string; name: string } | null;
 }
 
-/** Tauri `pair_new` 返回（`homekb pair --json` 的解析结果）。 */
+/** Return type of Tauri `pair_new` (parsed output of `homekb pair --json`). */
 export interface PairInfo {
   code: string;
-  expiresAt: number; // epoch 毫秒
+  expiresAt: number; // epoch milliseconds
   relayUrl: string;
   homeName: string;
 }
 
 export interface TunnelStatus {
   running: boolean;
-  managed: boolean; // 是否是本 App spawn 的子进程
+  managed: boolean; // whether this process was spawned by the App
 }
 
-/** invoke 包装：动态 import，Web 包里该 chunk 永不加载。 */
+/** invoke wrapper: dynamic import so this chunk is never loaded in the Web bundle. */
 export async function invoke<T>(
   cmd: string,
   args?: Record<string, unknown>,
@@ -49,7 +49,7 @@ export async function invoke<T>(
   return core.invoke<T>(cmd, args);
 }
 
-/** Tauri 命令的 Err(String) 落到 JS 是裸 string；统一转成可读消息。 */
+/** Tauri command Err(String) arrives in JS as a bare string; normalise to a readable message. */
 export function invokeErrorMessage(e: unknown, fallback: string): string {
   if (typeof e === "string" && e.trim()) return e;
   if (e instanceof Error && e.message) return e.message;

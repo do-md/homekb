@@ -4,8 +4,8 @@ import os from "node:os";
 import path from "node:path";
 
 /**
- * 中继服务端库：只存「配对关系 + token 哈希」，零知识库数据。
- * 路径：env HOMEKB_RELAY_DB > ~/.homekb-relay/relay.db
+ * Relay server database: stores only pairing relationships and token hashes — zero knowledge-base data.
+ * Path: env HOMEKB_RELAY_DB > ~/.homekb-relay/relay.db
  */
 
 const SCHEMA = `
@@ -59,7 +59,7 @@ function openDb(): Database.Database {
   return db;
 }
 
-/** globalThis 单例，防 dev HMR 重复打开 */
+/** globalThis singleton — prevents the database from being opened multiple times under dev HMR. */
 export function relayDb(): Database.Database {
   const g = globalThis as unknown as { __homekbRelayDb?: Database.Database };
   if (!g.__homekbRelayDb) g.__homekbRelayDb = openDb();

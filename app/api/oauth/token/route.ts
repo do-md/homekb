@@ -17,7 +17,7 @@ function b64url(buf: Buffer): string {
   return buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-/** OAuth token 交换：authorization_code + PKCE(S256) → 长期 access_token（即 clientToken） */
+/** OAuth token exchange: authorization_code + PKCE(S256) → long-lived access_token (clientToken) */
 export async function POST(req: Request) {
   let p: Record<string, string> = {};
   const ct = req.headers.get("content-type") ?? "";
@@ -75,7 +75,7 @@ export async function POST(req: Request) {
     Date.now(),
   );
 
-  // 不带 expires_in / refresh_token：token 长期有效，失效时客户端自然重走授权
+  // No expires_in / refresh_token: token is long-lived; clients re-authorize naturally when it becomes invalid
   return Response.json(
     { access_token: token, token_type: "bearer", scope: "kb" },
     { headers: CORS_HEADERS },

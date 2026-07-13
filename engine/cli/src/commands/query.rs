@@ -10,6 +10,7 @@ pub fn run(
     limit: usize,
     doc_type: Option<String>,
     full: bool,
+    group: bool,
     max_distance: f64,
     list_types: bool,
 ) -> Result<()> {
@@ -31,6 +32,7 @@ pub fn run(
         limit,
         doc_type,
         full,
+        group,
         max_distance,
     };
 

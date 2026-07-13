@@ -15,23 +15,23 @@ export function ReaderView() {
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
         <button className="btn btn-ghost btn-sm" onClick={() => api.go("recall")}>
-          ← 返回
+          ← Back
         </button>
         {!editMode ? (
           <button className="btn btn-sm" onClick={() => api.startEdit()} disabled={loading || !!error}>
-            编辑
+            Edit
           </button>
         ) : (
           <div className="flex gap-2">
             <button className="btn btn-ghost btn-sm" onClick={() => api.cancelEdit()}>
-              取消
+              Cancel
             </button>
             <button
               className="btn btn-primary btn-sm"
               onClick={() => void api.saveEdit()}
               disabled={saveBusy}
             >
-              {saveBusy ? <span className="loading loading-spinner loading-xs" /> : "保存"}
+              {saveBusy ? <span className="loading loading-spinner loading-xs" /> : "Save"}
             </button>
           </div>
         )}

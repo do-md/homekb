@@ -6,7 +6,7 @@
 //! exposed as a library for the CLI, MCP server and relay tunnel.
 //!
 //! All public result types serialize as camelCase and match the
-//! ARCHITECTURE.md "RPC 方法" table.
+//! ARCHITECTURE.md "RPC methods" table.
 
 mod ai;
 mod api;

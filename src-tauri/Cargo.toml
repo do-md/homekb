@@ -1,7 +1,7 @@
 [package]
 name = "homekb-desktop"
 version = "0.1.0"
-description = "HomeKB 桌面客户端 —— 纯渲染器：检测/安装引擎 → 连 homekb serve"
+description = "HomeKB desktop client — pure renderer: detect/install engine → connect to homekb serve"
 edition = "2021"
 
 [[bin]]

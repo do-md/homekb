@@ -1,8 +1,10 @@
-//! 引擎侧助手：二进制定位、config.toml 概要、serve 探活、CLI 调用。
+//! Engine-side helpers: binary detection, config.toml summary, serve health check, CLI invocation.
 //!
-//! 桌面客户端是纯渲染器（docs/ARCHITECTURE.md「桌面客户端」）：这里只
-//! 定位/调用 `homekb` CLI 和读写同机 config.toml，不实现任何引擎逻辑。
-//! 路径默认值（root=~/.homekb、notes=<root>/notes）以文档的目录布局表为契约。
+//! The desktop client is a pure renderer (docs/ARCHITECTURE.md "desktop client"):
+//! this module only locates/invokes the `homekb` CLI and reads/writes the local
+//! config.toml — it does not implement any engine logic.
+//! Path defaults (root=~/.homekb, notes=<root>/notes) are governed by the
+//! directory layout table in the architecture doc.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -12,8 +14,8 @@ pub fn home_dir() -> PathBuf {
     dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"))
 }
 
-/// 引擎二进制检测顺序：env HOMEKB_BIN > ~/.local/bin/homekb > 常见安装位。
-/// （GUI 进程的 PATH 极简，不能依赖 `which`。）
+/// Engine binary detection order: env HOMEKB_BIN > ~/.local/bin/homekb > common install locations.
+/// (GUI process PATH is minimal; cannot rely on `which`.)
 pub fn engine_path() -> Option<PathBuf> {
     if let Ok(p) = std::env::var("HOMEKB_BIN") {
         let p = PathBuf::from(p);
@@ -31,7 +33,7 @@ pub fn engine_path() -> Option<PathBuf> {
     candidates.into_iter().find(|p| p.is_file())
 }
 
-/// 安装目标：~/.local/bin/homekb（文档契约）。
+/// Install target: ~/.local/bin/homekb (per docs contract).
 pub fn install_target() -> PathBuf {
     home_dir().join(".local/bin/homekb")
 }
@@ -45,8 +47,8 @@ pub fn engine_version(bin: &Path) -> Option<String> {
     Some(s.trim().trim_start_matches("homekb").trim().to_string())
 }
 
-/// config.toml 路径：$HOMEKB_CONFIG > $XDG_CONFIG_HOME/homekb/config.toml
-/// > ~/.config/homekb/config.toml（与引擎 config.rs 同序）。
+/// config.toml path: $HOMEKB_CONFIG > $XDG_CONFIG_HOME/homekb/config.toml
+/// > ~/.config/homekb/config.toml (same lookup order as engine config.rs).
 pub fn config_path() -> PathBuf {
     if let Ok(p) = std::env::var("HOMEKB_CONFIG") {
         if !p.is_empty() {
@@ -85,7 +87,7 @@ pub struct ConfigSummary {
     pub relay: Option<RelayInfo>,
 }
 
-/// 只读概要（渲染用）；写入只经 [`set_openai_key`] 或引擎 CLI。
+/// Read-only summary (for rendering); writes go only through [`set_openai_key`] or the engine CLI.
 pub fn read_config() -> ConfigSummary {
     let tbl: toml::Table = fs::read_to_string(config_path())
         .ok()
@@ -101,8 +103,8 @@ pub fn read_config() -> ConfigSummary {
         .map(expand_tilde)
         .unwrap_or_else(|| root.join("notes"));
 
-    // key 是否可被引擎解析到：config 字段 或 ~/.config/openai/api_key 兜底
-    // （env OPENAI_API_KEY 在 GUI 进程里通常不存在，不算）。
+    // Whether the key is reachable by the engine: config field or ~/.config/openai/api_key fallback.
+    // (OPENAI_API_KEY env var is typically absent in GUI processes and is not counted.)
     let key_in_config = str_of("openai_api_key").is_some();
     let key_in_fallback = {
         let xdg = std::env::var("XDG_CONFIG_HOME")
@@ -132,8 +134,8 @@ pub fn read_config() -> ConfigSummary {
     }
 }
 
-/// 写 openai_api_key：整表读改写（toml::Table 保留未知字段；注释不保留，
-/// config 本就由 init/register 机器改写）。
+/// Write openai_api_key: read-modify-write the whole table (toml::Table preserves
+/// unknown fields; comments are not preserved — config is machine-written by init/register).
 pub fn set_openai_key(key: &str) -> Result<(), String> {
     let path = config_path();
     let mut tbl: toml::Table = fs::read_to_string(&path)
@@ -142,14 +144,14 @@ pub fn set_openai_key(key: &str) -> Result<(), String> {
         .unwrap_or_default();
     tbl.insert("openai_api_key".into(), toml::Value::String(key.to_string()));
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("创建 {}: {e}", parent.display()))?;
+        fs::create_dir_all(parent).map_err(|e| format!("create {}: {e}", parent.display()))?;
     }
-    let body = toml::to_string_pretty(&tbl).map_err(|e| format!("序列化配置失败: {e}"))?;
+    let body = toml::to_string_pretty(&tbl).map_err(|e| format!("failed to serialize config: {e}"))?;
     fs::write(&path, format!("# homekb configuration — see docs/ARCHITECTURE.md\n{body}"))
-        .map_err(|e| format!("写入 {}: {e}", path.display()))
+        .map_err(|e| format!("write {}: {e}", path.display()))
 }
 
-/// serve 探活：GET /health，300ms 连接超时的裸 HTTP/1.1（省一个 http 客户端依赖）。
+/// Serve health check: GET /health via raw HTTP/1.1 with 300ms connection timeout (avoids an http client dependency).
 pub fn serve_health() -> bool {
     use std::io::{Read, Write};
     use std::net::TcpStream;
@@ -171,12 +173,12 @@ pub fn serve_health() -> bool {
     String::from_utf8_lossy(&buf[..n]).starts_with("HTTP/1.1 200")
 }
 
-/// 跑一条引擎 CLI 子命令，成功返回 stdout；失败带 stderr 尾巴。
+/// Run an engine CLI subcommand; returns stdout on success or the last few stderr lines on failure.
 pub fn run_cli(bin: &Path, args: &[&str]) -> Result<String, String> {
     let out = Command::new(bin)
         .args(args)
         .output()
-        .map_err(|e| format!("无法运行 {}: {e}", bin.display()))?;
+        .map_err(|e| format!("cannot run {}: {e}", bin.display()))?;
     if out.status.success() {
         Ok(String::from_utf8_lossy(&out.stdout).to_string())
     } else {
@@ -184,20 +186,20 @@ pub fn run_cli(bin: &Path, args: &[&str]) -> Result<String, String> {
         let tail: Vec<&str> = err.trim().lines().rev().take(3).collect();
         let tail: Vec<&str> = tail.into_iter().rev().collect();
         Err(if tail.is_empty() {
-            format!("homekb {} 失败（{}）", args.join(" "), out.status)
+            format!("homekb {} failed ({})", args.join(" "), out.status)
         } else {
             tail.join("\n")
         })
     }
 }
 
-/// 子进程日志文件：~/Library/Logs/HomeKB/<name>.log（macOS 先行）。
+/// Child process log file: ~/Library/Logs/HomeKB/<name>.log (macOS first).
 pub fn log_file(name: &str) -> Result<fs::File, String> {
     let dir = home_dir().join("Library/Logs/HomeKB");
-    fs::create_dir_all(&dir).map_err(|e| format!("创建日志目录: {e}"))?;
+    fs::create_dir_all(&dir).map_err(|e| format!("create log directory: {e}"))?;
     fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(dir.join(format!("{name}.log")))
-        .map_err(|e| format!("打开日志文件: {e}"))
+        .map_err(|e| format!("open log file: {e}"))
 }

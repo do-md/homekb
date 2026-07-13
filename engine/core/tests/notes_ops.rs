@@ -70,14 +70,14 @@ fn create_note_titles_slugs_collisions() {
     let root = sandbox("create");
     let cfg = test_cfg(&root);
 
-    // Explicit title wins; CJK survives; spaces become '-'.
-    let c1 = create_note(&cfg, "内容", Some("菜谱 红烧肉".into())).unwrap();
-    assert_eq!(c1.title, "菜谱 红烧肉");
-    assert_eq!(c1.path, "菜谱-红烧肉.md");
+    // Explicit title wins; spaces become '-'.
+    let c1 = create_note(&cfg, "content", Some("Braised Pork Belly".into())).unwrap();
+    assert_eq!(c1.title, "Braised Pork Belly");
+    assert_eq!(c1.path, "Braised-Pork-Belly.md");
 
     // Collision appends -2.
-    let c2 = create_note(&cfg, "更多内容", Some("菜谱 红烧肉".into())).unwrap();
-    assert_eq!(c2.path, "菜谱-红烧肉-2.md");
+    let c2 = create_note(&cfg, "more content", Some("Braised Pork Belly".into())).unwrap();
+    assert_eq!(c2.path, "Braised-Pork-Belly-2.md");
 
     // H1 fallback.
     let c3 = create_note(&cfg, "# From Heading\n\nbody", None).unwrap();

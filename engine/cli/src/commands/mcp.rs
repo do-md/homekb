@@ -1,7 +1,7 @@
 //! `homekb mcp` — local MCP server over stdio (newline-delimited JSON-RPC).
 //!
 //! Tool set is identical to the remote MCP on the relay (see
-//! docs/ARCHITECTURE.md "MCP 工具"); every tool maps onto the shared
+//! docs/ARCHITECTURE.md "MCP tools"); every tool maps onto the shared
 //! [`homekb_core::dispatch`] RPC dispatcher.
 //!
 //! Wire in Claude Code: `claude mcp add homekb -- homekb mcp`
@@ -61,7 +61,7 @@ fn tool_text(payload: &Value, is_error: bool) -> Value {
     json!({ "content": [{ "type": "text", "text": text }], "isError": is_error })
 }
 
-/// None = notification（不响应）。
+/// Returns None for notifications (no response sent).
 async fn handle(config: &Config, msg: &Value) -> Option<Value> {
     let id = msg.get("id").cloned();
     let method = msg.get("method").and_then(|m| m.as_str()).unwrap_or("");
@@ -116,7 +116,7 @@ async fn handle(config: &Config, msg: &Value) -> Option<Value> {
     }
 }
 
-/// tool 名 + 入参 → 隧道 RPC（method, params）。与远程 lib/mcp/tools.ts 对齐。
+/// Maps a tool name + arguments to a tunnel RPC (method, params). Mirrors the remote lib/mcp/tools.ts.
 fn map_tool(name: &str, a: &Value) -> Option<(&'static str, Value)> {
     let g = |k: &str| a.get(k).cloned().unwrap_or(Value::Null);
     match name {

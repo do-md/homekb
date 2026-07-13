@@ -20,24 +20,24 @@ export function StatusView() {
 
   const connText =
     online === null
-      ? "探测中…"
+      ? "Checking…"
       : desktop
         ? online
-          ? "本机引擎运行中"
-          : "本机引擎未响应"
+          ? "Local engine running"
+          : "Local engine not responding"
         : online
-          ? "隧道在线"
-          : "隧道离线（家中运行 homekb tunnel）";
+          ? "Tunnel online"
+          : "Tunnel offline (run homekb tunnel on your home machine)";
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <div>
-          <div className="font-semibold">{homeName || "家里电脑"}</div>
+          <div className="font-semibold">{homeName || "Home machine"}</div>
           <div className="text-xs opacity-50">{connText}</div>
         </div>
         <button className="btn btn-ghost btn-sm" onClick={() => void api.loadStatus()}>
-          刷新
+          Refresh
         </button>
       </div>
 
@@ -47,38 +47,38 @@ export function StatusView() {
         </div>
       ) : status ? (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          <Stat label="文档" value={status.docs ?? "-"} />
-          <Stat label="分块" value={status.chunks ?? "-"} />
-          <Stat label="已向量化" value={status.chunksWithVectors ?? "-"} />
-          <Stat label="待编译" value={status.pending ?? "-"} />
-          <Stat label="失败" value={status.failures ?? "-"} />
-          <Stat label="索引代数" value={status.generation ?? "-"} />
+          <Stat label="Documents" value={status.docs ?? "-"} />
+          <Stat label="Chunks" value={status.chunks ?? "-"} />
+          <Stat label="Vectorized" value={status.chunksWithVectors ?? "-"} />
+          <Stat label="Pending" value={status.pending ?? "-"} />
+          <Stat label="Failures" value={status.failures ?? "-"} />
+          <Stat label="Index generation" value={status.generation ?? "-"} />
           <Stat
-            label="上次编译"
+            label="Last indexed"
             value={
               status.lastCompileAt
                 ? new Date(status.lastCompileAt * 1000).toLocaleString()
                 : "-"
             }
           />
-          <Stat label="Embedding" value={status.embeddingModel ?? "-"} />
+          <Stat label="Embedding model" value={status.embeddingModel ?? "-"} />
         </div>
       ) : (
-        <p className="py-8 text-center text-sm opacity-50">暂无状态数据</p>
+        <p className="py-8 text-center text-sm opacity-50">No status data available</p>
       )}
 
       <div className="flex gap-2">
         <button className="btn btn-sm" onClick={() => void api.reindex()}>
-          立即编译
+          Reindex now
         </button>
         {!desktop && (
           <button
             className="btn btn-ghost btn-sm text-error ml-auto"
             onClick={() => {
-              if (confirm("解除与这台电脑的配对？")) api.unpair();
+              if (confirm("Unpair from this machine?")) api.unpair();
             }}
           >
-            解除配对
+            Unpair
           </button>
         )}
       </div>

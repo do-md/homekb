@@ -2,8 +2,8 @@ import { asRpcHubError, hub } from "@/lib/relay/hub";
 import { MCP_TOOL_MAP, MCP_TOOLS } from "./tools";
 
 /**
- * 无状态 Streamable HTTP MCP：单个 JSON-RPC 消息进，JSON 响应出。
- * 不发 session id、不开 SSE 流 —— 规范允许的最简形态，Claude 系客户端均兼容。
+ * Stateless Streamable HTTP MCP: single JSON-RPC message in, JSON response out.
+ * No session ID, no SSE stream — the simplest form allowed by the spec; compatible with all Claude clients.
  */
 
 interface JsonRpcMessage {
@@ -42,7 +42,7 @@ function toolText(payload: unknown, isError = false) {
 }
 
 /**
- * 处理一条 MCP 消息。返回 null 表示无需响应体（notification → HTTP 202）。
+ * Handle a single MCP message. Returns null when no response body is needed (notification → HTTP 202).
  */
 export async function handleMcpMessage(
   msg: JsonRpcMessage,
@@ -99,7 +99,7 @@ export async function handleMcpMessage(
       }
     }
     default:
-      // notifications（notifications/initialized 等）静默吞掉
+      // notifications (notifications/initialized etc.) — silently ignore
       if (isNotification || method?.startsWith("notifications/")) return null;
       return rpcError(id, -32601, `Method not found: ${method}`);
   }

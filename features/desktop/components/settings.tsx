@@ -22,7 +22,7 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-/** 桌面专属「设置」视图：引擎/目录信息、OpenAI key、中继与配对、tunnel 开关。 */
+/** Desktop-only Settings view: engine/directory info, OpenAI key, relay & pairing, tunnel toggle. */
 export function SettingsView() {
   const api = useDesktopStoreApi();
   const engine = useDesktopStore((s) => s.state.engine);
@@ -44,20 +44,20 @@ export function SettingsView() {
 
   return (
     <div className="flex flex-col gap-4">
-      <Section title="引擎">
-        <Row label="版本" value={engine?.version ?? "未知"} />
-        <Row label="二进制" value={engine?.path ?? "未安装"} />
-        <Row label="本机服务" value={engine?.serveRunning ? "运行中（127.0.0.1:8765）" : "未运行"} />
+      <Section title="Engine">
+        <Row label="Version" value={engine?.version ?? "Unknown"} />
+        <Row label="Binary" value={engine?.path ?? "Not installed"} />
+        <Row label="Local service" value={engine?.serveRunning ? "Running (127.0.0.1:8765)" : "Not running"} />
       </Section>
 
-      <Section title="数据目录（数据永远在这台电脑上）">
-        <Row label="笔记" value={engine?.notesDir ?? "-"} />
-        <Row label="数据根" value={engine?.root ?? "-"} />
-        <Row label="配置" value={engine?.configPath ?? "-"} />
+      <Section title="Data directory (your data stays on this machine)">
+        <Row label="Notes" value={engine?.notesDir ?? "-"} />
+        <Row label="Data root" value={engine?.root ?? "-"} />
+        <Row label="Config" value={engine?.configPath ?? "-"} />
       </Section>
 
-      <Section title="OpenAI Key（仅存本机 config.toml，编译与问答用）">
-        <Row label="当前" value={engine?.openaiKeyPresent ? "已配置" : "未配置"} />
+      <Section title="OpenAI Key (stored locally in config.toml, used for indexing and Q&A)">
+        <Row label="Current" value={engine?.openaiKeyPresent ? "Configured" : "Not configured"} />
         <div className="flex gap-2">
           <input
             type="password"
@@ -71,18 +71,18 @@ export function SettingsView() {
             disabled={keyBusy || !keyDraft.trim()}
             onClick={() => void api.saveOpenaiKey()}
           >
-            {keyBusy ? <span className="loading loading-spinner loading-xs" /> : "保存"}
+            {keyBusy ? <span className="loading loading-spinner loading-xs" /> : "Save"}
           </button>
         </div>
       </Section>
 
-      <Section title="远程访问（经中继，中继不存任何知识库数据）">
+      <Section title="Remote access (via relay — relay stores no knowledge base data)">
         {engine?.relay ? (
           <>
-            <Row label="中继" value={engine.relay.url} />
-            <Row label="设备名" value={engine.relay.name} />
+            <Row label="Relay" value={engine.relay.url} />
+            <Row label="Device name" value={engine.relay.name} />
             <div className="flex items-center justify-between text-sm">
-              <span className="opacity-50">隧道常驻（手机/远程 MCP 需开启）</span>
+              <span className="opacity-50">Keep tunnel alive (required for mobile / remote MCP)</span>
               <input
                 type="checkbox"
                 className="toggle toggle-sm"
@@ -97,13 +97,13 @@ export function SettingsView() {
               disabled={pairBusy}
               onClick={() => void api.newPairCode()}
             >
-              {pairBusy ? <span className="loading loading-spinner loading-xs" /> : "生成配对码"}
+              {pairBusy ? <span className="loading loading-spinner loading-xs" /> : "Generate pairing code"}
             </button>
             {pair && (
               <div className="bg-base-100 flex flex-col items-center gap-1 rounded-lg p-4">
                 <div className="font-mono text-3xl font-bold tracking-[0.3em]">{pair.code}</div>
                 <div className="text-xs opacity-50">
-                  10 分钟内有效 · 手机打开 {pair.relayUrl} 输入，或 Claude 手机端连接器授权页输入
+                  Valid for 10 minutes · Open {pair.relayUrl} on your phone and enter this code, or enter it in the Claude mobile connector authorization page
                 </div>
               </div>
             )}
@@ -112,7 +112,7 @@ export function SettingsView() {
         ) : (
           <>
             <p className="text-xs opacity-60">
-              注册到一台自托管中继后，手机与 Claude 手机端才能远程访问这台电脑。
+              Register with a self-hosted relay to allow mobile and Claude mobile access to this machine.
             </p>
             <div className="flex gap-2">
               <input
@@ -126,7 +126,7 @@ export function SettingsView() {
                 disabled={registerBusy || !registerDraft.trim()}
                 onClick={() => void api.register()}
               >
-                {registerBusy ? <span className="loading loading-spinner loading-xs" /> : "注册"}
+                {registerBusy ? <span className="loading loading-spinner loading-xs" /> : "Register"}
               </button>
             </div>
             {registerError && <div className="text-error text-xs">{registerError}</div>}

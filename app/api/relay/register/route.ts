@@ -4,14 +4,14 @@ import { jsonError, randomToken, sha256hex } from "@/lib/relay/auth";
 
 export const runtime = "nodejs";
 
-/** 家设备注册：→ {homeId, homeSecret}（homeSecret 明文只返回这一次） */
+/** Home device registration: → {homeId, homeSecret} (homeSecret is returned in plaintext only once) */
 export async function POST(req: Request) {
   let name = "";
   try {
     const body = await req.json();
     if (typeof body?.name === "string") name = body.name.slice(0, 64);
   } catch {
-    // 空 body 也允许
+    // empty body is also allowed
   }
   const homeId = "hm_" + nanoid(10);
   const homeSecret = randomToken("hks_");

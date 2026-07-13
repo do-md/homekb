@@ -15,13 +15,13 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 
-/// CORS 白名单（docs/ARCHITECTURE.md「本机 HTTP RPC」）：仅桌面 webview 与
-/// next dev 调试来源。绝不放 `*`——否则任意浏览器网页都能驱动本机召回。
+/// CORS allowlist (docs/ARCHITECTURE.md "localhost HTTP RPC"): desktop webview and
+/// Next.js dev origin only. Never use `*` — that would let any browser page drive local retrieval.
 const ALLOWED_ORIGINS: [&str; 4] = [
     "tauri://localhost",
     "http://tauri.localhost",
-    "http://localhost:23333",
-    "http://127.0.0.1:23333",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
 ];
 
 pub fn run(port: u16) -> Result<()> {

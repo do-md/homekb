@@ -2,12 +2,12 @@
 import { useDesktopStore, useDesktopStoreApi } from "../store/desktop-store";
 
 const PHASE_TEXT: Record<string, string> = {
-  checking: "正在检测本机引擎…",
-  installing: "首次使用：正在安装引擎到 ~/.local/bin …",
-  starting: "正在启动本机服务（homekb serve）…",
+  checking: "Detecting local engine…",
+  installing: "First run: installing engine to ~/.local/bin …",
+  starting: "Starting local service (homekb serve)…",
 };
 
-/** 桌面首启引导屏：检测/安装引擎 → 拉起 serve。全程无系统弹框。 */
+/** Desktop startup screen: detect/install engine then launch serve. No system dialogs. */
 export function BootScreen() {
   const api = useDesktopStoreApi();
   const phase = useDesktopStore((s) => s.state.phase);
@@ -21,13 +21,13 @@ export function BootScreen() {
           <>
             <div className="alert alert-error text-sm">{bootError}</div>
             <button className="btn btn-sm" onClick={() => void api.bootstrap()}>
-              重试
+              Retry
             </button>
           </>
         ) : (
           <>
             <span className="loading loading-spinner" />
-            <p className="text-sm opacity-60">{PHASE_TEXT[phase] ?? "启动中…"}</p>
+            <p className="text-sm opacity-60">{PHASE_TEXT[phase] ?? "Starting…"}</p>
           </>
         )}
       </div>

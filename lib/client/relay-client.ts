@@ -1,6 +1,6 @@
 "use client";
 
-/** 浏览器端中继客户端：token 存 localStorage，一切数据经 /api/relay/rpc */
+/** Browser-side relay client: token stored in localStorage, all data flows through /api/relay/rpc. */
 
 const TOKEN_KEY = "homekb.token.v1";
 const HOME_KEY = "homekb.home.v1";
@@ -55,7 +55,7 @@ export async function claimPairCode(
   });
   const data = await res.json();
   if (!res.ok || !data.ok) {
-    throw new RelayError(data.error ?? "claim_failed", "配对码无效或已过期");
+    throw new RelayError(data.error ?? "claim_failed", "Pairing code is invalid or has expired");
   }
   const home = { homeId: data.homeId, homeName: data.homeName };
   storePairing(data.token, home);
@@ -67,7 +67,7 @@ export async function rpc<T = unknown>(
   params: Record<string, unknown> = {},
 ): Promise<T> {
   const token = getToken();
-  if (!token) throw new RelayError("unauthorized", "未配对");
+  if (!token) throw new RelayError("unauthorized", "Not paired");
   const res = await fetch("/api/relay/rpc", {
     method: "POST",
     headers: {
@@ -77,15 +77,15 @@ export async function rpc<T = unknown>(
     body: JSON.stringify({ method, params }),
   });
   const data = await res.json().catch(() => ({}));
-  if (res.status === 401) throw new RelayError("unauthorized", "配对已失效，请重新配对");
+  if (res.status === 401) throw new RelayError("unauthorized", "Pairing has expired, please pair again");
   if (!res.ok || !data.ok) {
     const code = data.error ?? `http_${res.status}`;
     const msg =
       code === "home_offline"
-        ? "家里电脑不在线（需在电脑上运行 homekb tunnel）"
+        ? "Home computer is not online (run `homekb tunnel` on your computer)"
         : code === "timeout"
-          ? "家里电脑响应超时"
-          : (data.message ?? data.detail?.message ?? "请求失败");
+          ? "Home computer timed out"
+          : (data.message ?? data.detail?.message ?? "Request failed");
     throw new RelayError(code, msg);
   }
   return data.result as T;
@@ -93,11 +93,11 @@ export async function rpc<T = unknown>(
 
 export async function checkHealth(): Promise<boolean> {
   const token = getToken();
-  if (!token) throw new RelayError("unauthorized", "未配对");
+  if (!token) throw new RelayError("unauthorized", "Not paired");
   const res = await fetch("/api/relay/health", {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (res.status === 401) throw new RelayError("unauthorized", "配对已失效");
+  if (res.status === 401) throw new RelayError("unauthorized", "Pairing has expired");
   const data = await res.json();
   return !!data.online;
 }

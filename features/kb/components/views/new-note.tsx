@@ -14,19 +14,19 @@ export function NewNoteView() {
       <input
         value={title}
         onChange={(e) => api.setNewTitle(e.target.value)}
-        placeholder="标题（可选，决定文件名）"
+        placeholder="Title (optional, used as filename)"
         className="input input-bordered w-full"
       />
       <textarea
         value={text}
         onChange={(e) => api.setNewText(e.target.value)}
-        placeholder="Markdown 内容…"
+        placeholder="Markdown content…"
         className="textarea textarea-bordered min-h-[50dvh] w-full font-mono text-sm"
       />
       {error && <div className="alert alert-error text-sm">{error}</div>}
       {savedPath && (
         <div className="alert alert-success text-sm">
-          已入库：<code>{savedPath}</code>
+          Saved: <code>{savedPath}</code>
         </div>
       )}
       <button
@@ -34,7 +34,7 @@ export function NewNoteView() {
         disabled={busy || !text.trim()}
         onClick={() => void api.createNote()}
       >
-        {busy ? <span className="loading loading-spinner loading-sm" /> : "入库"}
+        {busy ? <span className="loading loading-spinner loading-sm" /> : "Save to KB"}
       </button>
     </div>
   );

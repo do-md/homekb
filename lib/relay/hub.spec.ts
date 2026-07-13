@@ -14,14 +14,14 @@ function connect(hub: TunnelHub, homeId = "hm_test") {
 }
 
 describe("TunnelHub", () => {
-  it("家端未连接时 call 直接拒绝 home_offline", async () => {
+  it("call rejects with home_offline when home device is not connected", async () => {
     const hub = new TunnelHub();
     await expect(hub.call("hm_nope", "kb.status", {})).rejects.toMatchObject({
       code: "home_offline",
     });
   });
 
-  it("完整往返：call 下发 rpc 事件，resolveResult 兑现", async () => {
+  it("full round-trip: call sends rpc event, resolveResult resolves the promise", async () => {
     const hub = new TunnelHub();
     const { sent } = connect(hub);
     const p = hub.call("hm_test", "kb.query", { query: "x" });
@@ -32,14 +32,14 @@ describe("TunnelHub", () => {
     await expect(p).resolves.toEqual({ hello: 1 });
   });
 
-  it("家端返回 ok:false 时以 rpc_error 拒绝并透传 detail", async () => {
+  it("rejects with rpc_error and passes through detail when home returns ok:false", async () => {
     const hub = new TunnelHub();
     const { sent } = connect(hub);
     const p = hub.call("hm_test", "kb.read", { path: "../etc" });
     const msg = JSON.parse(sent[0].data);
     hub.resolveResult("hm_test", msg.id, false, undefined, {
       code: "bad_path",
-      message: "路径穿越",
+      message: "path traversal",
     });
     await expect(p).rejects.toMatchObject({
       code: "rpc_error",
@@ -47,7 +47,7 @@ describe("TunnelHub", () => {
     });
   });
 
-  it("超时后拒绝，迟到的结果被静默丢弃", async () => {
+  it("rejects after timeout and silently discards late results", async () => {
     vi.useFakeTimers();
     const hub = new TunnelHub();
     const { sent } = connect(hub);
@@ -56,31 +56,31 @@ describe("TunnelHub", () => {
     vi.advanceTimersByTime(150);
     await rejection;
     const msg = JSON.parse(sent[0].data);
-    // 迟到结果不抛错
+    // late result must not throw
     hub.resolveResult("hm_test", msg.id, true, {});
     vi.useRealTimers();
   });
 
-  it("重连时旧连接的 pending 全部拒绝，且旧连接被 close", async () => {
+  it("on reconnect, all pending requests of old connection are rejected and old connection is closed", async () => {
     const hub = new TunnelHub();
     const first = connect(hub);
     const p = hub.call("hm_test", "kb.status", {});
     const rejection = expect(p).rejects.toMatchObject({ code: "tunnel_closed" });
-    connect(hub); // 同 homeId 重连
+    connect(hub); // reconnect with same homeId
     await rejection;
     expect(first.close).toHaveBeenCalled();
     expect(hub.online("hm_test")).toBe(true);
   });
 
-  it("旧连接 abort 不误杀新连接（unregister 身份守卫）", () => {
+  it("stale connection abort does not evict new connection (unregister identity guard)", () => {
     const hub = new TunnelHub();
     const first = connect(hub);
-    connect(hub); // 新连接顶替
-    hub.unregister("hm_test", first.conn); // 旧连接的 abort 回调
+    connect(hub); // new connection takes over
+    hub.unregister("hm_test", first.conn); // abort callback from old connection
     expect(hub.online("hm_test")).toBe(true);
   });
 
-  it("send 抛错时 call 立即以 tunnel_closed 拒绝", async () => {
+  it("call rejects immediately when send throws", async () => {
     const hub = new TunnelHub();
     hub.register(
       "hm_test",

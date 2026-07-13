@@ -14,19 +14,19 @@ fn normalize_url(url: &str) -> String {
 
 pub fn relay_config(config: &Config) -> Result<RelayConfig> {
     config.relay.clone().filter(|r| !r.url.is_empty() && !r.home_secret.is_empty()).context(
-        "尚未接入中继：先运行 `homekb register --relay <中继地址>` 注册这台电脑",
+        "not connected to a relay: run `homekb register --relay <relay URL>` to register this machine first",
     )
 }
 
 /// `homekb register --relay URL [--name NAME]`
 pub fn run_register(relay: Option<String>, name: Option<String>) -> Result<()> {
-    let relay = relay.context("需要 --relay <中继地址>，例如 --relay https://kb.example.com")?;
+    let relay = relay.context("--relay <URL> is required, e.g. --relay https://kb.example.com")?;
     let url = normalize_url(&relay);
     let name = name.unwrap_or_else(|| {
         hostname::get()
             .ok()
             .and_then(|h| h.into_string().ok())
-            .unwrap_or_else(|| "我的电脑".to_string())
+            .unwrap_or_else(|| "my-machine".to_string())
     });
 
     let mut config = Config::load()?;
@@ -37,13 +37,13 @@ pub fn run_register(relay: Option<String>, name: Option<String>) -> Result<()> {
             .json(&serde_json::json!({ "name": name }))
             .send()
             .await
-            .context("无法连接中继服务器")?;
-        anyhow::ensure!(res.status().is_success(), "注册失败：HTTP {}", res.status());
+            .context("cannot connect to relay server")?;
+        anyhow::ensure!(res.status().is_success(), "registration failed: HTTP {}", res.status());
         Ok::<Value, anyhow::Error>(res.json().await?)
     })?;
 
-    let home_id = body["homeId"].as_str().context("响应缺 homeId")?.to_string();
-    let home_secret = body["homeSecret"].as_str().context("响应缺 homeSecret")?.to_string();
+    let home_id = body["homeId"].as_str().context("response missing homeId")?.to_string();
+    let home_secret = body["homeSecret"].as_str().context("response missing homeSecret")?.to_string();
 
     config.relay = Some(RelayConfig {
         url: url.clone(),
@@ -53,18 +53,18 @@ pub fn run_register(relay: Option<String>, name: Option<String>) -> Result<()> {
     });
     let path = config.save()?;
 
-    println!("✅ 已注册家设备「{name}」（{home_id}）→ {url}");
-    println!("凭据已写入 {}", path.display());
-    println!("\n下一步：");
-    println!("  homekb tunnel   # 常驻连接中继（手机/远程 MCP 才能访问到这台电脑）");
-    println!("  homekb pair     # 生成配对码给手机或 Claude 手机端");
+    println!("registered home device \"{}\" ({}) -> {}", name, home_id, url);
+    println!("credentials written to {}", path.display());
+    println!("\nNext steps:");
+    println!("  homekb tunnel   # resident relay connection (required for phone / remote MCP access)");
+    println!("  homekb pair     # generate a pairing code for a phone or Claude mobile client");
     Ok(())
 }
 
 /// `homekb pair [--json]`
 ///
-/// `--json`：stdout 单行 `{"code","expiresAt","relayUrl","homeName"}`
-/// （epoch 毫秒），供桌面客户端解析（docs/ARCHITECTURE.md）。
+/// `--json`: stdout single-line `{"code","expiresAt","relayUrl","homeName"}`
+/// (epoch milliseconds), parsed by the desktop client (docs/ARCHITECTURE.md).
 pub fn run_pair(json: bool) -> Result<()> {
     let config = Config::load()?;
     let relay = relay_config(&config)?;
@@ -76,12 +76,12 @@ pub fn run_pair(json: bool) -> Result<()> {
             .json(&serde_json::json!({ "action": "new" }))
             .send()
             .await
-            .context("无法连接中继服务器")?;
-        anyhow::ensure!(res.status().is_success(), "生成配对码失败：HTTP {}", res.status());
+            .context("cannot connect to relay server")?;
+        anyhow::ensure!(res.status().is_success(), "failed to generate pairing code: HTTP {}", res.status());
         Ok::<Value, anyhow::Error>(res.json().await?)
     })?;
 
-    let code = body["code"].as_str().context("响应缺 code")?;
+    let code = body["code"].as_str().context("response missing code")?;
     if json {
         println!(
             "{}",
@@ -94,10 +94,10 @@ pub fn run_pair(json: bool) -> Result<()> {
         );
         return Ok(());
     }
-    println!("配对码（10 分钟内有效，单次使用）：\n");
+    println!("pairing code (valid for 10 minutes, single use):\n");
     println!("    {code}\n");
-    println!("用法：");
-    println!("  · 手机浏览器打开 {} ，输入配对码", relay.url);
-    println!("  · Claude 手机端添加连接器 {}/api/mcp ，授权页输入配对码", relay.url);
+    println!("Usage:");
+    println!("  - Open {} in your phone browser and enter the pairing code", relay.url);
+    println!("  - Add connector {}/api/mcp in Claude mobile and enter the pairing code on the auth page", relay.url);
     Ok(())
 }

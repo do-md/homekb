@@ -2,9 +2,9 @@
   "name": "homekb",
   "version": "0.1.0",
   "private": true,
-  "description": "HomeKB —— 数据在你自己电脑上的个人知识库：本地编译+语义召回引擎（Rust CLI/MCP），Web 中继远程访问，Agent 原生接入",
+  "description": "HomeKB — personal knowledge base where data lives on your own machine: local compile + semantic recall engine (Rust CLI/MCP), web relay for remote access, agent-native integration",
   "scripts": {
-    "dev": "next dev -p 23333",
+    "dev": "next dev -p 3000",
     "build": "next build",
     "start": "next start -p 3333",
     "build:tauri": "node scripts/tauri-build.mjs",

@@ -8,7 +8,7 @@ import {
   type TunnelStatus,
 } from "@/lib/client/desktop";
 
-/** 首启引导阶段：检测引擎 → （缺则）安装/初始化 → 拉起 serve → 就绪。 */
+/** Boot phase: detect engine → (if missing) install/init → launch serve → ready. */
 export type BootPhase = "checking" | "installing" | "starting" | "ready" | "error";
 
 interface DesktopState {
@@ -17,21 +17,21 @@ interface DesktopState {
 
   engine: EngineStatus | null;
 
-  // 设置：OpenAI key
+  // Settings: OpenAI key
   keyDraft: string;
   keyBusy: boolean;
 
-  // 设置：中继注册
+  // Settings: relay registration
   registerDraft: string;
   registerBusy: boolean;
   registerError: string | null;
 
-  // 设置：配对码
+  // Settings: pairing code
   pair: PairInfo | null;
   pairBusy: boolean;
   pairError: string | null;
 
-  // 设置：tunnel 常驻
+  // Settings: persistent tunnel
   tunnelRunning: boolean;
   tunnelManaged: boolean;
   tunnelBusy: boolean;
@@ -62,7 +62,7 @@ export class DesktopStore extends ZenithStore<DesktopState> {
     });
   }
 
-  // ---------- 首启引导（无任何系统弹框：直接装到 ~/.local/bin、直连 serve） ----------
+  // ---------- Boot sequence (no system dialogs: install to ~/.local/bin, connect directly to serve) ----------
   public async bootstrap() {
     this.produce((d) => {
       d.phase = "checking";
@@ -94,7 +94,7 @@ export class DesktopStore extends ZenithStore<DesktopState> {
     } catch (e) {
       this.produce((d) => {
         d.phase = "error";
-        d.bootError = invokeErrorMessage(e, "启动失败");
+        d.bootError = invokeErrorMessage(e, "Startup failed");
       });
     }
   }
@@ -109,7 +109,7 @@ export class DesktopStore extends ZenithStore<DesktopState> {
         d.tunnelManaged = tunnel.managed;
       });
     } catch (e) {
-      this.flash(invokeErrorMessage(e, "刷新失败"));
+      this.flash(invokeErrorMessage(e, "Refresh failed"));
     }
   }
 
@@ -132,17 +132,17 @@ export class DesktopStore extends ZenithStore<DesktopState> {
         d.keyBusy = false;
         d.keyDraft = "";
       });
-      this.flash("OpenAI key 已写入 config.toml");
+      this.flash("OpenAI key saved to config.toml");
       void this.refreshEngine();
     } catch (e) {
       this.produce((d) => {
         d.keyBusy = false;
       });
-      this.flash(invokeErrorMessage(e, "保存失败"));
+      this.flash(invokeErrorMessage(e, "Save failed"));
     }
   }
 
-  // ---------- 中继注册 ----------
+  // ---------- Relay registration ----------
   public setRegisterDraft(v: string) {
     this.produce((d) => {
       d.registerDraft = v;
@@ -162,17 +162,17 @@ export class DesktopStore extends ZenithStore<DesktopState> {
         d.registerBusy = false;
         d.registerDraft = "";
       });
-      this.flash("已注册到中继");
+      this.flash("Registered with relay");
       void this.refreshEngine();
     } catch (e) {
       this.produce((d) => {
         d.registerBusy = false;
-        d.registerError = invokeErrorMessage(e, "注册失败");
+        d.registerError = invokeErrorMessage(e, "Registration failed");
       });
     }
   }
 
-  // ---------- 配对码 ----------
+  // ---------- Pairing code ----------
   public async newPairCode() {
     this.produce((d) => {
       d.pairBusy = true;
@@ -188,12 +188,12 @@ export class DesktopStore extends ZenithStore<DesktopState> {
     } catch (e) {
       this.produce((d) => {
         d.pairBusy = false;
-        d.pairError = invokeErrorMessage(e, "生成配对码失败");
+        d.pairError = invokeErrorMessage(e, "Failed to generate pairing code");
       });
     }
   }
 
-  // ---------- tunnel ----------
+  // ---------- Tunnel ----------
   public async toggleTunnel() {
     if (this.state.tunnelBusy) return;
     this.produce((d) => {
@@ -211,7 +211,7 @@ export class DesktopStore extends ZenithStore<DesktopState> {
       this.produce((d) => {
         d.tunnelBusy = false;
       });
-      this.flash(invokeErrorMessage(e, "tunnel 操作失败"));
+      this.flash(invokeErrorMessage(e, "Tunnel operation failed"));
       void this.refreshEngine();
     }
   }

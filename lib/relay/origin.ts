@@ -1,4 +1,4 @@
-/** 反代感知的请求 origin（x-forwarded-* 优先） */
+/** Reverse-proxy-aware request origin (x-forwarded-* headers take priority). */
 export function requestOrigin(req: Request): string {
   const url = new URL(req.url);
   const proto =

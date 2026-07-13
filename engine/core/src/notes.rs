@@ -282,7 +282,7 @@ mod tests {
     #[test]
     fn slug_basics() {
         assert_eq!(slugify("Hello World"), "Hello-World");
-        assert_eq!(slugify("菜谱：红烧肉 做法"), "菜谱红烧肉-做法");
+        assert_eq!(slugify("Recipe: Braised-Pork Belly"), "Recipe-Braised-Pork-Belly");
         assert_eq!(slugify("a/b\\c:d*e"), "abcde");
         assert_eq!(slugify("  --- "), "untitled");
         assert_eq!(slugify("🎉🎉"), "untitled");

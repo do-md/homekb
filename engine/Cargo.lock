@@ -725,6 +725,7 @@ dependencies = [
  "anyhow",
  "axum",
  "clap",
+ "dirs",
  "homekb-core",
  "hostname",
  "reqwest 0.12.28",

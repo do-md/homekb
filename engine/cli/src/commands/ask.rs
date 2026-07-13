@@ -23,9 +23,9 @@ pub fn run(question: Option<String>, json: bool) -> Result<()> {
     }
     println!("{}", out.answer);
     if !out.citations.is_empty() {
-        println!("\n—— 来源");
+        println!("\n—— Sources");
         for (i, c) in out.citations.iter().enumerate() {
-            println!("[{}] {}（{}）", i + 1, c.title, c.path);
+            println!("[{}] {} ({})", i + 1, c.title, c.path);
         }
     }
     Ok(())

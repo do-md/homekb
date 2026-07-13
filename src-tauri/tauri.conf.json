@@ -5,7 +5,7 @@
   "identifier": "com.homekb.desktop",
   "build": {
     "frontendDist": "../out",
-    "devUrl": "http://localhost:23333",
+    "devUrl": "http://localhost:3000",
     "beforeDevCommand": "",
     "beforeBuildCommand": "npm run build:tauri"
   },

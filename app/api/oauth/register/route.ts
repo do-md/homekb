@@ -4,7 +4,7 @@ import { CORS_HEADERS, corsPreflight } from "@/lib/relay/origin";
 
 export const runtime = "nodejs";
 
-/** RFC 7591 动态客户端注册（公开客户端，无 secret） */
+/** RFC 7591 dynamic client registration (public client, no secret) */
 export async function POST(req: Request) {
   let body: {
     redirect_uris?: unknown;

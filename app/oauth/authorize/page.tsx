@@ -3,8 +3,9 @@ import { relayDb } from "@/lib/relay/db";
 export const dynamic = "force-dynamic";
 
 /**
- * OAuth 授权页 = 输入配对码（无账号体系）。
- * MCP 客户端（Claude 手机端等）跳到这里，用户输入家里生成的配对码即完成授权。
+ * OAuth authorization page — enter pairing code (no account system).
+ * MCP clients (Claude mobile, etc.) redirect here; the user enters the pairing code
+ * generated on their home device to complete authorization.
  */
 export default async function AuthorizePage({
   searchParams,
@@ -27,29 +28,29 @@ export default async function AuthorizePage({
     !!client && (JSON.parse(client.redirect_uris) as string[]).includes(redirectUri);
 
   const invalid = !client
-    ? "未知的客户端（client_id 无效）"
+    ? "Unknown client (invalid client_id)"
     : !redirectOk
-      ? "回调地址与注册信息不符"
+      ? "Redirect URI does not match registered information"
       : get("response_type") !== "code"
-        ? "不支持的 response_type"
+        ? "Unsupported response_type"
         : null;
 
   return (
     <main className="flex min-h-screen items-center justify-center p-4">
       <div className="card bg-base-200 w-full max-w-sm shadow-xl">
         <div className="card-body">
-          <h1 className="card-title">HomeKB 授权</h1>
+          <h1 className="card-title">HomeKB Authorization</h1>
           {invalid ? (
             <p className="text-error">{invalid}</p>
           ) : (
             <>
               <p className="text-sm opacity-70">
-                <span className="font-semibold">{client!.name || "一个 MCP 客户端"}</span>{" "}
-                请求访问你家里电脑上的知识库。请输入配对码（在家里电脑上运行{" "}
-                <code className="text-xs">homekb pair</code> 获取）。
+                <span className="font-semibold">{client!.name || "An MCP client"}</span>{" "}
+                is requesting access to the knowledge base on your home device. Enter the pairing code (run{" "}
+                <code className="text-xs">homekb pair</code> on your home device to get one).
               </p>
               {error === "bad_code" && (
-                <p className="text-error text-sm">配对码无效或已过期，请重新生成。</p>
+                <p className="text-error text-sm">Pairing code is invalid or expired. Please generate a new one.</p>
               )}
               <form method="POST" action="/api/oauth/authorize" className="mt-2 flex flex-col gap-3">
                 <input type="hidden" name="client_id" value={clientId} />
@@ -63,17 +64,17 @@ export default async function AuthorizePage({
                   name="pair_code"
                   required
                   autoFocus
-                  placeholder="配对码，如 A7KM2XQ9"
+                  placeholder="Pairing code, e.g. A7KM2XQ9"
                   className="input input-bordered w-full text-center font-mono text-lg uppercase tracking-widest"
                   autoComplete="one-time-code"
                   maxLength={8}
                 />
                 <button type="submit" className="btn btn-primary w-full">
-                  授权访问
+                  Authorize Access
                 </button>
               </form>
               <p className="mt-2 text-xs opacity-50">
-                你的数据始终在你自己的电脑上；本服务器只做转发，不存储任何知识库内容。
+                Your data always stays on your own computer. This server only relays requests and never stores any knowledge base content.
               </p>
             </>
           )}

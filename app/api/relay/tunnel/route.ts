@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 const PING_INTERVAL_MS = 25_000;
 
-/** 家设备隧道下行：SSE 长连，推送 rpc 指令 */
+/** Home device tunnel downstream: long-lived SSE connection, pushes RPC instructions */
 export async function GET(req: Request) {
   const home = authHome(req);
   if (!home) return jsonError(401, "unauthorized");

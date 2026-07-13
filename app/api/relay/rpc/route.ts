@@ -3,7 +3,7 @@ import { asRpcHubError, hub, RPC_METHODS } from "@/lib/relay/hub";
 
 export const runtime = "nodejs";
 
-/** 远端客户端 RPC：经隧道转发到家设备执行 */
+/** Remote client RPC: forwarded through the tunnel to the home device for execution */
 export async function POST(req: Request) {
   const grant = authGrant(req);
   if (!grant) return jsonError(401, "unauthorized");
