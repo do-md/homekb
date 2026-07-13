@@ -1,7 +1,7 @@
 //! Public engine API.
 //!
 //! Result shapes serialize with camelCase field names and match the
-//! "RPC 方法" table in docs/ARCHITECTURE.md, so CLI `--json`, the local
+//! "RPC methods" table in docs/ARCHITECTURE.md, so CLI `--json`, the local
 //! MCP server and the relay tunnel all speak the exact same schema.
 
 use anyhow::{Context, Result, bail};
@@ -32,7 +32,8 @@ pub struct ReindexReport {
     pub deleted: usize,
     pub renamed: usize,
     pub recovered: usize,
-    /// Docs re-categorized in place (doc_type backfill).
+    /// Docs whose LLM metadata (doc_type / suggested_question) was
+    /// backfilled in place without re-embedding.
     pub backfilled: usize,
     /// Docs whose processing failed (recorded in the `failures` table).
     pub failed: usize,
@@ -53,6 +54,10 @@ pub struct SearchOptions {
     /// Return one entry per unique document with FULL file contents
     /// instead of chunks.
     pub full: bool,
+    /// Merge hits sharing a source document into one `doc` entry per path
+    /// (list-mode UI). Ignored when `full` is set. `limit` then counts
+    /// documents, and retrieval over-fetches to feed the grouping.
+    pub group: bool,
     /// Drop results whose embedding distance exceeds this threshold.
     /// 0 = no filter.
     pub max_distance: f64,
@@ -65,6 +70,7 @@ impl Default for SearchOptions {
             limit: 10,
             doc_type: None,
             full: false,
+            group: false,
             max_distance: 0.0,
         }
     }
@@ -86,6 +92,9 @@ pub struct Hit {
     pub mtime: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub doc_type: Option<String>,
+    /// Grouped mode only: how many hits were merged into this entry.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub matches: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -118,6 +127,18 @@ pub struct StatusReport {
 pub struct TypeCount {
     pub doc_type: String,
     pub count: i64,
+}
+
+/// One home-screen "Try asking" entry: an auto-generated question a
+/// recently updated document answers well.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Suggestion {
+    pub question: String,
+    pub path: String,
+    pub title: Option<String>,
+    /// Unix seconds of the source document's mtime.
+    pub mtime: i64,
 }
 
 // ---------------------------------------------------------------------------
@@ -183,7 +204,7 @@ pub async fn reindex(cfg: &Config, quiet: bool) -> Result<ReindexReport> {
         ..Default::default()
     };
 
-    let backfill_needed = doc_type_backfill_count(&conn)? > 0;
+    let backfill_needed = metadata_backfill_count(&conn)? > 0;
     if cs.is_empty() && !backfill_needed {
         if !quiet {
             tracing::info!("nothing to do");
@@ -217,16 +238,20 @@ pub async fn reindex(cfg: &Config, quiet: bool) -> Result<ReindexReport> {
     let summarizer = Summarizer::new(&api_key, cfg.summarizer_model.clone());
     let categorizer = Categorizer::new(&api_key, cfg.summarizer_model.clone());
 
-    // Backfill any docs that still have doc_type IS NULL but are otherwise
-    // up to date (v1→v2 migration). Treated as "process but expect no chunk
-    // changes", letting pipeline's early-return path categorize them in
-    // place instead of re-embedding everything.
-    let mut backfill_paths = collect_doc_type_backfill_paths(&conn, &cfg.notes_dir)?;
+    // Backfill any docs that still miss doc_type (v1→v2 migration) or
+    // suggested_question (v2→v3 migration) but are otherwise up to date.
+    // Treated as "process but expect no chunk changes", letting pipeline's
+    // early-return path fill them in place instead of re-embedding
+    // everything.
+    let mut backfill_paths = collect_metadata_backfill_paths(&conn, &cfg.notes_dir)?;
     backfill_paths.retain(|p| {
         !cs.recovery.contains(p) && !cs.updated.contains(p) && !cs.created.contains(p)
     });
     if !backfill_paths.is_empty() && !quiet {
-        tracing::info!("backfilling doc_type for {} existing docs", backfill_paths.len());
+        tracing::info!(
+            "backfilling doc_type/suggested_question for {} existing docs",
+            backfill_paths.len()
+        );
     }
     report.backfilled = backfill_paths.len();
 
@@ -288,11 +313,19 @@ pub fn rebuild(cfg: &Config) -> Result<()> {
 /// Semantic search over the snapshot (opened read-only): embed the query,
 /// run two-pool KNN, fuse via RRF.
 pub async fn search(cfg: &Config, opts: &SearchOptions) -> Result<SearchOutput> {
-    let query = opts.query.trim();
+    let vec = embed_search_query(cfg, &opts.query).await?;
+    search_with_vector(cfg, opts, &vec)
+}
+
+/// Embed a search query with the snapshot's embedding model/dim — the only
+/// network step of a search. Split out from [`search`] so `ask` can run it
+/// concurrently with its LLM routing call (the vector depends only on the
+/// query string, not on the route).
+pub async fn embed_search_query(cfg: &Config, query: &str) -> Result<Vec<f32>> {
+    let query = query.trim();
     if query.is_empty() {
         bail!("empty query");
     }
-
     let conn = db::open_snapshot(&cfg.snapshot_path)?;
     let meta = db::read_snapshot_meta(&conn)?;
     tracing::debug!(
@@ -302,6 +335,14 @@ pub async fn search(cfg: &Config, opts: &SearchOptions) -> Result<SearchOutput> 
         meta.embedding_model,
         meta.embedding_dim,
     );
+    let api_key = cfg.openai_api_key()?;
+    embedder::embed_query(&api_key, &meta.embedding_model, query, meta.embedding_dim).await
+}
+
+/// Two-pool KNN + RRF with a precomputed query vector. Purely local.
+pub fn search_with_vector(cfg: &Config, opts: &SearchOptions, vec: &[f32]) -> Result<SearchOutput> {
+    let query = opts.query.trim();
+    let conn = db::open_snapshot(&cfg.snapshot_path)?;
 
     // Strict validation: a type filter must be a known vocab entry.
     if let Some(t) = opts.doc_type.as_deref() {
@@ -322,28 +363,56 @@ pub async fn search(cfg: &Config, opts: &SearchOptions) -> Result<SearchOutput> 
         }
     }
 
-    let api_key = cfg.openai_api_key()?;
-    let vec = embedder::embed_query(&api_key, &meta.embedding_model, query, meta.embedding_dim)
-        .await?;
-
-    // When `full` is on, we collapse to one entry per doc *after* search
-    // but *before* the limit cap. Over-fetch a bit so the limit applies
-    // sensibly to docs, not chunks.
-    let effective_limit = if opts.full { opts.limit * 5 } else { opts.limit };
+    // `full` and `group` both cap the limit on *documents*, so over-fetch
+    // the fused list to give the collapse/grouping material to work with.
+    let effective_limit = if opts.full || opts.group { opts.limit * 5 } else { opts.limit };
     let params = SearchParams::for_limit(effective_limit, opts.doc_type.as_deref());
-    let mut raw = retrieval::search(&conn, &vec, params)?;
+    let mut raw = retrieval::search(&conn, vec, params)?;
     if opts.max_distance > 0.0 {
         raw.retain(|h| h.raw_distance() <= opts.max_distance);
     }
-    if opts.full {
+
+    let results = if opts.full {
         raw = retrieval::collapse_to_full_docs(raw, &cfg.notes_dir)?;
         raw.truncate(opts.limit);
-    }
+        raw.into_iter().map(to_public_hit).collect()
+    } else if opts.group {
+        let mut grouped = group_by_source(raw.into_iter().map(to_public_hit).collect());
+        grouped.truncate(opts.limit);
+        grouped
+    } else {
+        raw.into_iter().map(to_public_hit).collect()
+    };
 
     Ok(SearchOutput {
         query: query.to_string(),
-        results: raw.into_iter().map(to_public_hit).collect(),
+        results,
     })
+}
+
+/// Merge hits sharing a source path into one `doc` entry per document.
+/// Input is in fused score order; each document keeps the position, snippet
+/// and headingPath of its first (best-ranked) hit, with `matches` counting
+/// how many hits were merged.
+fn group_by_source(hits: Vec<Hit>) -> Vec<Hit> {
+    let mut order: Vec<String> = Vec::new();
+    let mut merged: std::collections::HashMap<String, Hit> = std::collections::HashMap::new();
+    for h in hits {
+        match merged.get_mut(&h.path) {
+            Some(g) => g.matches = Some(g.matches.unwrap_or(1) + 1),
+            None => {
+                order.push(h.path.clone());
+                let mut g = h;
+                g.kind = "doc".into();
+                g.matches = Some(1);
+                merged.insert(g.path.clone(), g);
+            }
+        }
+    }
+    order
+        .into_iter()
+        .filter_map(|p| merged.remove(&p))
+        .collect()
 }
 
 fn to_public_hit(h: RawHit) -> Hit {
@@ -357,6 +426,7 @@ fn to_public_hit(h: RawHit) -> Hit {
             score: score.unwrap_or(0.0),
             mtime,
             doc_type,
+            matches: None,
         },
         RawHit::Chunk { path, title, heading_path, content, doc_type, mtime, score, .. } => Hit {
             kind: "chunk".into(),
@@ -367,6 +437,7 @@ fn to_public_hit(h: RawHit) -> Hit {
             score: score.unwrap_or(0.0),
             mtime,
             doc_type,
+            matches: None,
         },
         RawHit::DocFull { path, title, doc_type, mtime, content, score, .. } => Hit {
             kind: "doc_full".into(),
@@ -377,7 +448,51 @@ fn to_public_hit(h: RawHit) -> Hit {
             score: score.unwrap_or(0.0),
             mtime,
             doc_type,
+            matches: None,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hit(kind: &str, path: &str, content: &str, score: f64) -> Hit {
+        Hit {
+            kind: kind.into(),
+            path: path.into(),
+            title: Some(path.trim_end_matches(".md").into()),
+            heading_path: (kind == "chunk").then(|| format!("{content} heading")),
+            content: content.into(),
+            score,
+            mtime: 0,
+            doc_type: None,
+            matches: None,
+        }
+    }
+
+    #[test]
+    fn group_by_source_merges_and_keeps_first_hit_order() {
+        // Fused order: b's chunk ranks first, a appears three times after, c is last.
+        let hits = vec![
+            hit("chunk", "b.md", "b-best", 0.9),
+            hit("chunk", "a.md", "a-best", 0.8),
+            hit("doc", "a.md", "a-summary", 0.7),
+            hit("chunk", "c.md", "c-only", 0.6),
+            hit("chunk", "a.md", "a-tail", 0.5),
+        ];
+        let g = group_by_source(hits);
+        assert_eq!(
+            g.iter().map(|h| h.path.as_str()).collect::<Vec<_>>(),
+            ["b.md", "a.md", "c.md"],
+        );
+        // Every entry is collapsed to a doc, keeping the best-ranked snippet and count.
+        assert!(g.iter().all(|h| h.kind == "doc"));
+        assert_eq!(g[0].matches, Some(1));
+        assert_eq!(g[1].matches, Some(3));
+        assert_eq!(g[1].content, "a-best");
+        assert_eq!(g[1].heading_path.as_deref(), Some("a-best heading"));
+        assert_eq!(g[2].matches, Some(1));
     }
 }
 
@@ -417,6 +532,43 @@ pub fn status(cfg: &Config) -> Result<StatusReport> {
 pub fn list_types(cfg: &Config) -> Result<Vec<TypeCount>> {
     let conn = db::open_snapshot(&cfg.snapshot_path)?;
     retrieval::list_doc_types(&conn)
+}
+
+/// Suggested questions for the most recently updated documents, newest
+/// first. Graceful on a missing snapshot or a pre-v3 snapshot that has no
+/// `suggested_question` column yet: both yield an empty list, never an
+/// error (the home screen simply shows nothing).
+pub fn suggestions(cfg: &Config, limit: usize) -> Result<Vec<Suggestion>> {
+    if !cfg.snapshot_path.is_file() {
+        return Ok(Vec::new());
+    }
+    let conn = db::open_snapshot(&cfg.snapshot_path)?;
+
+    let has_column: bool = conn
+        .prepare("SELECT 1 FROM pragma_table_info('docs') WHERE name = 'suggested_question'")?
+        .exists([])?;
+    if !has_column {
+        return Ok(Vec::new());
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT suggested_question, path, title, mtime FROM docs
+         WHERE suggested_question IS NOT NULL AND suggested_question != ''
+         ORDER BY mtime DESC LIMIT ?",
+    )?;
+    let rows = stmt.query_map([limit as i64], |r| {
+        Ok(Suggestion {
+            question: r.get(0)?,
+            path: r.get(1)?,
+            title: r.get(2)?,
+            mtime: r.get(3)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
 }
 
 // ---------------------------------------------------------------------------
@@ -479,20 +631,26 @@ fn now_secs() -> i64 {
         .unwrap_or(0)
 }
 
-fn doc_type_backfill_count(conn: &Connection) -> Result<i64> {
+/// Docs that are indexed but still miss LLM-derived metadata: doc_type
+/// (v1→v2 migration) or suggested_question (v2→v3 migration / an earlier
+/// digest parse fallback). Both are backfilled by the pipeline's cheap
+/// early-return path without re-embedding anything.
+fn metadata_backfill_count(conn: &Connection) -> Result<i64> {
     Ok(conn.query_row(
-        "SELECT COUNT(*) FROM docs WHERE doc_type IS NULL AND index_state = 'ok'",
+        "SELECT COUNT(*) FROM docs
+         WHERE (doc_type IS NULL OR suggested_question IS NULL) AND index_state = 'ok'",
         [],
         |r| r.get(0),
     )?)
 }
 
-fn collect_doc_type_backfill_paths(
+fn collect_metadata_backfill_paths(
     conn: &Connection,
     notes_root: &Path,
 ) -> Result<Vec<std::path::PathBuf>> {
     let mut stmt = conn.prepare(
-        "SELECT path FROM docs WHERE doc_type IS NULL AND index_state = 'ok'",
+        "SELECT path FROM docs
+         WHERE (doc_type IS NULL OR suggested_question IS NULL) AND index_state = 'ok'",
     )?;
     let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
     let mut out = Vec::new();

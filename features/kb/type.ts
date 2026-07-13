@@ -7,6 +7,8 @@ export interface KbHit {
   score: number;
   mtime: number;
   docType?: string | null;
+  /** In group mode: number of chunks merged into this result */
+  matches?: number;
 }
 
 export interface KbAnswer {
@@ -36,7 +38,15 @@ export interface DocMeta {
   sizeBytes: number;
 }
 
-/** "settings" 仅桌面模式（Tauri）可达，Web 版不渲染入口。 */
+/** Home-screen "Try asking" entry: an auto-generated question a recently updated doc answers well. */
+export interface KbSuggestion {
+  question: string;
+  path: string;
+  title?: string | null;
+  mtime: number;
+}
+
+/** "settings" is only reachable in desktop mode (Tauri); the web version does not render its nav entry. */
 export type KbView = "recall" | "reader" | "new" | "status" | "settings";
 export type RecallMode = "list" | "answer";
 export type RecallPhase = "idle" | "searching" | "done";

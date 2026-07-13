@@ -13,19 +13,20 @@ import type {
   KbAnswer,
   KbHit,
   KbStatusData,
+  KbSuggestion,
   KbView,
   RecallMode,
   RecallPhase,
 } from "../type";
 
 interface KbState {
-  // 桌面模式（Tauri webview）：不走配对，直连本机 serve
+  // Desktop mode (Tauri webview): no pairing, connects directly to local serve
   desktop: boolean;
 
-  // 配对
+  // Pairing
   paired: boolean;
   homeName: string;
-  online: boolean | null; // null = 未探测
+  online: boolean | null; // null = not yet probed
   pairBusy: boolean;
   pairError: string | null;
 
@@ -40,6 +41,7 @@ interface KbState {
   answer: KbAnswer | null;
   searchError: string | null;
   recentDocs: DocMeta[];
+  suggestions: KbSuggestion[];
 
   // reader
   readerPath: string | null;
@@ -73,7 +75,7 @@ export class KbStore extends ZenithStore<KbState> {
     super({
       desktop,
       paired: desktop || (typeof window !== "undefined" && !!getToken()),
-      homeName: desktop ? "本机" : (getPairedHome()?.homeName ?? ""),
+      homeName: desktop ? "This machine" : (getPairedHome()?.homeName ?? ""),
       online: null,
       pairBusy: false,
       pairError: null,
@@ -86,6 +88,7 @@ export class KbStore extends ZenithStore<KbState> {
       answer: null,
       searchError: null,
       recentDocs: [],
+      suggestions: [],
       readerPath: null,
       readerContent: "",
       readerLoading: false,
@@ -106,19 +109,19 @@ export class KbStore extends ZenithStore<KbState> {
 
   @memo((s: KbStore) => [s.state.online, s.state.paired, s.state.desktop])
   public get connBadge(): { text: string; cls: string } {
-    if (!this.state.paired) return { text: "未配对", cls: "badge-ghost" };
-    if (this.state.online === null) return { text: "探测中", cls: "badge-ghost" };
+    if (!this.state.paired) return { text: "Not paired", cls: "badge-ghost" };
+    if (this.state.online === null) return { text: "Checking…", cls: "badge-ghost" };
     if (this.state.desktop) {
       return this.state.online
-        ? { text: "引擎在线", cls: "badge-success" }
-        : { text: "引擎离线", cls: "badge-error" };
+        ? { text: "Engine online", cls: "badge-success" }
+        : { text: "Engine offline", cls: "badge-error" };
     }
     return this.state.online
-      ? { text: "家中在线", cls: "badge-success" }
-      : { text: "家中离线", cls: "badge-error" };
+      ? { text: "Home online", cls: "badge-success" }
+      : { text: "Home offline", cls: "badge-error" };
   }
 
-  // ---------- 配对 ----------
+  // ---------- Pairing ----------
   public async pair(code: string) {
     this.produce((d) => {
       d.pairBusy = true;
@@ -134,16 +137,17 @@ export class KbStore extends ZenithStore<KbState> {
       });
       void this.refreshHealth();
       void this.loadRecent();
+      void this.loadSuggestions();
     } catch (e) {
       this.produce((d) => {
         d.pairBusy = false;
-        d.pairError = e instanceof Error ? e.message : "配对失败";
+        d.pairError = e instanceof Error ? e.message : "Pairing failed";
       });
     }
   }
 
   public unpair() {
-    if (this.state.desktop) return; // 桌面模式无配对概念
+    if (this.state.desktop) return; // Desktop mode has no pairing concept
     clearPairing();
     this.produce((d) => {
       d.paired = false;
@@ -171,7 +175,7 @@ export class KbStore extends ZenithStore<KbState> {
     }
   }
 
-  // ---------- 导航 ----------
+  // ---------- Navigation ----------
   public go(view: KbView) {
     this.produce((d) => {
       d.view = view;
@@ -193,7 +197,7 @@ export class KbStore extends ZenithStore<KbState> {
     if (q) void this.runSearch(q);
   }
 
-  // ---------- 召回 ----------
+  // ---------- Search / Recall ----------
   public async search() {
     const q = this.state.query.trim();
     if (!q) return;
@@ -217,7 +221,13 @@ export class KbStore extends ZenithStore<KbState> {
           d.phase = "done";
         });
       } else {
-        const res = await rpc<{ results: KbHit[] }>("kb.query", { query: q, limit: 20 });
+        // List mode: group by source (each document appears only once); maxDistance filters out irrelevant results
+        const res = await rpc<{ results: KbHit[] }>("kb.query", {
+          query: q,
+          limit: 20,
+          group: true,
+          maxDistance: 1.1,
+        });
         this.produce((d) => {
           d.hits = res.results ?? [];
           d.phase = "done";
@@ -227,7 +237,7 @@ export class KbStore extends ZenithStore<KbState> {
       if (e instanceof RelayError && e.code === "unauthorized") return this.unpair();
       this.produce((d) => {
         d.phase = "done";
-        d.searchError = e instanceof Error ? e.message : "搜索失败";
+        d.searchError = e instanceof Error ? e.message : "Search failed";
       });
     }
   }
@@ -239,11 +249,32 @@ export class KbStore extends ZenithStore<KbState> {
         d.recentDocs = res.docs ?? [];
       });
     } catch {
-      // 首页最近列表失败不打扰
+      // Don't bother the user if the homepage recent list fails
     }
   }
 
-  // ---------- 阅读/编辑 ----------
+  public async loadSuggestions() {
+    try {
+      const res = await rpc<{ suggestions: KbSuggestion[] }>("kb.suggestions", { limit: 4 });
+      this.produce((d) => {
+        d.suggestions = res.suggestions ?? [];
+      });
+    } catch {
+      // Silent: an old engine without kb.suggestions (or a fresh index)
+      // simply renders no "Try asking" section.
+    }
+  }
+
+  /** Click-through from a home-screen suggestion: ask it directly. */
+  public askSuggestion(question: string) {
+    this.produce((d) => {
+      d.query = question;
+      d.mode = "answer";
+    });
+    void this.runSearch(question);
+  }
+
+  // ---------- Reader / Editor ----------
   public async openDoc(path: string) {
     this.produce((d) => {
       d.view = "reader";
@@ -262,7 +293,7 @@ export class KbStore extends ZenithStore<KbState> {
     } catch (e) {
       this.produce((d) => {
         d.readerLoading = false;
-        d.readerError = e instanceof Error ? e.message : "读取失败";
+        d.readerError = e instanceof Error ? e.message : "Failed to load";
       });
     }
   }
@@ -299,16 +330,16 @@ export class KbStore extends ZenithStore<KbState> {
         d.editMode = false;
         d.saveBusy = false;
       });
-      this.flash("已保存");
+      this.flash("Saved");
     } catch (e) {
       this.produce((d) => {
         d.saveBusy = false;
       });
-      this.flash(e instanceof Error ? e.message : "保存失败");
+      this.flash(e instanceof Error ? e.message : "Save failed");
     }
   }
 
-  // ---------- 新建 ----------
+  // ---------- New note ----------
   public setNewTitle(t: string) {
     this.produce((d) => {
       d.newTitle = t;
@@ -343,12 +374,12 @@ export class KbStore extends ZenithStore<KbState> {
     } catch (e) {
       this.produce((d) => {
         d.newBusy = false;
-        d.newError = e instanceof Error ? e.message : "入库失败";
+        d.newError = e instanceof Error ? e.message : "Failed to save note";
       });
     }
   }
 
-  // ---------- 状态 ----------
+  // ---------- Status ----------
   public async loadStatus() {
     this.produce((d) => {
       d.statusLoading = true;
@@ -363,7 +394,7 @@ export class KbStore extends ZenithStore<KbState> {
       this.produce((d) => {
         d.statusLoading = false;
       });
-      this.flash(e instanceof Error ? e.message : "获取状态失败");
+      this.flash(e instanceof Error ? e.message : "Failed to load status");
     }
     void this.refreshHealth();
   }
@@ -371,9 +402,9 @@ export class KbStore extends ZenithStore<KbState> {
   public async reindex() {
     try {
       await rpc("kb.reindex", {});
-      this.flash("已触发编译");
+      this.flash("Reindex triggered");
     } catch (e) {
-      this.flash(e instanceof Error ? e.message : "触发失败");
+      this.flash(e instanceof Error ? e.message : "Failed to trigger reindex");
     }
   }
 

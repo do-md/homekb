@@ -1,11 +1,11 @@
 import { nanoid } from "nanoid";
 
 /**
- * 隧道 Hub：家设备 SSE 连接注册表 + RPC 请求/响应关联。
- * globalThis 单例（防 dev HMR 重复初始化）。
+ * Tunnel Hub: home device SSE connection registry + RPC request/response correlation.
+ * globalThis singleton (prevents duplicate initialization under dev HMR).
  *
- * 下行：home 打开 GET /api/relay/tunnel（SSE），hub 通过 send 推 rpc 事件。
- * 上行：home POST /api/relay/tunnel/result，hub 按 requestId 兑现 pending promise。
+ * Downstream: home opens GET /api/relay/tunnel (SSE); hub pushes rpc events via send.
+ * Upstream: home POSTs /api/relay/tunnel/result; hub resolves the pending promise by requestId.
  */
 
 export interface RpcError {
@@ -26,8 +26,9 @@ export class RpcHubError extends Error {
 }
 
 /**
- * 鸭子类型判定，代替 instanceof。
- * dev HMR 下 globalThis 单例 hub 持有旧模块的类，新模块 instanceof 永远 false —— 按 code 判。
+ * Duck-typing check to replace instanceof.
+ * Under dev HMR the globalThis singleton hub holds the old module's class,
+ * so instanceof always returns false in the new module — use code-based check instead.
  */
 const HUB_ERROR_CODES = new Set(["home_offline", "timeout", "tunnel_closed", "rpc_error"]);
 export function asRpcHubError(e: unknown): RpcHubError | null {
@@ -63,7 +64,7 @@ export class TunnelHub {
     return conn;
   }
 
-  /** 只在当前登记的连接还是这一条时才摘除（防新连接被旧连接的 abort 误杀） */
+  /** Only evict if the currently registered connection is still this one (prevents a stale abort from killing the new connection). */
   unregister(homeId: string, conn: HomeConn) {
     const cur = this.conns.get(homeId);
     if (cur === conn) {
@@ -89,7 +90,7 @@ export class TunnelHub {
       try {
         conn.send("rpc", JSON.stringify({ id, method, params: params ?? {} }));
       } catch (e) {
-        // send 抛错 = 连接已死（客户端断开但 abort 尚未触发）：当场摘除，按离线报告
+        // send threw = connection is dead (client disconnected but abort not yet fired): evict immediately and report as offline
         clearTimeout(timer);
         conn.pending.delete(id);
         this.unregister(homeId, conn);
@@ -106,7 +107,7 @@ export class TunnelHub {
   resolveResult(homeId: string, id: string, ok: boolean, result: unknown, error?: RpcError) {
     const conn = this.conns.get(homeId);
     const p = conn?.pending.get(id);
-    if (!conn || !p) return; // 迟到的结果（已超时/已重连），静默丢弃
+    if (!conn || !p) return; // late result (already timed out or reconnected) — silently discard
     conn.pending.delete(id);
     clearTimeout(p.timer);
     if (ok) p.resolve(result);
@@ -128,7 +129,7 @@ export function hub(): TunnelHub {
   return g.__homekbTunnelHub;
 }
 
-/** 隧道协议允许的 RPC 方法白名单 */
+/** Allowlist of RPC methods permitted by the tunnel protocol. */
 export const RPC_METHODS = new Set([
   "kb.query",
   "kb.ask",
@@ -138,5 +139,6 @@ export const RPC_METHODS = new Set([
   "kb.list",
   "kb.status",
   "kb.listTypes",
+  "kb.suggestions",
   "kb.reindex",
 ]);

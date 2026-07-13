@@ -1,11 +1,11 @@
 //! Shared RPC dispatcher — the single implementation behind all three
 //! transports: local MCP (stdio), `homekb serve` (localhost HTTP) and
-//! `homekb tunnel` (relay SSE). Method set = ARCHITECTURE.md "RPC 方法".
+//! `homekb tunnel` (relay SSE). Method set = ARCHITECTURE.md "RPC methods".
 
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use crate::api::{SearchOptions, list_types, reindex, search, status};
+use crate::api::{SearchOptions, list_types, reindex, search, status, suggestions};
 use crate::ask::ask;
 use crate::config::Config;
 use crate::notes::{create_note, list_notes, read_note, write_note};
@@ -34,6 +34,7 @@ pub const RPC_METHODS: &[&str] = &[
     "kb.list",
     "kb.status",
     "kb.listTypes",
+    "kb.suggestions",
     "kb.reindex",
 ];
 
@@ -63,6 +64,7 @@ pub async fn dispatch(config: &Config, method: &str, params: &Value) -> Result<V
                     .unwrap_or(10),
                 doc_type: s(params, "docType"),
                 full: params.get("full").and_then(|v| v.as_bool()).unwrap_or(false),
+                group: params.get("group").and_then(|v| v.as_bool()).unwrap_or(false),
                 max_distance: params
                     .get("maxDistance")
                     .and_then(|v| v.as_f64())
@@ -119,8 +121,18 @@ pub async fn dispatch(config: &Config, method: &str, params: &Value) -> Result<V
                 .map_err(|e| RpcFailure::new("list_types_failed", format!("{e:#}")))?;
             Ok(json!({ "types": types }))
         }
+        "kb.suggestions" => {
+            let limit = params
+                .get("limit")
+                .and_then(|v| v.as_u64())
+                .map(|v| v.clamp(1, 50) as usize)
+                .unwrap_or(6);
+            let out = suggestions(config, limit)
+                .map_err(|e| RpcFailure::new("suggestions_failed", format!("{e:#}")))?;
+            Ok(json!({ "suggestions": out }))
+        }
         "kb.reindex" => {
-            // 异步执行：立即返回，编译锁防并发重入
+            // Fire-and-forget: return immediately; the compile lock prevents concurrent re-entry.
             let cfg = config.clone();
             tokio::spawn(async move {
                 match reindex(&cfg, true).await {

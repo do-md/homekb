@@ -7,17 +7,22 @@ CREATE TABLE IF NOT EXISTS index_meta (
 );
 
 CREATE TABLE IF NOT EXISTS docs (
-    id                INTEGER PRIMARY KEY,
-    path              TEXT NOT NULL UNIQUE,
-    title             TEXT,
-    content_hash      TEXT NOT NULL,
-    summary           TEXT,
-    summary_src_hash  TEXT,
-    doc_type          TEXT,
-    size_bytes        INTEGER NOT NULL,
-    mtime             INTEGER NOT NULL,
-    indexed_at        INTEGER NOT NULL,
-    index_state       TEXT NOT NULL DEFAULT 'ok'
+    id                 INTEGER PRIMARY KEY,
+    path               TEXT NOT NULL UNIQUE,
+    title              TEXT,
+    content_hash       TEXT NOT NULL,
+    summary            TEXT,
+    summary_src_hash   TEXT,
+    doc_type           TEXT,
+    -- One auto-generated question this document answers well (home-screen
+    -- "Try asking"). Generated in the same summarizer call as `summary`,
+    -- so summary_src_hash governs its freshness too. NULL = not yet
+    -- generated (backfilled incrementally, like doc_type).
+    suggested_question TEXT,
+    size_bytes         INTEGER NOT NULL,
+    mtime              INTEGER NOT NULL,
+    indexed_at         INTEGER NOT NULL,
+    index_state        TEXT NOT NULL DEFAULT 'ok'
 );
 CREATE INDEX IF NOT EXISTS idx_docs_path  ON docs(path);
 CREATE INDEX IF NOT EXISTS idx_docs_state ON docs(index_state) WHERE index_state != 'ok';

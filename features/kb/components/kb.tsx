@@ -23,10 +23,10 @@ function Header() {
   const desktop = useKbStore((s) => s.state.desktop);
 
   const items: [KbView, string][] = [
-    ["recall", "召回"],
-    ["new", "新建"],
-    ["status", "状态"],
-    ...(desktop ? ([["settings", "设置"]] as [KbView, string][]) : []),
+    ["recall", "Search"],
+    ["new", "New note"],
+    ["status", "Status"],
+    ...(desktop ? ([["settings", "Settings"]] as [KbView, string][]) : []),
   ];
 
   return (
@@ -62,6 +62,7 @@ function Main() {
     if (!paired) return;
     void api.refreshHealth();
     void api.loadRecent();
+    void api.loadSuggestions();
     const t = setInterval(() => void api.refreshHealth(), 30_000);
     return () => clearInterval(t);
   }, [paired, api]);
@@ -87,7 +88,7 @@ function Main() {
   );
 }
 
-/** 桌面引导闸：检测/安装引擎并拉起 serve 后才进主界面。 */
+/** Desktop gate: detects/installs engine and starts serve before showing the main UI. */
 function DesktopGate({ children }: { children: React.ReactNode }) {
   const api = useDesktopStoreApi();
   const phase = useDesktopStore((s) => s.state.phase);
@@ -101,7 +102,7 @@ function DesktopGate({ children }: { children: React.ReactNode }) {
 }
 
 export function Kb() {
-  // 运行时模式检测（页面 ssr:false，仅客户端执行；一次会话内恒定）
+  // Runtime mode detection (page is ssr:false, client-only; constant within a session)
   if (isDesktop()) {
     return (
       <DesktopStoreProvider>

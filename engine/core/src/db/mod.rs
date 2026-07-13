@@ -15,7 +15,7 @@ use rusqlite::{Connection, OpenFlags};
 use std::path::Path;
 
 const SCHEMA: &str = include_str!("schema.sql");
-const SCHEMA_VERSION: &str = "2";
+const SCHEMA_VERSION: &str = "3";
 
 /// Open or create the live database, run migrations, ensure vec0 tables
 /// exist at the configured dimension, and verify model coherence.
@@ -147,6 +147,13 @@ fn verify_or_seed_meta(
             // v1 → v2: add doc_type column (NULL for existing rows;
             // backfilled lazily by the pipeline next time it sees them).
             migrate_v1_to_v2(conn)?;
+            migrate_v2_to_v3(conn)?;
+            write_meta(conn, "schema_version", SCHEMA_VERSION)?;
+        }
+        Some("2") => {
+            // v2 → v3: add suggested_question column (NULL for existing
+            // rows; backfilled lazily, same mechanism as doc_type).
+            migrate_v2_to_v3(conn)?;
             write_meta(conn, "schema_version", SCHEMA_VERSION)?;
         }
         Some(v) if v == SCHEMA_VERSION => {}
@@ -255,6 +262,17 @@ fn migrate_v1_to_v2(conn: &Connection) -> Result<()> {
         [],
     )?;
     tracing::info!("migrated schema v1 → v2 (added docs.doc_type)");
+    Ok(())
+}
+
+fn migrate_v2_to_v3(conn: &Connection) -> Result<()> {
+    let exists: bool = conn
+        .prepare("SELECT 1 FROM pragma_table_info('docs') WHERE name = 'suggested_question'")?
+        .exists([])?;
+    if !exists {
+        conn.execute("ALTER TABLE docs ADD COLUMN suggested_question TEXT", [])?;
+    }
+    tracing::info!("migrated schema v2 → v3 (added docs.suggested_question)");
     Ok(())
 }
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * 假家端模拟器（测试用）：连中继 SSE 隧道，自动应答所有 RPC（echo 收到的 method/params）。
- * 用法：node scripts/fake-home.mjs <BASE> <HOME_SECRET>
+ * Fake home simulator (for testing): connects to the relay SSE tunnel and auto-replies to all RPC calls (echoes received method/params).
+ * Usage: node scripts/fake-home.mjs <BASE> <HOME_SECRET>
  */
 const [BASE, SECRET] = process.argv.slice(2);
 if (!BASE || !SECRET) {
@@ -33,10 +33,10 @@ for await (const chunk of res.body) {
     console.log("[fake-home] rpc:", method, JSON.stringify(params));
     const HIT = {
       kind: "chunk",
-      path: "测试笔记.md",
-      title: "测试笔记",
-      headingPath: "测试笔记 > 第一节",
-      content: "这是假家端返回的召回内容。",
+      path: "test-note.md",
+      title: "Test Note",
+      headingPath: "Test Note > Section 1",
+      content: "This is the canned recall content returned by the fake home.",
       score: 0.032,
       mtime: 1770000000,
       docType: "tech_note",
@@ -44,21 +44,21 @@ for await (const chunk of res.body) {
     const canned = {
       "kb.query": { query: params.query, results: [HIT] },
       "kb.ask": {
-        answer: `关于「${params.query}」：这是假家端综合出的答案，仅用于链路测试。`,
-        citations: [{ path: "测试笔记.md", title: "测试笔记" }],
+        answer: `About "${params.query}": this is a synthesized answer from the fake home, for link testing only.`,
+        citations: [{ path: "test-note.md", title: "Test Note" }],
         hits: [HIT],
       },
       "kb.read": {
         path: params.path,
-        content: `# ${params.path}\n\n这是假家端返回的整篇内容。\n\n- 要点一\n- 要点二`,
+        content: `# ${params.path}\n\nThis is the full content returned by the fake home.\n\n- Point one\n- Point two`,
         mtime: 1770000000,
       },
       "kb.write": { path: params.path },
-      "kb.create": { path: "新笔记.md", title: params.title ?? "新笔记" },
+      "kb.create": { path: "new-note.md", title: params.title ?? "New Note" },
       "kb.list": {
         docs: [
-          { path: "测试笔记.md", title: "测试笔记", docType: "tech_note", mtime: 1770000000, sizeBytes: 1234 },
-          { path: "烤鸡蛋.md", title: "烤鸡蛋", docType: "recipe", mtime: 1769000000, sizeBytes: 890 },
+          { path: "test-note.md", title: "Test Note", docType: "tech_note", mtime: 1770000000, sizeBytes: 1234 },
+          { path: "roast-eggs.md", title: "Roast Eggs", docType: "recipe", mtime: 1769000000, sizeBytes: 890 },
         ],
       },
       "kb.status": {
@@ -74,6 +74,12 @@ for await (const chunk of res.body) {
         embeddingModel: "text-embedding-3-small",
       },
       "kb.listTypes": { types: [{ docType: "tech_note", count: 40 }] },
+      "kb.suggestions": {
+        suggestions: [
+          { question: "How does the fake home roast its eggs?", path: "roast-eggs.md", title: "Roast Eggs", mtime: 1769000000 },
+          { question: "What is the canned test note about?", path: "test-note.md", title: "Test Note", mtime: 1770000000 },
+        ],
+      },
       "kb.reindex": { started: true },
     };
     const result = canned[method] ?? { echo: { method, params }, fake: true };

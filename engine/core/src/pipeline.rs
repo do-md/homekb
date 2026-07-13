@@ -77,6 +77,19 @@ pub async fn process(
                 Err(e) => tracing::warn!("backfill categorize failed for {}: {:#}", rel, e),
             }
         }
+        // Same idea for the suggested question (v2→v3 backfill, or an
+        // earlier digest whose JSON parse fell back to summary-only).
+        if plan.question_is_null {
+            match summarizer.question_only(&content).await {
+                Ok(q) => {
+                    conn.execute(
+                        "UPDATE docs SET suggested_question = ? WHERE id = ?",
+                        params![q, plan.doc_id],
+                    )?;
+                }
+                Err(e) => tracing::warn!("backfill question failed for {}: {:#}", rel, e),
+            }
+        }
         finalize_state(conn, plan.doc_id, now_secs())?;
         return Ok(());
     }
@@ -89,10 +102,26 @@ pub async fn process(
         .collect();
     let chunk_embeds = embedder.embed_batch(&chunk_texts).await?;
 
-    let summary_data = if plan.needs_summary {
-        let summary = summarizer.summarize(&content).await?;
-        let embed = embedder.embed_one(&summary).await?;
-        Some((summary, embed))
+    let digest_data = if plan.needs_summary {
+        let digest = summarizer.digest(&content).await?;
+        let embed = embedder.embed_one(&digest.summary).await?;
+        Some((digest, embed))
+    } else {
+        None
+    };
+
+    // The summary is current but the suggested question is missing
+    // (v2→v3 backfill on a doc whose chunks changed, or an earlier
+    // JSON-parse fallback). Best-effort: a failure just leaves it NULL
+    // for the next run.
+    let backfill_question = if !plan.needs_summary && plan.question_is_null {
+        match summarizer.question_only(&content).await {
+            Ok(q) => Some(q),
+            Err(e) => {
+                tracing::warn!("backfill question failed for {}: {:#}", rel, e);
+                None
+            }
+        }
     } else {
         None
     };
@@ -103,9 +132,9 @@ pub async fn process(
     let needs_doc_type = plan.needs_summary || plan.doc_type_is_null;
     let inferred_doc_type = if needs_doc_type {
         let vocab = db::doc_type_vocab(conn)?;
-        let summary_for_categorizer = summary_data
+        let summary_for_categorizer = digest_data
             .as_ref()
-            .map(|(s, _)| s.as_str())
+            .map(|(d, _)| d.summary.as_str())
             .or(plan.existing_summary.as_deref())
             .unwrap_or("");
         let preview = truncate_content_preview(&content, 2000);
@@ -136,16 +165,31 @@ pub async fn process(
             params![id],
         )?;
     }
-    if let Some((summary, embed)) = summary_data {
+    if let Some((digest, embed)) = digest_data {
         tx.execute(
             "UPDATE docs SET summary = ?, summary_src_hash = ? WHERE id = ?",
-            params![summary, new_hash, plan.doc_id],
+            params![digest.summary, new_hash, plan.doc_id],
         )?;
+        // Only overwrite the question when the digest actually produced
+        // one; a JSON-parse fallback keeps the previous question (still
+        // reasonable) instead of nulling it.
+        if let Some(q) = &digest.question {
+            tx.execute(
+                "UPDATE docs SET suggested_question = ? WHERE id = ?",
+                params![q, plan.doc_id],
+            )?;
+        }
         // INSERT OR REPLACE on a vec0 virtual table is not supported; emulate.
         tx.execute("DELETE FROM vec_docs WHERE rowid = ?", params![plan.doc_id])?;
         tx.execute(
             "INSERT INTO vec_docs(rowid, embedding) VALUES (?, ?)",
             params![plan.doc_id, encode(&embed)],
+        )?;
+    }
+    if let Some(q) = backfill_question {
+        tx.execute(
+            "UPDATE docs SET suggested_question = ? WHERE id = ?",
+            params![q, plan.doc_id],
         )?;
     }
     if let Some(dt) = inferred_doc_type {
@@ -175,6 +219,10 @@ struct Phase1Plan {
     /// of categorization even when no other content changed — used after
     /// the v1→v2 schema migration).
     doc_type_is_null: bool,
+    /// True when docs.suggested_question was NULL prior to phase 1 (drives
+    /// backfill of the suggested question — used after the v2→v3 schema
+    /// migration, or when an earlier digest parse fell back to summary-only).
+    question_is_null: bool,
     /// Pre-existing summary text, if any. Used as input to the categorizer
     /// when this run isn't regenerating the summary.
     existing_summary: Option<String>,
@@ -194,9 +242,11 @@ fn phase1_db(
     let tx = conn.transaction()?;
 
     // Was a row already present?
-    let existing: Option<(i64, Option<String>, Option<String>, Option<String>)> = tx
+    #[allow(clippy::type_complexity)]
+    let existing: Option<(i64, Option<String>, Option<String>, Option<String>, Option<String>)> = tx
         .query_row(
-            "SELECT id, summary, summary_src_hash, doc_type FROM docs WHERE path = ?",
+            "SELECT id, summary, summary_src_hash, doc_type, suggested_question
+             FROM docs WHERE path = ?",
             [rel],
             |r| {
                 Ok((
@@ -204,13 +254,14 @@ fn phase1_db(
                     r.get::<_, Option<String>>(1)?,
                     r.get::<_, Option<String>>(2)?,
                     r.get::<_, Option<String>>(3)?,
+                    r.get::<_, Option<String>>(4)?,
                 ))
             },
         )
         .ok();
 
     let doc_id = match &existing {
-        Some((id, _, _, _)) => {
+        Some((id, _, _, _, _)) => {
             let id = *id;
             tx.execute(
                 "UPDATE docs SET title = ?, content_hash = ?, mtime = ?, size_bytes = ?,
@@ -309,12 +360,12 @@ fn phase1_db(
 
     let had_changes_in_phase1 = !removed_ids.is_empty() || !inserted_chunks.is_empty();
 
-    let (needs_summary, doc_type_is_null, existing_summary) = match &existing {
-        None => (true, true, None),
-        Some((_, summary, src_hash, doc_type)) => {
+    let (needs_summary, doc_type_is_null, question_is_null, existing_summary) = match &existing {
+        None => (true, true, true, None),
+        Some((_, summary, src_hash, doc_type, question)) => {
             let needs = summary.is_none()
                 || (src_hash.as_deref() != Some(new_hash) && had_changes_in_phase1);
-            (needs, doc_type.is_none(), summary.clone())
+            (needs, doc_type.is_none(), question.is_none(), summary.clone())
         }
     };
 
@@ -327,6 +378,7 @@ fn phase1_db(
         needs_summary,
         had_changes_in_phase1,
         doc_type_is_null,
+        question_is_null,
         existing_summary,
     })
 }
