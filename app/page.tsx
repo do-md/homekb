@@ -5,8 +5,11 @@ import dynamic from "next/dynamic";
 const Kb = dynamic(() => import("@/features/kb/components/kb").then((m) => m.Kb), {
   ssr: false,
   loading: () => (
-    <main className="flex min-h-dvh items-center justify-center">
-      <span className="loading loading-spinner" />
+    <main className="fixed inset-0 flex items-center justify-center">
+      <span
+        className="hk-spin inline-block h-5 w-5 rounded-full border-2 border-current border-t-transparent text-hk-coral-text"
+        aria-label="Loading"
+      />
     </main>
   ),
 });

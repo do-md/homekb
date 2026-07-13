@@ -46,7 +46,29 @@ export interface KbSuggestion {
   mtime: number;
 }
 
-/** "settings" is only reachable in desktop mode (Tauri); the web version does not render its nav entry. */
-export type KbView = "recall" | "reader" | "new" | "status" | "settings";
+/** A locally kept, not-yet-saved note (design 5a/5b: drafts stay on this device). */
+export interface Draft {
+  id: string;
+  text: string;
+  editedAt: number; // epoch ms
+}
+
+/**
+ * Views. "settings" and the full "remote" pairing hub are desktop-mode surfaces;
+ * the web build shows a reduced "remote" (current connection + disconnect) and no settings.
+ * "new" and "drafts" are focused modes without the pill nav (design 5a/5b).
+ */
+export type KbView =
+  | "recall"
+  | "reader"
+  | "new"
+  | "drafts"
+  | "status"
+  | "remote"
+  | "settings";
+
 export type RecallMode = "list" | "answer";
 export type RecallPhase = "idle" | "searching" | "done";
+
+/** Product-defining connection language (design: green online / amber connecting / orange offline). */
+export type ConnState = "online" | "connecting" | "offline";

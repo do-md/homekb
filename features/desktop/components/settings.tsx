@@ -1,144 +1,120 @@
 "use client";
+
+/**
+ * Settings (design 7a, desktop only): engine, data directory, OpenAI key,
+ * appearance. Remote access lives in its own Remote tab (7b), not here.
+ * Card sections with monospace values; green dots only for "running/configured".
+ */
+
 import { useEffect } from "react";
+import { Spinner, StatusDot } from "@/features/kb/components/icons";
 import { useDesktopStore, useDesktopStoreApi } from "../store/desktop-store";
+import { DesktopNotice } from "./notice";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="bg-base-200 flex flex-col gap-3 rounded-xl p-4">
-      <h2 className="text-sm font-semibold opacity-70">{title}</h2>
-      {children}
+    <section className="rounded-2xl border border-hk-border bg-hk-card p-4">
+      <div className="hk-label">{title}</div>
+      <div className="mt-3 flex flex-col gap-1.5">{children}</div>
     </section>
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex items-baseline justify-between gap-4 text-sm">
-      <span className="shrink-0 opacity-50">{label}</span>
-      <span className="truncate font-mono text-xs" title={value}>
-        {value}
-      </span>
+    <div className="flex items-baseline justify-between gap-4 text-[13.5px]">
+      <span className="shrink-0 text-hk-weak">{label}</span>
+      <span className="truncate text-right font-mono text-[12px] text-hk-text-2">{value}</span>
     </div>
   );
 }
 
-/** Desktop-only Settings view: engine/directory info, OpenAI key, relay & pairing, tunnel toggle. */
+/** Desktop-only Settings view: engine + directories + key + appearance. */
 export function SettingsView() {
   const api = useDesktopStoreApi();
   const engine = useDesktopStore((s) => s.state.engine);
   const keyDraft = useDesktopStore((s) => s.state.keyDraft);
   const keyBusy = useDesktopStore((s) => s.state.keyBusy);
-  const registerDraft = useDesktopStore((s) => s.state.registerDraft);
-  const registerBusy = useDesktopStore((s) => s.state.registerBusy);
-  const registerError = useDesktopStore((s) => s.state.registerError);
-  const pair = useDesktopStore((s) => s.state.pair);
-  const pairBusy = useDesktopStore((s) => s.state.pairBusy);
-  const pairError = useDesktopStore((s) => s.state.pairError);
-  const tunnelRunning = useDesktopStore((s) => s.state.tunnelRunning);
-  const tunnelBusy = useDesktopStore((s) => s.state.tunnelBusy);
-  const notice = useDesktopStore((s) => s.state.notice);
 
   useEffect(() => {
     void api.refreshEngine();
   }, [api]);
 
   return (
-    <div className="flex flex-col gap-4">
-      <Section title="Engine">
-        <Row label="Version" value={engine?.version ?? "Unknown"} />
-        <Row label="Binary" value={engine?.path ?? "Not installed"} />
-        <Row label="Local service" value={engine?.serveRunning ? "Running (127.0.0.1:8765)" : "Not running"} />
-      </Section>
+    <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="mx-auto flex w-full max-w-xl flex-col gap-3 px-4 py-5 pb-[max(env(safe-area-inset-bottom),24px)]">
+        <h1 className="text-[21px] font-bold tracking-tight text-hk-heading">Settings</h1>
 
-      <Section title="Data directory (your data stays on this machine)">
-        <Row label="Notes" value={engine?.notesDir ?? "-"} />
-        <Row label="Data root" value={engine?.root ?? "-"} />
-        <Row label="Config" value={engine?.configPath ?? "-"} />
-      </Section>
-
-      <Section title="OpenAI Key (stored locally in config.toml, used for indexing and Q&A)">
-        <Row label="Current" value={engine?.openaiKeyPresent ? "Configured" : "Not configured"} />
-        <div className="flex gap-2">
-          <input
-            type="password"
-            className="input input-sm flex-1"
-            placeholder="sk-…"
-            value={keyDraft}
-            onChange={(e) => api.setKeyDraft(e.target.value)}
+        <Section title="Engine">
+          <Row label="Version" value={engine?.version ?? "Unknown"} />
+          <Row label="Binary" value={engine?.path ?? "Not installed"} />
+          <Row
+            label="Local service"
+            value={
+              engine?.serveRunning ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="text-hk-green">
+                    <StatusDot className="h-1.5! w-1.5!" />
+                  </span>
+                  Running · 127.0.0.1:8765
+                </span>
+              ) : (
+                "Not running"
+              )
+            }
           />
-          <button
-            className="btn btn-sm btn-primary"
-            disabled={keyBusy || !keyDraft.trim()}
-            onClick={() => void api.saveOpenaiKey()}
-          >
-            {keyBusy ? <span className="loading loading-spinner loading-xs" /> : "Save"}
-          </button>
-        </div>
-      </Section>
+        </Section>
 
-      <Section title="Remote access (via relay — relay stores no knowledge base data)">
-        {engine?.relay ? (
-          <>
-            <Row label="Relay" value={engine.relay.url} />
-            <Row label="Device name" value={engine.relay.name} />
-            <div className="flex items-center justify-between text-sm">
-              <span className="opacity-50">Keep tunnel alive (required for mobile / remote MCP)</span>
-              <input
-                type="checkbox"
-                className="toggle toggle-sm"
-                checked={tunnelRunning}
-                disabled={tunnelBusy}
-                onChange={() => void api.toggleTunnel()}
-              />
-            </div>
-            <div className="divider my-0" />
+        <Section title="Data directory — your data stays on this machine">
+          <Row label="Notes" value={engine?.notesDir ?? "–"} />
+          <Row label="Data root" value={engine?.root ?? "–"} />
+          <Row label="Config" value={engine?.configPath ?? "–"} />
+        </Section>
+
+        <Section title="OpenAI key — stored locally in config.toml, used for indexing and Q&A">
+          <Row
+            label="Current"
+            value={
+              engine?.openaiKeyPresent ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="text-hk-green">
+                    <StatusDot className="h-1.5! w-1.5!" />
+                  </span>
+                  Configured
+                </span>
+              ) : (
+                "Not configured"
+              )
+            }
+          />
+          <div className="mt-1.5 flex gap-2">
+            <input
+              type="password"
+              className="min-w-0 flex-1 rounded-xl border border-hk-input-border bg-transparent px-3 py-2 font-mono text-[13px] text-hk-text outline-none placeholder:text-hk-weak focus:border-hk-input-focus"
+              placeholder="sk-…"
+              value={keyDraft}
+              onChange={(e) => api.setKeyDraft(e.target.value)}
+              autoComplete="off"
+            />
             <button
-              className="btn btn-sm"
-              disabled={pairBusy}
-              onClick={() => void api.newPairCode()}
+              className="flex items-center gap-1.5 rounded-xl bg-hk-coral px-4 py-2 text-[13.5px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover disabled:opacity-50"
+              disabled={keyBusy || !keyDraft.trim()}
+              onClick={() => void api.saveOpenaiKey()}
             >
-              {pairBusy ? <span className="loading loading-spinner loading-xs" /> : "Generate pairing code"}
+              {keyBusy && <Spinner size={13} />}
+              Save
             </button>
-            {pair && (
-              <div className="bg-base-100 flex flex-col items-center gap-1 rounded-lg p-4">
-                <div className="font-mono text-3xl font-bold tracking-[0.3em]">{pair.code}</div>
-                <div className="text-xs opacity-50">
-                  Valid for 10 minutes · Open {pair.relayUrl} on your phone and enter this code, or enter it in the Claude mobile connector authorization page
-                </div>
-              </div>
-            )}
-            {pairError && <div className="text-error text-xs">{pairError}</div>}
-          </>
-        ) : (
-          <>
-            <p className="text-xs opacity-60">
-              Register with a self-hosted relay to allow mobile and Claude mobile access to this machine.
-            </p>
-            <div className="flex gap-2">
-              <input
-                className="input input-sm flex-1"
-                placeholder="https://kb.example.com"
-                value={registerDraft}
-                onChange={(e) => api.setRegisterDraft(e.target.value)}
-              />
-              <button
-                className="btn btn-sm btn-primary"
-                disabled={registerBusy || !registerDraft.trim()}
-                onClick={() => void api.register()}
-              >
-                {registerBusy ? <span className="loading loading-spinner loading-xs" /> : "Register"}
-              </button>
-            </div>
-            {registerError && <div className="text-error text-xs">{registerError}</div>}
-          </>
-        )}
-      </Section>
+          </div>
+        </Section>
 
-      {notice && (
-        <div className="toast toast-center toast-bottom z-20">
-          <div className="alert alert-info py-2 text-sm">{notice}</div>
-        </div>
-      )}
+        <Section title="Appearance">
+          <Row label="Theme" value="Follows your system" />
+          <p className="text-xs leading-relaxed text-hk-faint">
+            Light and dark switch automatically with the OS — there is no manual toggle.
+          </p>
+        </Section>
+      </div>
+      <DesktopNotice />
     </div>
   );
 }

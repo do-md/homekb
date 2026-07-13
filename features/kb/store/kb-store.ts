@@ -1,5 +1,6 @@
 "use client";
 import { createMemo, createReactStore, ZenithStore } from "@do-md/zenith";
+import { nanoid } from "nanoid";
 import { claimPairCode, connectDirect } from "@/lib/client/relay-client";
 import {
   clearConnection,
@@ -9,7 +10,9 @@ import {
 import { isDesktop } from "@/lib/client/desktop";
 import { checkHealth, RelayError, rpc } from "@/lib/client/rpc";
 import type {
+  ConnState,
   DocMeta,
+  Draft,
   KbAnswer,
   KbHit,
   KbStatusData,
@@ -19,14 +22,45 @@ import type {
   RecallPhase,
 } from "../type";
 
+const DRAFTS_KEY = "homekb.drafts.v1";
+const LAST_CONNECTED_KEY = "homekb.lastConnectedAt.v1";
+
+function loadDrafts(): Draft[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(DRAFTS_KEY);
+    if (!raw) return [];
+    const list = JSON.parse(raw) as Draft[];
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistDrafts(drafts: Draft[]) {
+  try {
+    window.localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+  } catch {
+    // Quota/private-mode failures: drafts silently stay in-memory only.
+  }
+}
+
+function loadLastConnectedAt(): number | null {
+  if (typeof window === "undefined") return null;
+  const raw = window.localStorage.getItem(LAST_CONNECTED_KEY);
+  const n = raw ? Number(raw) : NaN;
+  return Number.isFinite(n) ? n : null;
+}
+
 interface KbState {
   // Desktop mode (Tauri webview): no pairing, connects directly to local serve
   desktop: boolean;
 
-  // Pairing
+  // Pairing / connection
   paired: boolean;
   homeName: string;
-  online: boolean | null; // null = not yet probed
+  online: boolean | null; // null = probing
+  lastConnectedAt: number | null;
   pairBusy: boolean;
   pairError: string | null;
 
@@ -39,22 +73,29 @@ interface KbState {
   phase: RecallPhase;
   hits: KbHit[];
   answer: KbAnswer | null;
+  answerMs: number | null;
   searchError: string | null;
   recentDocs: DocMeta[];
   suggestions: KbSuggestion[];
+  docTypes: string[];
+  typeFilter: string | null;
 
   // reader
   readerPath: string | null;
   readerContent: string;
+  /** Bumped on every load/save so the read-only DOMD remounts with fresh initMd. */
+  readerVersion: number;
   readerLoading: boolean;
   readerError: string | null;
   editMode: boolean;
-  editText: string;
   saveBusy: boolean;
 
-  // new
-  newTitle: string;
-  newText: string;
+  // compose (new note) + drafts
+  drafts: Draft[];
+  editingDraftId: string | null;
+  editorSeed: string;
+  /** Bumped to remount the editor with a new seed. */
+  editorSession: number;
   newBusy: boolean;
   newSavedPath: string | null;
   newError: string | null;
@@ -69,6 +110,8 @@ const memo = createMemo<KbStore>();
 
 export class KbStore extends ZenithStore<KbState> {
   private noticeTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Last content saved to the library — suppresses the auto-stash that fires on editor remount. */
+  private lastLibrarySaved: string | null = null;
 
   constructor() {
     const desktop = isDesktop();
@@ -78,27 +121,33 @@ export class KbStore extends ZenithStore<KbState> {
       paired: desktop || !!conn,
       homeName: desktop ? "This machine" : conn ? connectionLabel(conn) : "",
       online: null,
+      lastConnectedAt: loadLastConnectedAt(),
       pairBusy: false,
       pairError: null,
       view: "recall",
-      mode: "list",
+      mode: "answer",
       query: "",
       submittedQuery: "",
       phase: "idle",
       hits: [],
       answer: null,
+      answerMs: null,
       searchError: null,
       recentDocs: [],
       suggestions: [],
+      docTypes: [],
+      typeFilter: null,
       readerPath: null,
       readerContent: "",
+      readerVersion: 0,
       readerLoading: false,
       readerError: null,
       editMode: false,
-      editText: "",
       saveBusy: false,
-      newTitle: "",
-      newText: "",
+      drafts: loadDrafts(),
+      editingDraftId: null,
+      editorSeed: "",
+      editorSession: 0,
       newBusy: false,
       newSavedPath: null,
       newError: null,
@@ -108,18 +157,19 @@ export class KbStore extends ZenithStore<KbState> {
     });
   }
 
-  @memo((s: KbStore) => [s.state.online, s.state.paired, s.state.desktop])
-  public get connBadge(): { text: string; cls: string } {
-    if (!this.state.paired) return { text: "Not paired", cls: "badge-ghost" };
-    if (this.state.online === null) return { text: "Checking…", cls: "badge-ghost" };
-    if (this.state.desktop) {
-      return this.state.online
-        ? { text: "Engine online", cls: "badge-success" }
-        : { text: "Engine offline", cls: "badge-error" };
-    }
-    return this.state.online
-      ? { text: "Home online", cls: "badge-success" }
-      : { text: "Home offline", cls: "badge-error" };
+  /** green online / amber connecting / orange offline — drives every header indicator. */
+  @memo((s: KbStore) => [s.state.online, s.state.paired])
+  public get connState(): ConnState {
+    if (this.state.online === null) return "connecting";
+    return this.state.online ? "online" : "offline";
+  }
+
+  /** List results after the docType chip filter. */
+  @memo((s: KbStore) => [s.state.hits, s.state.typeFilter])
+  public get filteredHits(): KbHit[] {
+    const f = this.state.typeFilter;
+    if (!f) return this.state.hits;
+    return this.state.hits.filter((h) => (h.docType ?? "other") === f);
   }
 
   // ---------- Pairing ----------
@@ -153,15 +203,22 @@ export class KbStore extends ZenithStore<KbState> {
         d.homeName = homeName;
         d.pairBusy = false;
       });
-      void this.refreshHealth();
-      void this.loadRecent();
-      void this.loadSuggestions();
+      void this.bootLoads();
     } catch (e) {
       this.produce((d) => {
         d.pairBusy = false;
         d.pairError = e instanceof Error ? e.message : "Pairing failed";
       });
     }
+  }
+
+  /** Everything the entry screen needs, fired after pairing / on mount. */
+  public async bootLoads() {
+    void this.refreshHealth();
+    void this.loadRecent();
+    void this.loadSuggestions();
+    void this.loadStatus({ silent: true });
+    void this.loadTypes();
   }
 
   public unpair() {
@@ -183,7 +240,15 @@ export class KbStore extends ZenithStore<KbState> {
       const online = await checkHealth();
       this.produce((d) => {
         d.online = online;
+        if (online) d.lastConnectedAt = Date.now();
       });
+      if (online) {
+        try {
+          window.localStorage.setItem(LAST_CONNECTED_KEY, String(Date.now()));
+        } catch {
+          // best-effort persistence only
+        }
+      }
     } catch (e) {
       if (e instanceof RelayError && e.code === "unauthorized") this.unpair();
       else
@@ -191,6 +256,14 @@ export class KbStore extends ZenithStore<KbState> {
           d.online = false;
         });
     }
+  }
+
+  /** Offline screen's coral Retry button: back to amber "connecting", then re-probe. */
+  public retryConnection() {
+    this.produce((d) => {
+      d.online = null;
+    });
+    void this.refreshHealth();
   }
 
   // ---------- Navigation ----------
@@ -215,6 +288,25 @@ export class KbStore extends ZenithStore<KbState> {
     if (q) void this.runSearch(q);
   }
 
+  public setTypeFilter(t: string | null) {
+    this.produce((d) => {
+      d.typeFilter = t;
+    });
+  }
+
+  /** Back to the entry screen (clears the submitted query, keeps recents/suggestions). */
+  public clearSearch() {
+    this.produce((d) => {
+      d.query = "";
+      d.submittedQuery = "";
+      d.phase = "idle";
+      d.hits = [];
+      d.answer = null;
+      d.searchError = null;
+      d.typeFilter = null;
+    });
+  }
+
   // ---------- Search / Recall ----------
   public async search() {
     const q = this.state.query.trim();
@@ -224,11 +316,16 @@ export class KbStore extends ZenithStore<KbState> {
 
   private async runSearch(q: string) {
     const mode = this.state.mode;
+    const startedAt = Date.now();
     this.produce((d) => {
       d.submittedQuery = q;
+      d.query = "";
       d.phase = "searching";
       d.searchError = null;
       d.answer = null;
+      d.answerMs = null;
+      d.typeFilter = null;
+      d.view = "recall";
     });
     try {
       if (mode === "answer") {
@@ -236,10 +333,11 @@ export class KbStore extends ZenithStore<KbState> {
         this.produce((d) => {
           d.answer = res;
           d.hits = res.hits ?? [];
+          d.answerMs = Date.now() - startedAt;
           d.phase = "done";
         });
       } else {
-        // List mode: group by source (each document appears only once); maxDistance filters out irrelevant results
+        // List mode: whole notes, one per source; maxDistance drops irrelevant tails
         const res = await rpc<{ results: KbHit[] }>("kb.query", {
           query: q,
           limit: 20,
@@ -262,7 +360,7 @@ export class KbStore extends ZenithStore<KbState> {
 
   public async loadRecent() {
     try {
-      const res = await rpc<{ docs: DocMeta[] }>("kb.list", { limit: 10 });
+      const res = await rpc<{ docs: DocMeta[] }>("kb.list", { limit: 8 });
       this.produce((d) => {
         d.recentDocs = res.docs ?? [];
       });
@@ -273,7 +371,7 @@ export class KbStore extends ZenithStore<KbState> {
 
   public async loadSuggestions() {
     try {
-      const res = await rpc<{ suggestions: KbSuggestion[] }>("kb.suggestions", { limit: 4 });
+      const res = await rpc<{ suggestions: KbSuggestion[] }>("kb.suggestions", { limit: 3 });
       this.produce((d) => {
         d.suggestions = res.suggestions ?? [];
       });
@@ -283,10 +381,20 @@ export class KbStore extends ZenithStore<KbState> {
     }
   }
 
+  public async loadTypes() {
+    try {
+      const res = await rpc<{ types: { docType: string; count: number }[] }>("kb.listTypes", {});
+      this.produce((d) => {
+        d.docTypes = (res.types ?? []).map((t) => t.docType);
+      });
+    } catch {
+      // No chip row without the type list — non-fatal.
+    }
+  }
+
   /** Click-through from a home-screen suggestion: ask it directly. */
   public askSuggestion(question: string) {
     this.produce((d) => {
-      d.query = question;
       d.mode = "answer";
     });
     void this.runSearch(question);
@@ -306,6 +414,7 @@ export class KbStore extends ZenithStore<KbState> {
       const res = await rpc<{ content: string }>("kb.read", { path });
       this.produce((d) => {
         d.readerContent = res.content;
+        d.readerVersion += 1;
         d.readerLoading = false;
       });
     } catch (e) {
@@ -319,13 +428,6 @@ export class KbStore extends ZenithStore<KbState> {
   public startEdit() {
     this.produce((d) => {
       d.editMode = true;
-      d.editText = d.readerContent;
-    });
-  }
-
-  public setEditText(t: string) {
-    this.produce((d) => {
-      d.editText = t;
     });
   }
 
@@ -335,16 +437,17 @@ export class KbStore extends ZenithStore<KbState> {
     });
   }
 
-  public async saveEdit() {
+  public async saveEdit(markdown: string) {
     const path = this.state.readerPath;
     if (!path) return;
     this.produce((d) => {
       d.saveBusy = true;
     });
     try {
-      await rpc("kb.write", { path, content: this.state.editText });
+      await rpc("kb.write", { path, content: markdown });
       this.produce((d) => {
-        d.readerContent = d.editText;
+        d.readerContent = markdown;
+        d.readerVersion += 1;
         d.editMode = false;
         d.saveBusy = false;
       });
@@ -357,21 +460,94 @@ export class KbStore extends ZenithStore<KbState> {
     }
   }
 
-  // ---------- New note ----------
-  public setNewTitle(t: string) {
+  // ---------- Compose (new note) + drafts ----------
+  /** Fresh editor (New note tab / "New note" from drafts). */
+  public composeNew() {
     this.produce((d) => {
-      d.newTitle = t;
+      d.view = "new";
+      d.editingDraftId = null;
+      d.editorSeed = "";
+      d.editorSession += 1;
+      d.newSavedPath = null;
+      d.newError = null;
     });
   }
 
-  public setNewText(t: string) {
+  /** Re-enter the compose tab keeping whatever session was in progress. */
+  public composeResume() {
     this.produce((d) => {
-      d.newText = t;
+      d.view = "new";
+      d.newSavedPath = null;
+      d.newError = null;
     });
   }
 
-  public async createNote() {
-    const content = this.state.newText.trim();
+  public resumeDraft(id: string) {
+    const draft = this.state.drafts.find((x) => x.id === id);
+    if (!draft) return;
+    this.produce((d) => {
+      d.view = "new";
+      d.editingDraftId = draft.id;
+      d.editorSeed = draft.text;
+      d.editorSession += 1;
+      d.newSavedPath = null;
+      d.newError = null;
+    });
+  }
+
+  /** Explicit "Save draft" — local only, works offline. */
+  public saveDraft(markdown: string) {
+    if (!markdown.trim()) return;
+    this.upsertDraft(markdown);
+    this.flash("Draft saved on this device");
+  }
+
+  /** Silent stash when the editor unmounts with unsaved content — never lose work. */
+  public stashDraft(markdown: string) {
+    if (!markdown.trim()) return;
+    // Just saved to the library: don't resurrect it as a draft.
+    if (this.lastLibrarySaved !== null && markdown.trim() === this.lastLibrarySaved.trim()) return;
+    // Skip when identical to the resumed seed (nothing typed).
+    if (this.state.editingDraftId) {
+      const existing = this.state.drafts.find((x) => x.id === this.state.editingDraftId);
+      if (existing && existing.text === markdown) return;
+    }
+    this.upsertDraft(markdown);
+  }
+
+  private upsertDraft(markdown: string) {
+    this.produce((d) => {
+      const id = d.editingDraftId ?? nanoid(10);
+      const at = Date.now();
+      const existing = d.drafts.find((x) => x.id === id);
+      if (existing) {
+        existing.text = markdown;
+        existing.editedAt = at;
+      } else {
+        d.drafts.unshift({ id, text: markdown, editedAt: at });
+      }
+      d.drafts.sort((a, b) => b.editedAt - a.editedAt);
+      d.editingDraftId = id;
+      d.editorSeed = markdown;
+    });
+    persistDrafts(this.state.drafts);
+  }
+
+  public deleteDraft(id: string) {
+    this.produce((d) => {
+      d.drafts = d.drafts.filter((x) => x.id !== id);
+      if (d.editingDraftId === id) {
+        d.editingDraftId = null;
+        d.editorSeed = "";
+        d.editorSession += 1;
+      }
+    });
+    persistDrafts(this.state.drafts);
+  }
+
+  /** "Save to library" — writes to home (needs home online). Title = first line. */
+  public async saveToLibrary(markdown: string, title: string) {
+    const content = markdown.trim();
     if (!content) return;
     this.produce((d) => {
       d.newBusy = true;
@@ -381,14 +557,21 @@ export class KbStore extends ZenithStore<KbState> {
     try {
       const res = await rpc<{ path: string }>("kb.create", {
         content,
-        title: this.state.newTitle.trim() || undefined,
+        title: title || undefined,
       });
+      this.lastLibrarySaved = content;
       this.produce((d) => {
+        if (d.editingDraftId) {
+          d.drafts = d.drafts.filter((x) => x.id !== d.editingDraftId);
+        }
+        d.editingDraftId = null;
+        d.editorSeed = "";
+        d.editorSession += 1;
         d.newBusy = false;
         d.newSavedPath = res.path;
-        d.newTitle = "";
-        d.newText = "";
       });
+      persistDrafts(this.state.drafts);
+      void this.loadRecent();
     } catch (e) {
       this.produce((d) => {
         d.newBusy = false;
@@ -398,10 +581,12 @@ export class KbStore extends ZenithStore<KbState> {
   }
 
   // ---------- Status ----------
-  public async loadStatus() {
-    this.produce((d) => {
-      d.statusLoading = true;
-    });
+  public async loadStatus(opts: { silent?: boolean } = {}) {
+    if (!opts.silent) {
+      this.produce((d) => {
+        d.statusLoading = true;
+      });
+    }
     try {
       const res = await rpc<KbStatusData>("kb.status", {});
       this.produce((d) => {
@@ -412,7 +597,7 @@ export class KbStore extends ZenithStore<KbState> {
       this.produce((d) => {
         d.statusLoading = false;
       });
-      this.flash(e instanceof Error ? e.message : "Failed to load status");
+      if (!opts.silent) this.flash(e instanceof Error ? e.message : "Failed to load status");
     }
     void this.refreshHealth();
   }
@@ -420,7 +605,9 @@ export class KbStore extends ZenithStore<KbState> {
   public async reindex() {
     try {
       await rpc("kb.reindex", {});
-      this.flash("Reindex triggered");
+      this.flash("Reindex started");
+      // Reflect the compiling state (6b) shortly after the trigger.
+      setTimeout(() => void this.loadStatus({ silent: true }), 1500);
     } catch (e) {
       this.flash(e instanceof Error ? e.message : "Failed to trigger reindex");
     }

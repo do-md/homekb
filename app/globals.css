@@ -9,12 +9,245 @@
         dark --prefersdark;
 }
 
-/* Markdown typography for the Reader (`prose`); dark variant rides on prefers-color-scheme (no data-theme). */
-@plugin "@tailwindcss/typography";
+/*
+ * HomeKB design system (Claude design handoff, dark theme delivered; light derived
+ * from the same rules). Flat aesthetic: translucent fills + 1px hairline borders,
+ * no gradients except the composer scrim, at most one light shadow on floaters.
+ *
+ * Semantic accents (keep straight):
+ * - Coral  = brand / primary actions / relevance. Never used for status.
+ * - Green  = online / connected / success ONLY. Never a general accent.
+ * - Amber  = connecting / paused. Orange = offline / needs attention. Never red.
+ *
+ * HomeKB does not set data-theme; it follows the system theme entirely
+ * (prefers-color-scheme only, no in-app toggle).
+ */
 
-/* HomeKB does not set data-theme; it follows the system theme entirely. Use @media (prefers-color-scheme) for all light/dark styles. */
+:root {
+    /* Light theme — derived: warm paper canvas, dark-ink translucent fills */
+    --hk-bg: #f5f4f0;
+    --hk-card: rgba(24, 22, 16, 0.045);
+    --hk-card-soft: rgba(24, 22, 16, 0.03);
+    --hk-card-strong: rgba(24, 22, 16, 0.055);
+    --hk-border: rgba(24, 22, 16, 0.09);
+    --hk-hairline: rgba(24, 22, 16, 0.07);
+    --hk-input-border: rgba(24, 22, 16, 0.14);
+    --hk-input-focus: rgba(24, 22, 16, 0.26);
+    --hk-heading: rgba(20, 19, 16, 0.95);
+    --hk-text: rgba(20, 19, 16, 0.92);
+    --hk-text-2: rgba(20, 19, 16, 0.58);
+    --hk-weak: rgba(20, 19, 16, 0.42);
+    --hk-faint: rgba(20, 19, 16, 0.36);
+    --hk-pill: rgba(24, 22, 16, 0.08);
+    --hk-glyph: rgba(24, 22, 16, 0.06);
 
-html,
+    --hk-coral: #ec4e62;
+    --hk-coral-text: #d63b50;
+    --hk-coral-hover: #c13648;
+    --hk-coral-chip-bg: rgba(236, 78, 98, 0.1);
+    --hk-coral-chip-border: rgba(236, 78, 98, 0.22);
+
+    --hk-green: #1f9e69;
+    --hk-amber: #b57f1c;
+    --hk-amber-text: #96690f;
+    --hk-orange: #c76f1c;
+    --hk-orange-text: #a65c14;
+
+    --hk-composer: rgba(255, 255, 255, 0.92);
+    --hk-scrim: rgba(245, 244, 240, 0.92);
+    --hk-on-coral: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        /* Dark theme — exact handoff tokens */
+        --hk-bg: #0c0d10;
+        --hk-card: rgba(255, 255, 255, 0.045);
+        --hk-card-soft: rgba(255, 255, 255, 0.03);
+        --hk-card-strong: rgba(255, 255, 255, 0.05);
+        --hk-border: rgba(255, 255, 255, 0.07);
+        --hk-hairline: rgba(255, 255, 255, 0.055);
+        --hk-input-border: rgba(255, 255, 255, 0.11);
+        --hk-input-focus: rgba(255, 255, 255, 0.2);
+        --hk-heading: rgba(255, 255, 255, 0.95);
+        --hk-text: rgba(255, 255, 255, 0.92);
+        --hk-text-2: rgba(255, 255, 255, 0.55);
+        --hk-weak: rgba(255, 255, 255, 0.4);
+        --hk-faint: rgba(255, 255, 255, 0.35);
+        --hk-pill: rgba(255, 255, 255, 0.1);
+        --hk-glyph: rgba(255, 255, 255, 0.06);
+
+        --hk-coral: #f0576a;
+        --hk-coral-text: #f26e7e;
+        --hk-coral-hover: #f58a97;
+        --hk-coral-chip-bg: rgba(240, 87, 106, 0.14);
+        --hk-coral-chip-border: rgba(240, 87, 106, 0.2);
+
+        --hk-green: #3ec08a;
+        --hk-amber: #e0a93e;
+        --hk-amber-text: #ebc46e;
+        --hk-orange: #e8913e;
+        --hk-orange-text: #f0b36a;
+
+        --hk-composer: rgba(26, 27, 32, 0.9);
+        --hk-scrim: rgba(12, 13, 16, 0.92);
+        --hk-on-coral: #ffffff;
+    }
+}
+
+/* Map tokens into Tailwind utilities (bg-hk-card, text-hk-text-2, border-hk-border, …) */
+@theme inline {
+    --color-hk-bg: var(--hk-bg);
+    --color-hk-card: var(--hk-card);
+    --color-hk-card-soft: var(--hk-card-soft);
+    --color-hk-card-strong: var(--hk-card-strong);
+    --color-hk-border: var(--hk-border);
+    --color-hk-hairline: var(--hk-hairline);
+    --color-hk-input-border: var(--hk-input-border);
+    --color-hk-input-focus: var(--hk-input-focus);
+    --color-hk-heading: var(--hk-heading);
+    --color-hk-text: var(--hk-text);
+    --color-hk-text-2: var(--hk-text-2);
+    --color-hk-weak: var(--hk-weak);
+    --color-hk-faint: var(--hk-faint);
+    --color-hk-pill: var(--hk-pill);
+    --color-hk-glyph: var(--hk-glyph);
+    --color-hk-coral: var(--hk-coral);
+    --color-hk-coral-text: var(--hk-coral-text);
+    --color-hk-coral-hover: var(--hk-coral-hover);
+    --color-hk-coral-chip: var(--hk-coral-chip-bg);
+    --color-hk-coral-chip-border: var(--hk-coral-chip-border);
+    --color-hk-green: var(--hk-green);
+    --color-hk-amber: var(--hk-amber);
+    --color-hk-amber-text: var(--hk-amber-text);
+    --color-hk-orange: var(--hk-orange);
+    --color-hk-orange-text: var(--hk-orange-text);
+    --color-hk-composer: var(--hk-composer);
+    --color-hk-on-coral: var(--hk-on-coral);
+}
+
+/* Safe-area spacing utilities (pt-safe-top, pb-safe-bottom, …) */
+@theme {
+    --spacing-safe-top: env(safe-area-inset-top);
+    --spacing-safe-bottom: env(safe-area-inset-bottom);
+    --spacing-safe-left: env(safe-area-inset-left);
+    --spacing-safe-right: env(safe-area-inset-right);
+}
+
+/*
+ * PWA known-good recipe (see KB: iOS PWA standalone container pitfalls):
+ * - html carries the canvas color (safe-area bands paint with it); body sets NO background.
+ * - NEVER lock html/body to height:100% and never put overflow:hidden on them —
+ *   both clamp position:fixed to the safe-area-inset viewport in iOS standalone.
+ * - Scroll locking comes from the fixed inset-0 app shell, not from these rules.
+ */
+html {
+    color-scheme: light dark;
+    background-color: var(--hk-bg);
+}
+
 body {
-    height: 100%;
+    min-height: 100vh;
+    overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
+    color: var(--hk-text);
+    font-family:
+        -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+        system-ui, sans-serif;
+}
+
+/* Motion — quiet and quick, nothing bouncy */
+@keyframes homekb-shimmer {
+    0%,
+    100% {
+        opacity: 0.45;
+    }
+    50% {
+        opacity: 0.9;
+    }
+}
+
+@keyframes homekb-blink {
+    0%,
+    49% {
+        opacity: 1;
+    }
+    50%,
+    100% {
+        opacity: 0;
+    }
+}
+
+@keyframes homekb-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes homekb-scan {
+    0%,
+    100% {
+        transform: translateY(-38px);
+    }
+    50% {
+        transform: translateY(38px);
+    }
+}
+
+.hk-shimmer {
+    animation: homekb-shimmer 1.4s ease-in-out infinite;
+}
+
+.hk-blink {
+    animation: homekb-blink 1s step-end infinite;
+}
+
+.hk-spin {
+    animation: homekb-spin 0.8s linear infinite;
+}
+
+/* Bottom scrim behind the pinned composer — the only gradient allowed */
+.hk-scrim {
+    background: linear-gradient(180deg, transparent, var(--hk-scrim) 45%);
+}
+
+/* Section labels: uppercase 12px/600, wide tracking, weak color */
+.hk-label {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--hk-weak);
+}
+
+/* DOMD theming: ride the design tokens inside any .hk-domd container */
+.hk-domd {
+    --domd-text: var(--hk-text);
+    --domd-blockquote-text: var(--hk-text-2);
+    --domd-blockquote-border: var(--hk-coral);
+    --domd-link-text: var(--hk-coral-text);
+    --domd-placeholder-text: var(--hk-weak);
+    --domd-border: var(--hk-border);
+    --domd-hr-bg: var(--hk-border);
+    --domd-hr-active: var(--hk-coral);
+    --domd-code-bg: var(--hk-card-strong);
+    --domd-pre-bg: var(--hk-card-soft);
+    --domd-pre-topbar-bg: var(--hk-card-strong);
+    --domd-font-size-h1: 1.5rem;
+    --domd-font-size-h2: 1.25rem;
+    --domd-font-size-h3: 1.1rem;
+    --domd-font-size-base: 0.96875rem; /* 15.5px */
+    font-size: 15.5px;
+    line-height: 1.65;
+    color: var(--hk-text);
+}
+
+@media (min-width: 640px) {
+    .hk-domd {
+        --domd-font-size-h1: 1.7rem;
+        --domd-font-size-h2: 1.35rem;
+        --domd-font-size-h3: 1.15rem;
+        --domd-font-size-base: 1rem;
+        font-size: 16px;
+    }
 }

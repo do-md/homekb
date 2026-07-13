@@ -151,13 +151,25 @@ The UI (`features/kb`) is written once; the transport layer (`lib/client`) route
 | Mode | How chosen | Base URL | Auth |
 |------|-----------|----------|------|
 | `desktop` | Auto: `window.__TAURI_INTERNALS__` present | `http://127.0.0.1:8765` (serve) | None (loopback) |
-| `relay` | Pairing screen → "Use a relay" (default, lowest barrier) | `<relayUrl>/api/relay` | Bearer clientToken (`hkt_`) |
-| `direct` | Pairing screen → "Connect directly" (user has public IP/domain) | `<serveUrl>` (public serve) | Bearer serveToken (`hkd_`) |
+| `relay` | Pairing screen → "Use a relay" (secondary tab; lowest barrier when no public address) | `<relayUrl>/api/relay` | Bearer clientToken (`hkt_`) |
+| `direct` | Pairing screen → "Connect directly" (default tab per the design handoff — no middleman is the headline story) | `<serveUrl>` (public serve) | Bearer serveToken (`hkd_`) |
 
 - The Web UI stores the whole connection object in localStorage under `homekb.connection.v1`: `{mode:"relay", relayUrl, token, home:{homeId,homeName}}` or `{mode:"direct", baseUrl, token}`.
 - The pairing screen's relay URL is prefilled from `NEXT_PUBLIC_RELAY_URL` (the official relay; dev fallback `http://localhost:8787`) and remains user-editable (self-hosted relays, multiple relays later).
 - Direct-mode pairing = enter serve URL + serveToken; the client verifies with `GET /health` + a cheap `kb.status` before saving.
 - Asset rendering: `relay`/`direct` modes fetch `…/asset(s)/<path>` with the `Authorization` header and render via blob URLs; `desktop` embeds plain serve URLs. How image srcs inside note Markdown map to asset paths is defined once in "Image references in notes" (`lib/client/asset-ref.ts` implements it).
+
+### Pairing link (QR payload)
+
+The desktop Remote tab renders a QR code next to the pairing code so a phone can connect without typing. The QR encodes a **Web UI URL with prefill params** — relay pairing only:
+
+```
+<webBase>/?relay=<relayUrl>&code=<pairingCode>
+```
+
+- `webBase` = `NEXT_PUBLIC_WEB_URL` (the deployed Web UI origin; dev fallback `http://localhost:3000`).
+- The landing screen reads the params on load, prefills the relay form, auto-submits the claim, and immediately strips the params from the address bar (`history.replaceState`) so codes never linger in browser history. Putting the *pairing code* in a URL is acceptable — it is single-use with a 10-minute expiry.
+- **Direct mode is deliberately not QR-encoded**: it would put the long-lived `hkd_` serveToken into a URL, violating the "tokens never appear in URLs" rule. Direct connect stays manual entry.
 
 ## Desktop client (Tauri, src-tauri/)
 

@@ -1,4 +1,5 @@
 "use client";
+import { Spinner } from "@/features/kb/components/icons";
 import { useDesktopStore, useDesktopStoreApi } from "../store/desktop-store";
 
 const PHASE_TEXT: Record<string, string> = {
@@ -14,20 +15,27 @@ export function BootScreen() {
   const bootError = useDesktopStore((s) => s.state.bootError);
 
   return (
-    <main className="flex min-h-dvh items-center justify-center px-8">
+    <main className="fixed inset-0 flex items-center justify-center overflow-hidden px-8">
       <div className="flex max-w-sm flex-col items-center gap-4 text-center">
-        <div className="text-2xl font-bold">HomeKB</div>
+        <div className="text-2xl font-bold tracking-tight text-hk-heading">HomeKB</div>
         {phase === "error" ? (
           <>
-            <div className="alert alert-error text-sm">{bootError}</div>
-            <button className="btn btn-sm" onClick={() => void api.bootstrap()}>
+            <div className="rounded-xl border border-hk-border bg-hk-card px-4 py-3 text-[13.5px] text-hk-orange-text">
+              {bootError}
+            </div>
+            <button
+              className="rounded-xl bg-hk-coral px-4 py-2 text-[13.5px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover"
+              onClick={() => void api.bootstrap()}
+            >
               Retry
             </button>
           </>
         ) : (
           <>
-            <span className="loading loading-spinner" />
-            <p className="text-sm opacity-60">{PHASE_TEXT[phase] ?? "Starting…"}</p>
+            <span className="text-hk-coral-text">
+              <Spinner size={20} />
+            </span>
+            <p className="text-[13.5px] text-hk-text-2">{PHASE_TEXT[phase] ?? "Starting…"}</p>
           </>
         )}
       </div>
