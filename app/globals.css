@@ -9,6 +9,9 @@
         dark --prefersdark;
 }
 
+/* Markdown typography for the Reader (`prose`); dark variant rides on prefers-color-scheme (no data-theme). */
+@plugin "@tailwindcss/typography";
+
 /* HomeKB does not set data-theme; it follows the system theme entirely. Use @media (prefers-color-scheme) for all light/dark styles. */
 
 html,

@@ -1,4 +1,5 @@
 "use client";
+import { KbMarkdown } from "../markdown";
 import { useKbStore, useKbStoreApi } from "../../store/kb-store";
 
 export function ReaderView() {
@@ -47,8 +48,8 @@ export function ReaderView() {
       {error && <div className="alert alert-error text-sm">{error}</div>}
 
       {!loading && !error && !editMode && (
-        <article className="bg-base-200 rounded-lg p-4 text-sm leading-relaxed whitespace-pre-wrap">
-          {content}
+        <article className="bg-base-200 rounded-lg p-4">
+          <KbMarkdown content={content} notePath={path ?? ""} />
         </article>
       )}
       {editMode && (

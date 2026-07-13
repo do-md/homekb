@@ -58,6 +58,19 @@ Three independently deployed pieces, with two paths from a remote client to the 
 | `~/Library/Application Support/homekb/live.db` | Compile working DB (WAL, **kept out of the data root**) |
 | `~/.config/homekb/config.toml` | Configuration (OpenAI key, path overrides, relay credentials) |
 
+### Image references in notes (rendering contract)
+
+Notes reference images with **standard relative Markdown paths from the note file**, assuming the default layout where `notes/` and `assets/` are siblings under the data root: a note `notes/foo.md` writes `![alt](../assets/images/bar.png)`; a note `notes/sub/foo.md` writes `![alt](../../assets/images/bar.png)`. This keeps notes portable — the same reference renders in Obsidian / VS Code / GitHub without HomeKB.
+
+Renderer resolution rule (identical in every renderer — Web, desktop, anything future):
+
+1. `http(s):`, `data:`, `blob:` srcs pass through untouched.
+2. Any other src is resolved against the note's own location under a **virtual data root** (`notes/<notePath>` joined with the src, `.`/`..` normalized, never escaping the root).
+3. If the resolved path lands under `assets/` → the remainder is the asset path, fetched through the asset service (`GET /assets/<path>` on serve, `GET /api/relay/asset/<path>` through the relay — see "Binary asset channel"). `relay`/`direct` modes fetch with the `Authorization` header and render blob URLs; `desktop` embeds plain serve URLs.
+4. Anything else (escapes the root, points inside `notes/`, unresolvable) renders as a broken-image placeholder — never fetched.
+
+The rule is defined against the virtual root, so it keeps resolving correctly even when `notes_dir` is overridden to a custom directory (on-disk editor portability is then the user's trade-off, not the renderer's problem).
+
 ## config.toml
 
 ```toml
@@ -144,7 +157,7 @@ The UI (`features/kb`) is written once; the transport layer (`lib/client`) route
 - The Web UI stores the whole connection object in localStorage under `homekb.connection.v1`: `{mode:"relay", relayUrl, token, home:{homeId,homeName}}` or `{mode:"direct", baseUrl, token}`.
 - The pairing screen's relay URL is prefilled from `NEXT_PUBLIC_RELAY_URL` (the official relay; dev fallback `http://localhost:8787`) and remains user-editable (self-hosted relays, multiple relays later).
 - Direct-mode pairing = enter serve URL + serveToken; the client verifies with `GET /health` + a cheap `kb.status` before saving.
-- Asset rendering: `relay`/`direct` modes fetch `…/asset(s)/<path>` with the `Authorization` header and render via blob URLs; `desktop` embeds plain serve URLs.
+- Asset rendering: `relay`/`direct` modes fetch `…/asset(s)/<path>` with the `Authorization` header and render via blob URLs; `desktop` embeds plain serve URLs. How image srcs inside note Markdown map to asset paths is defined once in "Image references in notes" (`lib/client/asset-ref.ts` implements it).
 
 ## Desktop client (Tauri, src-tauri/)
 
