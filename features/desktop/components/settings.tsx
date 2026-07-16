@@ -145,6 +145,90 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
+/**
+ * Rough embedding price per 1M input tokens (USD) by model, for the rebuild
+ * estimate. Order-of-magnitude only — actual token counts vary by content.
+ */
+const EMBEDDING_RATE_PER_M: Record<string, number> = {
+  "text-embedding-3-small": 0.02,
+  "text-embedding-3-large": 0.13,
+  "gemini-embedding-001": 0.15,
+  "voyage-4": 0.06,
+  "voyage-4-lite": 0.02,
+  "voyage-4-large": 0.12,
+  "embed-v4.0": 0.1,
+};
+
+/** Estimate the embedding cost of a full reindex from chunk/doc counts. */
+function estimateReindexCost(chunks: number, docs: number, model: string): string {
+  // Heuristic: chunk pool (~600 tok/chunk) + doc-summary pool (~130 tok/doc).
+  const tokens = chunks * 600 + docs * 130;
+  const rate = EMBEDDING_RATE_PER_M[model] ?? 0.1;
+  const usd = (tokens / 1_000_000) * rate;
+  if (usd < 0.01) return "<$0.01";
+  return `≈ $${usd.toFixed(2)}`;
+}
+
+/** Rebuild card: drift warning + cost estimate + one-click rebuild → reindex. */
+function RebuildIndexCard() {
+  const api = useDesktopStoreApi();
+  const embedding = useDesktopStore((s) => s.state.engine?.ai?.embedding ?? null);
+  const stats = useDesktopStore((s) => s.state.indexStats);
+  const rebuilding = useDesktopStore((s) => s.state.rebuilding);
+
+  if (!embedding) return null;
+
+  const built = stats?.available
+    ? `${stats.embeddingProvider || "openai"} · ${stats.embeddingModel || "?"}`
+    : null;
+  const drift =
+    stats?.available &&
+    (stats.embeddingProvider !== embedding.provider || stats.embeddingModel !== embedding.model);
+  const cost =
+    stats?.available && stats.chunks > 0
+      ? estimateReindexCost(stats.chunks, stats.docs, embedding.model)
+      : null;
+
+  return (
+    <Section title="Index — rebuild after changing the embedding model">
+      <Row label="Built with" value={built ?? "No index yet — run compile first"} />
+      {stats?.available && (
+        <Row label="Size" value={`${stats.docs} docs · ${stats.chunks} chunks`} />
+      )}
+      {drift && (
+        <p className="mt-1 rounded-lg bg-hk-coral/10 px-3 py-2 text-xs leading-relaxed text-hk-coral">
+          Config now uses{" "}
+          <b>
+            {embedding.provider} · {embedding.model}
+          </b>
+          , but the index was built with <b>{built}</b>. Rebuild to apply the new model.
+        </p>
+      )}
+      <p className="mt-1 text-xs leading-relaxed text-hk-faint">
+        Embedding vectors are model-specific and can’t be reused — changing the model requires
+        re-embedding every note. Your Markdown files are untouched.
+        {cost && (
+          <>
+            {" "}
+            Estimated embedding cost: <b>{cost}</b> ({stats!.chunks} chunks with {embedding.model}).
+            Summaries are regenerated too, billed at the Summary provider’s rate.
+          </>
+        )}
+      </p>
+      <div className="mt-2 flex justify-end">
+        <button
+          className="flex items-center gap-1.5 rounded-xl bg-hk-coral px-4 py-2 text-[13.5px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover disabled:opacity-50"
+          disabled={rebuilding}
+          onClick={() => void api.rebuildReindex()}
+        >
+          {rebuilding && <Spinner size={13} />}
+          {rebuilding ? "Reindexing… (a few minutes)" : "Rebuild & reindex"}
+        </button>
+      </div>
+    </Section>
+  );
+}
+
 /** Desktop-only Settings view: engine + directories + AI providers + appearance. */
 export function SettingsView() {
   const api = useDesktopStoreApi();
@@ -190,6 +274,7 @@ export function SettingsView() {
           title="Embedding — turns notes into search vectors (required)"
           note="Switching provider or model changes the vector space — a full reindex (rebuild) is required afterwards."
         />
+        <RebuildIndexCard />
         <AiEndpointEditor
           section="summary"
           title="Summary — compile-time summaries and categories (required)"

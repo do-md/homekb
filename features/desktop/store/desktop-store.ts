@@ -4,6 +4,7 @@ import {
   type AiSection,
   type DaemonStatus,
   type EngineStatus,
+  type IndexStats,
   invoke,
   invokeErrorMessage,
   type LocalRelayStatus,
@@ -48,6 +49,9 @@ interface DesktopState {
   // Settings: AI endpoints ([embedding]/[summary]/[ask], docs "AI provider presets")
   aiDrafts: Record<AiSection, AiDraft>;
   aiBusy: AiSection | null;
+  // Settings: index stats (for the rebuild card's estimate + drift warning)
+  indexStats: IndexStats | null;
+  rebuilding: boolean;
 
   // Remote: service picker (docs "Desktop service picker")
   userServices: ServiceEntry[];
@@ -94,6 +98,8 @@ export class DesktopStore extends ZenithStore<DesktopState> {
       engine: null,
       aiDrafts: { embedding: emptyAiDraft(), summary: emptyAiDraft(), ask: emptyAiDraft() },
       aiBusy: null,
+      indexStats: null,
+      rebuilding: false,
       userServices: loadUserServices(),
       serviceProbes: {},
       probing: false,
@@ -163,9 +169,10 @@ export class DesktopStore extends ZenithStore<DesktopState> {
   public async refreshEngine() {
     try {
       const engine = await invoke<EngineStatus>("engine_status");
-      const [tunnel, scheduler] = await Promise.all([
+      const [tunnel, scheduler, indexStats] = await Promise.all([
         invoke<DaemonStatus>("tunnel_status"),
         invoke<DaemonStatus>("compile_status"),
+        invoke<IndexStats>("index_stats").catch(() => null),
       ]);
       this.produce((d) => {
         d.engine = engine;
@@ -173,6 +180,7 @@ export class DesktopStore extends ZenithStore<DesktopState> {
         d.tunnelManaged = tunnel.managed;
         d.schedulerRunning = scheduler.running;
         d.schedulerManaged = scheduler.managed;
+        d.indexStats = indexStats;
       });
     } catch (e) {
       this.flash(invokeErrorMessage(e, "Refresh failed"));
@@ -247,6 +255,32 @@ export class DesktopStore extends ZenithStore<DesktopState> {
         d.aiBusy = null;
       });
       this.flash(invokeErrorMessage(e, "Reset failed"));
+    }
+  }
+
+  /**
+   * Full re-embed after an embedding switch: rebuild --force → reindex, then
+   * the shell restarts serve. Long-running (minutes); the button shows a
+   * spinner. Existing vectors can't be reused across models, so this is the
+   * required step to make a new embedding model take effect.
+   */
+  public async rebuildReindex() {
+    if (this.state.rebuilding) return;
+    this.produce((d) => {
+      d.rebuilding = true;
+    });
+    try {
+      const report = await invoke<string>("engine_rebuild_reindex");
+      this.produce((d) => {
+        d.rebuilding = false;
+      });
+      this.flash(report || "Reindex complete");
+      void this.refreshEngine();
+    } catch (e) {
+      this.produce((d) => {
+        d.rebuilding = false;
+      });
+      this.flash(invokeErrorMessage(e, "Rebuild failed"));
     }
   }
 

@@ -290,13 +290,33 @@ pub async fn reindex(cfg: &Config, quiet: bool) -> Result<ReindexReport> {
     Ok(report)
 }
 
-/// Drop all indexed data from the live db (docs/chunks/vectors/failures)
-/// and reset generation. The next `reindex` starts from scratch.
+/// Drop all indexed data and reset the live db to the **current** embedding
+/// config (docs/ARCHITECTURE.md — the one place allowed to cross vector
+/// spaces). Used when the embedding model/provider/dim changes: it wipes rows,
+/// rebuilds the vec0 tables at the new dimension, and re-seeds the meta, so the
+/// coherence check in the next `open_live` passes.
+///
+/// It also **removes the exported snapshot** (and its WAL/SHM siblings): the
+/// snapshot holds old-model vectors at gen ≥ 1, and `reindex` starts by
+/// importing any newer snapshot — leaving it in place would re-adopt the stale
+/// vectors and silently undo the rebuild. `reindex` re-exports a fresh one.
 pub fn rebuild(cfg: &Config) -> Result<()> {
     let _lock = acquire_lock(&cfg.lock_path())?;
-    let conn = db::open_live(&cfg.live_db, &cfg.embedding, &cfg.summary.model)?;
-    db::truncate_all(&conn)?;
+    db::rebuild_reset(&cfg.live_db, &cfg.embedding, &cfg.summary.model)?;
+    remove_snapshot(&cfg.snapshot_path);
     Ok(())
+}
+
+/// Delete the snapshot file plus its `-wal`/`-shm` siblings (best-effort).
+fn remove_snapshot(snapshot: &std::path::Path) {
+    let _ = std::fs::remove_file(snapshot);
+    if let Some(name) = snapshot.file_name().map(|n| n.to_string_lossy().into_owned()) {
+        for suffix in ["-wal", "-shm"] {
+            let mut p = snapshot.to_path_buf();
+            p.set_file_name(format!("{name}{suffix}"));
+            let _ = std::fs::remove_file(p);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -45,6 +45,16 @@ export interface AiStatus {
   ask: AiEndpointStatus;
 }
 
+/** Return type of Tauri `index_stats`: snapshot counts + the model it was built with. */
+export interface IndexStats {
+  available: boolean;
+  docs: number;
+  chunks: number;
+  /** Model/provider the *snapshot* was built with (may differ from current config). */
+  embeddingModel: string;
+  embeddingProvider: string;
+}
+
 /** Return type of Tauri `pair_new` (parsed output of `homekb pair --json`). */
 export interface PairInfo {
   code: string;

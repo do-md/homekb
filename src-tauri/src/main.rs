@@ -229,6 +229,29 @@ async fn serve_ensure() -> Result<String, String> {
     .await
 }
 
+/// Restart the serve child this app spawned so it reloads config + snapshot
+/// (serve caches `Config` at startup). No-op when serve is an external process
+/// we don't own — its config stays stale until the user restarts it.
+fn restart_owned_serve() -> Result<(), String> {
+    let owned = {
+        let mut procs = PROCS.lock().unwrap();
+        match procs.serve.take() {
+            Some(mut c) => {
+                let _ = c.kill();
+                let _ = c.wait();
+                true
+            }
+            None => false,
+        }
+    };
+    if owned {
+        // Give the OS a moment to release the loopback port before rebinding.
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        spawn_serve()?;
+    }
+    Ok(())
+}
+
 // ---------- config ----------
 
 #[tauri::command]
@@ -249,6 +272,62 @@ async fn config_set_ai_endpoint(
             base_url.as_deref(),
             dim,
         )
+    })
+    .await
+}
+
+// ---------- index ----------
+
+/// Snapshot counts + the model/provider the index was actually built with
+/// (docs/ARCHITECTURE.md `index_stats`). Drives the Settings rebuild card's
+/// cost estimate and config↔index drift warning. Fields are zero/empty when
+/// no snapshot exists yet.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct IndexStats {
+    available: bool,
+    docs: i64,
+    chunks: i64,
+    embedding_model: String,
+    embedding_provider: String,
+}
+
+#[tauri::command]
+async fn index_stats() -> Result<IndexStats, String> {
+    blocking(|| {
+        let bin = require_engine()?;
+        let out = engine::run_cli(&bin, &["status", "--json"])?;
+        let v: serde_json::Value = serde_json::from_str(out.trim())
+            .map_err(|e| format!("failed to parse status: {e}"))?;
+        Ok(IndexStats {
+            available: v["available"].as_bool().unwrap_or(false),
+            docs: v["docs"].as_i64().unwrap_or(0),
+            chunks: v["chunks"].as_i64().unwrap_or(0),
+            embedding_model: v["embeddingModel"].as_str().unwrap_or("").to_string(),
+            embedding_provider: v["embeddingProvider"].as_str().unwrap_or("").to_string(),
+        })
+    })
+    .await
+}
+
+/// Full re-embed after an embedding-model/provider switch: `rebuild --force`
+/// (drop all vectors) → `reindex` (re-embed every note with the current
+/// config), then restart the owned serve child so it reloads config +
+/// snapshot. Long-running (minutes); the UI shows a spinner. Returns the
+/// reindex summary line.
+#[tauri::command]
+async fn engine_rebuild_reindex() -> Result<String, String> {
+    blocking(|| {
+        let bin = require_engine()?;
+        engine::run_cli(&bin, &["rebuild", "--force"])?;
+        let report = engine::run_cli(&bin, &["reindex"])?;
+        restart_owned_serve()?;
+        Ok(report
+            .trim()
+            .lines()
+            .last()
+            .unwrap_or("reindex done")
+            .to_string())
     })
     .await
 }
@@ -513,6 +592,8 @@ fn main() {
             engine_init,
             serve_ensure,
             config_set_ai_endpoint,
+            index_stats,
+            engine_rebuild_reindex,
             relay_register,
             relay_clear,
             relay_credentials,

@@ -29,6 +29,25 @@ pub fn open_live(
     embedding: &crate::config::EmbeddingEndpoint,
     summarizer_model: &str,
 ) -> Result<Connection> {
+    let conn = open_live_raw(path, embedding.dim)?;
+    verify_or_seed_meta(&conn, embedding, summarizer_model)?;
+
+    // Indexes that reference columns added by migrations live here,
+    // not in schema.sql, so they only run after migration guarantees
+    // the column exists.
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_docs_type ON docs(doc_type) WHERE doc_type IS NOT NULL",
+        [],
+    )?;
+
+    Ok(conn)
+}
+
+/// Open the live db, apply the base schema, and ensure the vec0 tables exist
+/// at `dim` — **without** the model/dim coherence check. `open_live` layers
+/// [`verify_or_seed_meta`] on top; `rebuild_reset` deliberately skips it so a
+/// model/provider switch (which would otherwise bail) can wipe and re-seed.
+fn open_live_raw(path: &Path, dim: usize) -> Result<Connection> {
     vec_ext::ensure_registered();
 
     if let Some(parent) = path.parent() {
@@ -57,20 +76,49 @@ pub fn open_live(
         CREATE VIRTUAL TABLE IF NOT EXISTS vec_docs   USING vec0(embedding FLOAT[{dim}]);
         CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(embedding FLOAT[{dim}]);
         "#,
-        dim = embedding.dim,
     ))?;
 
-    verify_or_seed_meta(&conn, embedding, summarizer_model)?;
-
-    // Indexes that reference columns added by migrations live here,
-    // not in schema.sql, so they only run after migration guarantees
-    // the column exists.
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_docs_type ON docs(doc_type) WHERE doc_type IS NOT NULL",
-        [],
-    )?;
-
     Ok(conn)
+}
+
+/// Hard reset for `rebuild --force`: drop every row and **drop + recreate the
+/// vec0 tables at the new dimension** (a `DELETE` can't change a vec0 table's
+/// fixed dimension, so an embedding-model switch to a different dim needs the
+/// tables rebuilt), then overwrite the embedding/summarizer meta to the new
+/// config so the next `open_live` coherence check passes. Skips the coherence
+/// check itself — it is the one place allowed to cross vector spaces.
+pub fn rebuild_reset(
+    path: &Path,
+    embedding: &crate::config::EmbeddingEndpoint,
+    summarizer_model: &str,
+) -> Result<()> {
+    // Open with the *current on-disk* schema (dim doesn't matter — we drop the
+    // vec tables next), so this works even when the stored dim differs.
+    let conn = open_live_raw(path, embedding.dim)?;
+    conn.execute_batch(
+        r#"
+        DELETE FROM chunks;
+        DELETE FROM docs;
+        DELETE FROM failures;
+        DROP TABLE IF EXISTS vec_docs;
+        DROP TABLE IF EXISTS vec_chunks;
+        "#,
+    )?;
+    conn.execute_batch(&format!(
+        r#"
+        CREATE VIRTUAL TABLE vec_docs   USING vec0(embedding FLOAT[{dim}]);
+        CREATE VIRTUAL TABLE vec_chunks USING vec0(embedding FLOAT[{dim}]);
+        "#,
+        dim = embedding.dim,
+    ))?;
+    write_meta(&conn, "schema_version", SCHEMA_VERSION)?;
+    write_meta(&conn, "embedding_provider", &embedding.provider)?;
+    write_meta(&conn, "embedding_base_url", &embedding.base_url)?;
+    write_meta(&conn, "embedding_model", &embedding.model)?;
+    write_meta(&conn, "embedding_dim", &embedding.dim.to_string())?;
+    write_meta(&conn, "summarizer_model", summarizer_model)?;
+    write_meta(&conn, "generation", "0")?;
+    Ok(())
 }
 
 /// Open the exported snapshot read-only. Strict: missing file or foreign
@@ -316,17 +364,58 @@ pub fn doc_type_vocab(conn: &Connection) -> Result<Vec<(String, i64)>> {
     Ok(rows.filter_map(|r| r.ok()).collect())
 }
 
-/// Empty all data tables. Used by `rebuild --force`.
-pub fn truncate_all(conn: &Connection) -> Result<()> {
-    conn.execute_batch(
-        r#"
-        DELETE FROM vec_docs;
-        DELETE FROM vec_chunks;
-        DELETE FROM chunks;
-        DELETE FROM docs;
-        DELETE FROM failures;
-        "#,
-    )?;
-    write_meta(conn, "generation", "0")?;
-    Ok(())
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::EmbeddingEndpoint;
+
+    fn ep(provider: &str, model: &str, dim: usize) -> EmbeddingEndpoint {
+        EmbeddingEndpoint {
+            provider: provider.into(),
+            base_url: "http://localhost/v1".into(),
+            api_key: None,
+            model: model.into(),
+            dim,
+        }
+    }
+
+    fn insert_vec(conn: &Connection, table: &str, rowid: i64, dim: usize) -> rusqlite::Result<()> {
+        let bytes: Vec<u8> = (0..dim).flat_map(|_| 0.1f32.to_le_bytes()).collect();
+        conn.execute(
+            &format!("INSERT INTO {table}(rowid, embedding) VALUES (?, ?)"),
+            rusqlite::params![rowid, bytes],
+        )
+        .map(|_| ())
+    }
+
+    // Regression: `rebuild --force` must survive an embedding-model switch that
+    // changes the vector dimension. Before the fix, the coherence check bailed
+    // and the vec0 tables kept their old (wrong) dimension.
+    #[test]
+    fn rebuild_reset_crosses_vector_spaces() {
+        let dir = std::env::temp_dir().join(format!("homekb-rebuild-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let live = dir.join("live.db");
+
+        // Seed an openai/1536 index; a 1536-dim vector fits.
+        let conn = open_live(&live, &ep("openai", "text-embedding-3-small", 1536), "gpt-4o-mini").unwrap();
+        assert_eq!(read_meta(&conn, "embedding_dim").unwrap().as_deref(), Some("1536"));
+        insert_vec(&conn, "vec_chunks", 1, 1536).unwrap();
+        drop(conn);
+
+        // Switch to gemini/3072 — must not bail, and must rebuild the vec tables.
+        rebuild_reset(&live, &ep("gemini", "gemini-embedding-001", 3072), "gpt-4o-mini").unwrap();
+
+        let conn = open_live(&live, &ep("gemini", "gemini-embedding-001", 3072), "gpt-4o-mini").unwrap();
+        assert_eq!(read_meta(&conn, "embedding_dim").unwrap().as_deref(), Some("3072"));
+        assert_eq!(read_meta(&conn, "embedding_provider").unwrap().as_deref(), Some("gemini"));
+        // Rows were dropped, and the table is now 3072-dim.
+        let n: i64 = conn.query_row("SELECT COUNT(*) FROM vec_chunks", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 0);
+        insert_vec(&conn, "vec_chunks", 1, 3072).unwrap();
+        assert!(insert_vec(&conn, "vec_docs", 1, 1536).is_err(), "old dim must be rejected");
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
