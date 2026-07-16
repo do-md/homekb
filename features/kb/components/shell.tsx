@@ -149,7 +149,7 @@ function Header() {
                 key={href}
                 onClick={() => goTab(href)}
                 aria-current={isActive ? "page" : undefined}
-                className={`flex items-center rounded-full py-2 text-[13px] font-semibold transition-all duration-300 ${
+                className={`flex items-center rounded-full py-2 text-[13px] font-semibold transition-[background-color,padding] duration-300 ${
                   isActive
                     ? "bg-hk-pill px-3 text-hk-heading"
                     : "bg-hk-card px-3.5 text-hk-weak hover:bg-hk-card-strong hover:text-hk-text-2"
@@ -160,9 +160,11 @@ function Header() {
                   <Icon size={16} strokeWidth={1.7} />
                   {href === "/remote" && <ConnBadge />}
                 </span>
+                {/* No fade on the label: full-opacity text is revealed/clipped by the
+                    animating width — a fade reads as sluggish color change here. */}
                 <span
-                  className={`overflow-hidden leading-4 whitespace-nowrap transition-all duration-300 ${
-                    isActive ? "ml-1.5 max-w-[72px] opacity-100" : "ml-0 max-w-0 opacity-0"
+                  className={`overflow-hidden leading-4 whitespace-nowrap transition-[max-width,margin] duration-300 ${
+                    isActive ? "ml-1.5 max-w-[72px]" : "ml-0 max-w-0"
                   }`}
                 >
                   {label}
