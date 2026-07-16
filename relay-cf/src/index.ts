@@ -20,6 +20,7 @@ import {
   wellKnownAuthServer,
   wellKnownProtectedResource,
 } from "./routes";
+import { ensureSchema } from "./schema";
 import { HomeTunnelDO } from "./tunnel-do";
 
 export { HomeTunnelDO };
@@ -206,6 +207,8 @@ async function handle(req: Request, env: Env): Promise<Response> {
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     try {
+      // Self-initializing schema: one-click deploys start from an empty D1.
+      await ensureSchema(env);
       return withCors(await handle(req, env));
     } catch (e) {
       console.error("[relay] unhandled error:", e);

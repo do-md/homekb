@@ -276,8 +276,10 @@ All authentication uniformly uses `Authorization: Bearer <token>`.
 
 The relay has **two deployment targets sharing one protocol contract** (this API, byte-identical — clients and the engine cannot tell them apart):
 
-1. **Node self-host** (`relay/`) — a standalone Node HTTP service, **not** part of the Next.js app. One process, one SQLite file, no framework. For power users who want the pipe on their own box.
-2. **Cloudflare Workers official hosting** (`relay-cf/`) — the product's official instance, deployed on `*.workers.dev`. This is the default story for regular users.
+1. **Cloudflare Workers** (`relay-cf/`) — **the primary target**, in two flavors: the product's official instance on `*.workers.dev` (default story for regular users), and **one-click self-deploy** into a user's own Cloudflare account (Deploy-to-Cloudflare button once the repo is public; auto-provisions D1 + DO, and the Worker **self-initializes its schema** on first request so no manual database step exists). Self-deploying makes the user the operator — the strongest trust posture that still gets platform auditability.
+2. **Node self-host** (`relay/`) — a standalone Node HTTP service, **not** part of the Next.js app. One process, one SQLite file, no framework. Retained for power users who want the pipe on their own box (must sit behind public HTTPS on **port 443** — AI-client connectors only egress on 443).
+
+Either way, users register their home against whichever relay they chose (`homekb register --relay <url>` / the desktop service picker) — the "add your own service" flow is the same picker that handles the official instance.
 
 Shared invariants (both targets):
 
@@ -292,7 +294,7 @@ Shared invariants (both targets):
 
 ### Cloudflare Workers target (`relay-cf/`)
 
-- **Topology**: a stateless Worker handles all HTTP routes; **one Durable Object per home** (`HomeTunnelDO`, `idFromName(home_id)`) is the tunnel hub — it holds the home's open SSE downstream, correlates rpc/result by request id, and body-pipes the asset/ask channels between the home's upstream POST and the pending client response. **D1** stores the same schema as relay.db (verbatim SQL, async API).
+- **Topology**: a stateless Worker handles all HTTP routes; **one Durable Object per home** (`HomeTunnelDO`, `idFromName(home_id)`) is the tunnel hub — it holds the home's open SSE downstream, correlates rpc/result by request id, and body-pipes the asset/ask channels between the home's upstream POST and the pending client response. **D1** stores the same schema as relay.db (verbatim SQL, async API); the Worker **self-initializes the schema** (idempotent `CREATE TABLE IF NOT EXISTS`, once per isolate) so a freshly provisioned empty database works with zero manual steps (`schema.sql` stays as the human-readable reference).
 - **Tunnel protocol unchanged**: the home still speaks `GET /api/relay/tunnel` SSE with 25s pings — existing engine binaries connect without modification. (A WebSocket + DO Hibernation transport is a planned cost optimization — an SSE stream keeps the DO active while connected — and will be spec'd here before implementation.)
 - **Why workers.dev and not a custom domain**: the GFW-blocked state of `*.workers.dev` is *predictable* — it is included in mainstream proxy rule sets, so "this service needs a proxy" is common knowledge requiring zero per-user configuration. A custom domain reachable today could be blocked tomorrow, and no user's routing rules would know about it. Corollary: **both sides need a proxy in mainland China** — the remote client *and* the home machine running `homekb tunnel`.
 - **Auditability**: the Worker code in this repo is exactly what runs — the platform offers no shell, no sidecar processes, no place to bolt on out-of-band traffic capture, unlike an operator-run box. The residual trust is in Cloudflare itself: transit plaintext is visible to the platform (same operator trust model as any relay; see the trust-boundary note below).
