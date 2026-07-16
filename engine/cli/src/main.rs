@@ -118,9 +118,9 @@ enum Cmd {
     /// Local MCP server over stdio (for Claude Code / Codex: `claude mcp add homekb -- homekb mcp`).
     Mcp,
     /// HTTP RPC + /assets. Loopback bind (default) = desktop data source, no auth;
-    /// a non-loopback --host enables direct mode (Bearer serveToken, auto-generated).
+    /// a non-loopback --host enables the authenticated public bind (Bearer serveToken).
     Serve {
-        /// Bind address (default 127.0.0.1; e.g. 0.0.0.0 for direct mode).
+        /// Bind address (default 127.0.0.1; e.g. 0.0.0.0 for a public bind).
         #[arg(long)]
         host: Option<String>,
         /// Port (default 8765, or [serve] port in config.toml).
@@ -136,7 +136,9 @@ enum Cmd {
         #[arg(long)]
         name: Option<String>,
     },
-    /// Generate a pairing code via the relay (for phone web / Claude mobile).
+    /// Leave the connection service: retire the registration, clear [relay], remove the tunnel.
+    Unregister,
+    /// Generate a pairing code via the connection service (for phone web / Claude mobile).
     Pair {
         /// Emit machine-readable JSON (desktop client parses this).
         #[arg(long)]
@@ -219,6 +221,10 @@ fn main() -> Result<()> {
         Cmd::Register { relay, name } => {
             init_tracing(true);
             commands::relay::run_register(relay, name)
+        }
+        Cmd::Unregister => {
+            init_tracing(true);
+            commands::relay::run_unregister()
         }
         Cmd::Pair { json } => {
             init_tracing(true);

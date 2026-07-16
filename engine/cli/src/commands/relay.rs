@@ -18,6 +18,30 @@ pub fn relay_config(config: &Config) -> Result<RelayConfig> {
     )
 }
 
+/// Best-effort retirement of a previous registration (`DELETE /api/relay/home`):
+/// its paired devices then get 401 and auto-unpair instead of rotting as
+/// forever-offline zombies (docs/ARCHITECTURE.md "Relay HTTP API"). Never fatal —
+/// the old service may simply be gone.
+async fn retire_registration(old: &RelayConfig) {
+    let res = reqwest::Client::new()
+        .delete(format!("{}/api/relay/home", old.url))
+        .bearer_auth(&old.home_secret)
+        .timeout(std::time::Duration::from_secs(4))
+        .send()
+        .await;
+    match res {
+        Ok(r) if r.status().is_success() => {
+            println!("previous registration retired ({} @ {})", old.home_id, old.url);
+        }
+        _ => {
+            eprintln!(
+                "note: could not retire the previous registration at {} — devices paired to it will keep seeing the home as offline",
+                old.url
+            );
+        }
+    }
+}
+
 /// `homekb register --relay URL [--name NAME]`
 pub fn run_register(relay: Option<String>, name: Option<String>) -> Result<()> {
     let relay = relay.context("--relay <URL> is required, e.g. --relay https://kb.example.com")?;
@@ -30,6 +54,12 @@ pub fn run_register(relay: Option<String>, name: Option<String>) -> Result<()> {
     });
 
     let mut config = Config::load()?;
+    // Capture the identity being replaced; retire it only AFTER the new
+    // registration succeeds (a failed register must leave the old one working).
+    let previous = config
+        .relay
+        .clone()
+        .filter(|r| !r.url.is_empty() && !r.home_secret.is_empty());
     let rt = super::runtime()?;
     let body: Value = rt.block_on(async {
         let res = reqwest::Client::new()
@@ -41,6 +71,9 @@ pub fn run_register(relay: Option<String>, name: Option<String>) -> Result<()> {
         anyhow::ensure!(res.status().is_success(), "registration failed: HTTP {}", res.status());
         Ok::<Value, anyhow::Error>(res.json().await?)
     })?;
+    if let Some(old) = &previous {
+        rt.block_on(retire_registration(old));
+    }
 
     let home_id = body["homeId"].as_str().context("response missing homeId")?.to_string();
     let home_secret = body["homeSecret"].as_str().context("response missing homeSecret")?.to_string();
@@ -55,6 +88,27 @@ pub fn run_register(relay: Option<String>, name: Option<String>) -> Result<()> {
 
     println!("registered home device \"{}\" ({}) -> {}", name, home_id, url);
     println!("credentials written to {}", path.display());
+
+    // Registering minted a NEW home identity. A tunnel that is already running still
+    // holds the previous credentials — to the relay, the new home is offline even
+    // though everything looks green locally. Restart it so it reloads config.
+    #[cfg(target_os = "macos")]
+    {
+        use super::launchd;
+        match launchd::restart_if_loaded(launchd::TUNNEL_LABEL) {
+            Ok(true) => {
+                println!("tunnel restarted with the new credentials");
+                return Ok(());
+            }
+            Ok(false) => {} // not installed — fall through to the guidance below
+            Err(e) => {
+                eprintln!(
+                    "warning: could not restart the tunnel ({e}); restart it manually: homekb tunnel --install"
+                );
+                return Ok(());
+            }
+        }
+    }
     println!("\nNext steps:");
     println!("  homekb tunnel   # resident relay connection (required for phone / remote MCP access)");
     println!("  homekb pair     # generate a pairing code for a phone or Claude mobile client");
@@ -99,5 +153,34 @@ pub fn run_pair(json: bool) -> Result<()> {
     println!("Usage:");
     println!("  - Open {} in your phone browser and enter the pairing code", relay.url);
     println!("  - Add connector {}/api/mcp in Claude mobile and enter the pairing code on the auth page", relay.url);
+    Ok(())
+}
+
+/// `homekb unregister` — leave the connection service: retire the registration
+/// there (best-effort), remove `[relay]` from config, uninstall the launchd tunnel
+/// (it cannot run without a registration and would fail-loop under KeepAlive).
+pub fn run_unregister() -> Result<()> {
+    let mut config = Config::load()?;
+    let Some(old) = config
+        .relay
+        .clone()
+        .filter(|r| !r.url.is_empty() && !r.home_secret.is_empty())
+    else {
+        println!("not registered with any connection service — nothing to do");
+        return Ok(());
+    };
+    let rt = super::runtime()?;
+    rt.block_on(retire_registration(&old));
+    config.relay = None;
+    let path = config.save()?;
+    println!("registration removed from {}", path.display());
+    #[cfg(target_os = "macos")]
+    {
+        use super::launchd;
+        if launchd::status(launchd::TUNNEL_LABEL)?.installed {
+            launchd::uninstall(launchd::TUNNEL_LABEL)?;
+            println!("tunnel background service stopped and removed");
+        }
+    }
     Ok(())
 }

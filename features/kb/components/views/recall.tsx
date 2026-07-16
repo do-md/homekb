@@ -6,7 +6,7 @@
  * List (whole notes, document-level cards — never fragment chunks).
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { isDesktop } from "@/lib/client/desktop";
 import {
   useDesktopStore,
@@ -15,7 +15,7 @@ import {
 import type { KbHit } from "../../type";
 import { useKbStore, useKbStoreApi } from "../../store/kb-store";
 import { Composer, ModeToggle } from "../composer";
-import { KbMarkdown } from "../domd";
+import { KbStreamingAnswer } from "../domd";
 import {
   IconArrowRight,
   IconChevronRight,
@@ -114,39 +114,6 @@ function AnswerSkeleton() {
 }
 
 /**
- * Typewriter reveal over a finished answer (design 3b "streaming"). This is an
- * honest client-side simulation — kb.ask returns the whole answer in one response
- * (see docs/ARCHITECTURE.md, RPC methods); real chunked streaming is a future
- * protocol change. Duration scales with length, capped so long answers stay quick.
- */
-function useTypewriter(text: string): { shown: string; writing: boolean } {
-  const reduced =
-    typeof window !== "undefined" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const [count, setCount] = useState(() => (reduced ? text.length : 0));
-
-  useEffect(() => {
-    if (reduced) {
-      setCount(text.length);
-      return;
-    }
-    setCount(0);
-    let raf = 0;
-    const started = performance.now();
-    const total = Math.min(2600, Math.max(700, text.length * 5.5));
-    const step = (now: number) => {
-      const p = Math.min(1, (now - started) / total);
-      setCount(Math.round(p * text.length));
-      if (p < 1) raf = requestAnimationFrame(step);
-    };
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
-  }, [text, reduced]);
-
-  return { shown: text.slice(0, count), writing: count < text.length };
-}
-
-/**
  * Wrap inline `[n]` citation markers (n within the citation count) in clickable
  * coral chips after DOMD has rendered. DOM post-processing: the read-only DOMD
  * renders once per mount (remounted per answer), so the mutation is stable.
@@ -187,25 +154,30 @@ function decorateCitationRefs(root: HTMLElement, citationCount: number) {
 }
 
 /**
- * Answer result (design 3a, writing state 3b): flat neutral card; coral only on
- * the label + chips. While "writing", the text types in as plain text with a
- * blinking coral caret; the rich Markdown render + citations land on completion.
+ * Answer result (design 3a, streaming state 3b): flat neutral card; coral only on
+ * the label + chips. The answer renders as real Markdown *while it streams* — the
+ * KB store feeds token chunks straight into a persistent DOMD editor via insertText.
+ * On completion the inline `[n]` markers upgrade to clickable citation chips.
  */
 function AnswerResult() {
   const api = useKbStoreApi();
+  const phase = useKbStore((s) => s.state.phase);
   const answer = useKbStore((s) => s.state.answer);
   const answerMs = useKbStore((s) => s.state.answerMs);
   const bodyRef = useRef<HTMLDivElement>(null);
+  const writing = phase === "streaming";
   const citationCount = answer?.citations?.length ?? 0;
-  const { shown, writing } = useTypewriter(answer?.answer ?? "");
 
-  // After the writing phase, upgrade inline [n] markers into clickable chips.
+  // Once the answer is complete, upgrade inline [n] markers into clickable chips.
+  // A rAF lets DOMD commit the final insertText before we walk its DOM.
   useEffect(() => {
     if (writing || !bodyRef.current || citationCount === 0) return;
-    decorateCitationRefs(bodyRef.current, citationCount);
+    const raf = requestAnimationFrame(() => {
+      if (bodyRef.current) decorateCitationRefs(bodyRef.current, citationCount);
+    });
+    return () => cancelAnimationFrame(raf);
   }, [writing, citationCount]);
 
-  if (!answer) return null;
   const secs = answerMs != null ? `${(answerMs / 1000).toFixed(1)}s` : null;
 
   const jumpToCitation = (target: EventTarget | null) => {
@@ -236,26 +208,16 @@ function AnswerResult() {
             </>
           )}
         </div>
-        {writing ? (
-          <p className="mt-2 text-[15.5px] leading-[1.65] whitespace-pre-wrap text-hk-text">
-            {shown}
-            <span
-              className="hk-blink ml-0.5 inline-block h-[1.05em] w-[2px] translate-y-[0.15em] rounded-full bg-hk-coral"
-              aria-hidden
-            />
-          </p>
-        ) : (
-          <div
-            ref={bodyRef}
-            className="hk-answer"
-            onClick={(e) => jumpToCitation(e.target)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") jumpToCitation(e.target);
-            }}
-          >
-            <KbMarkdown content={answer.answer} notePath="" className="mt-2" />
-          </div>
-        )}
+        <div
+          ref={bodyRef}
+          className="hk-answer"
+          onClick={(e) => jumpToCitation(e.target)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") jumpToCitation(e.target);
+          }}
+        >
+          <KbStreamingAnswer className="mt-2" />
+        </div>
         {!writing && (
           <div className="mt-3 border-t border-hk-hairline pt-2.5 text-xs text-hk-faint">
             from {citationCount} of your notes
@@ -264,7 +226,7 @@ function AnswerResult() {
         )}
       </div>
 
-      {!writing && citationCount > 0 && (
+      {!writing && answer && citationCount > 0 && (
         <div>
           <div className="hk-label">Based on your notes</div>
           <div className="mt-2 flex flex-col">
@@ -626,7 +588,8 @@ export function RecallView() {
                   </div>
                 ))}
 
-              {phase === "done" && mode === "answer" && answer && <AnswerResult />}
+              {(phase === "streaming" || (phase === "done" && answer)) &&
+                mode === "answer" && <AnswerResult />}
               {phase === "done" && mode === "list" && hits.length > 0 && <ListResult />}
               {noResults && <NoResults />}
             </div>

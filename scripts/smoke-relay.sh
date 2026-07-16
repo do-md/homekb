@@ -7,6 +7,9 @@ BASE="${BASE:-http://localhost:8787}"
 TMP=$(mktemp -d)
 trap '[ -n "$SSE_PID" ] && kill $SSE_PID 2>/dev/null; rm -rf "$TMP"; true' EXIT
 
+echo "== 0. Unauthenticated ping (service picker probe) =="
+curl -s "$BASE/api/relay/ping" | grep -q homekb-relay && echo "ping OK"
+
 echo "== 1. Home device registration =="
 REG=$(curl -s -X POST "$BASE/api/relay/register" -H 'Content-Type: application/json' -d '{"name":"SmokeTestMac"}')
 echo "$REG"
@@ -56,6 +59,22 @@ wait $ASSET_PID
 grep -qi "content-type: image/png" "$TMP/asset.hdr" && cmp -s "$TMP/asset.out" "$TMP/pixel.png" && echo "asset bytes + content-type OK" || { echo "asset channel failed"; exit 1; }
 test "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/relay/asset/images/pixel.png")" = "401" && echo "asset 401 without token OK"
 
+echo "== 6.6 Streaming ask channel (rpc/stream → home streams SSE frames → client) =="
+curl -sN -X POST "$BASE/api/relay/rpc/stream" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"method":"kb.ask","params":{"query":"streaming test"}}' > "$TMP/ask.out" &
+ASK_PID=$!
+sleep 2
+ASK_ID=$(grep '"stream":true' "$TMP/sse.log" | grep -o '"id":"[^"]*"' | tail -1 | cut -d'"' -f4)
+echo "home received ask-stream id: $ASK_ID"
+printf 'event: delta\ndata: {"text":"Hello "}\n\nevent: delta\ndata: {"text":"world"}\n\nevent: done\ndata: {"citations":[{"path":"a.md","title":"A"}],"hits":[]}\n\n' > "$TMP/ask.frames"
+curl -s -X POST "$BASE/api/relay/tunnel/ask/$ASK_ID" -H "Authorization: Bearer $SECRET" -H 'Content-Type: text/event-stream' \
+  --data-binary "@$TMP/ask.frames" -o /dev/null -w "ask stream upload HTTP %{http_code}\n"
+wait $ASK_PID
+grep -q "event: delta" "$TMP/ask.out" && grep -q '"text":"world"' "$TMP/ask.out" && grep -q "event: done" "$TMP/ask.out" \
+  && echo "ask stream frames OK" || { echo "ask stream failed:"; cat "$TMP/ask.out"; exit 1; }
+test "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/relay/rpc/stream" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"method":"kb.query","params":{}}')" = "400" && echo "non-streamable method rejected (400) OK"
+test "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/relay/rpc/stream" -d '{"method":"kb.ask","params":{}}')" = "401" && echo "stream 401 without token OK"
+
 echo "== 6.8 Grants list + revoke (paired devices) =="
 GRANTS=$(curl -s "$BASE/api/relay/grants" -H "Authorization: Bearer $SECRET")
 echo "$GRANTS" | grep -q 'smoke-phone' && echo "grants list OK"
@@ -71,7 +90,19 @@ TOKEN=$(curl -s -X POST "$BASE/api/relay/pair" -H 'Content-Type: application/jso
 echo "== 7. Unauthenticated access must return 401 =="
 test "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/relay/rpc" -d '{}')" = "401" && echo "401 OK"
 
-echo "== 8. After tunnel disconnect, rpc should return home_offline(502) =="
+echo "== 7.5 Home retirement: DELETE /api/relay/home kills every grant (anti-zombie) =="
+RETIRE_TOKEN_CODE=$(curl -s -X POST "$BASE/api/relay/pair" -H "Authorization: Bearer $SECRET" -H 'Content-Type: application/json' -d '{"action":"new"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["code"])')
+RETIRE_TOKEN=$(curl -s -X POST "$BASE/api/relay/pair" -H 'Content-Type: application/json' -d "{\"action\":\"claim\",\"code\":\"$RETIRE_TOKEN_CODE\",\"label\":\"retire-check\"}" | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])')
+curl -s -X DELETE "$BASE/api/relay/home" -H "Authorization: Bearer $SECRET" | grep -q '"ok":true' && echo "home retired OK"
+RETIRE_HTTP=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/relay/health" -H "Authorization: Bearer $RETIRE_TOKEN")
+[ "$RETIRE_HTTP" = "401" ] && echo "grant of retired home rejected (401) OK" || { echo "expected 401, got $RETIRE_HTTP"; exit 1; }
+RETIRE_HTTP2=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/relay/pair" -H "Authorization: Bearer $SECRET" -H 'Content-Type: application/json' -d '{"action":"new"}')
+[ "$RETIRE_HTTP2" = "401" ] && echo "retired homeSecret rejected (401) OK" || { echo "expected 401, got $RETIRE_HTTP2"; exit 1; }
+echo "== 8. (separate home) After tunnel disconnect, rpc should return home_offline(502) =="
+REG=$(curl -s -X POST "$BASE/api/relay/register" -H 'Content-Type: application/json' -d '{"name":"SmokeTestMac2"}')
+SECRET=$(echo "$REG" | python3 -c 'import sys,json;print(json.load(sys.stdin)["homeSecret"])')
+CODE=$(curl -s -X POST "$BASE/api/relay/pair" -H "Authorization: Bearer $SECRET" -H 'Content-Type: application/json' -d '{"action":"new"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["code"])')
+TOKEN=$(curl -s -X POST "$BASE/api/relay/pair" -H 'Content-Type: application/json' -d "{\"action\":\"claim\",\"code\":\"$CODE\"}" | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])')
 kill $SSE_PID 2>/dev/null; SSE_PID=""
 sleep 1
 OUT=$(curl -s -w '|%{http_code}' -X POST "$BASE/api/relay/rpc" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"method":"kb.status","params":{}}')

@@ -1,17 +1,31 @@
 "use client";
-import { createReactStore, ZenithStore } from "@do-md/zenith";
+import { createMemo, createReactStore, ZenithStore } from "@do-md/zenith";
 import {
   type DaemonStatus,
   type EngineStatus,
   invoke,
   invokeErrorMessage,
+  type LocalRelayStatus,
   type PairInfo,
   type RelayCredentials,
 } from "@/lib/client/desktop";
 import { listGrants, type RelayGrant, revokeGrant } from "@/lib/client/relay-admin";
+import {
+  allServices,
+  isAllowedServiceUrl,
+  loadUserServices,
+  persistUserServices,
+  pickAutoService,
+  pingService,
+  type ServiceEntry,
+  type ServiceProbe,
+} from "@/lib/client/services";
+import { normalizeBaseUrl } from "@/lib/client/connection";
 
 /** Boot phase: detect engine → (if missing) install/init → launch serve → ready. */
 export type BootPhase = "checking" | "installing" | "starting" | "ready" | "error";
+
+const memo = createMemo<DesktopStore>();
 
 interface DesktopState {
   phase: BootPhase;
@@ -23,10 +37,16 @@ interface DesktopState {
   keyDraft: string;
   keyBusy: boolean;
 
-  // Settings: relay registration
-  registerDraft: string;
+  // Remote: service picker (docs "Desktop service picker")
+  userServices: ServiceEntry[];
+  serviceProbes: Record<string, ServiceProbe>;
+  probing: boolean;
   registerBusy: boolean;
   registerError: string | null;
+
+  // Remote: this machine's connection service (decoupled from the picker; default off)
+  localRelay: LocalRelayStatus | null;
+  localRelayBusy: boolean;
 
   // Settings: pairing code
   pair: PairInfo | null;
@@ -62,9 +82,13 @@ export class DesktopStore extends ZenithStore<DesktopState> {
       engine: null,
       keyDraft: "",
       keyBusy: false,
-      registerDraft: "",
+      userServices: loadUserServices(),
+      serviceProbes: {},
+      probing: false,
       registerBusy: false,
       registerError: null,
+      localRelay: null,
+      localRelayBusy: false,
       pair: null,
       pairBusy: false,
       pairError: null,
@@ -172,34 +196,163 @@ export class DesktopStore extends ZenithStore<DesktopState> {
     }
   }
 
-  // ---------- Relay registration ----------
-  public setRegisterDraft(v: string) {
+  // ---------- Service picker (docs "Desktop service picker") ----------
+  /**
+   * Built-ins + user-added, deduped. Memoized (zenith @memo): selectors read this
+   * via useSyncExternalStore, whose getSnapshot must return a cached reference —
+   * a plain getter re-creating the array every call loops the render forever.
+   */
+  @memo((s: DesktopStore) => [s.state.userServices])
+  public get services(): ServiceEntry[] {
+    return allServices(this.state.userServices);
+  }
+
+  public addService(url: string, thisMachine = false) {
+    const clean = normalizeBaseUrl(url);
+    if (!clean) return;
+    if (!isAllowedServiceUrl(clean)) {
+      this.flash("A service address must be a public https:// URL");
+      return;
+    }
     this.produce((d) => {
-      d.registerDraft = v;
+      if (!d.userServices.some((e) => e.url === clean)) {
+        d.userServices.push({ url: clean, thisMachine: thisMachine || undefined });
+      } else if (thisMachine) {
+        d.userServices = d.userServices.map((e) =>
+          e.url === clean ? { ...e, thisMachine: true } : e,
+        );
+      }
+    });
+    persistUserServices(this.state.userServices);
+    void this.probeServices();
+  }
+
+  public removeService(url: string) {
+    this.produce((d) => {
+      d.userServices = d.userServices.filter((e) => e.url !== url);
+    });
+    persistUserServices(this.state.userServices);
+  }
+
+  /** Ping every candidate (reachability + latency) — a service may simply be down. */
+  public async probeServices() {
+    const entries = this.services;
+    if (entries.length === 0) return;
+    this.produce((d) => {
+      d.probing = true;
+    });
+    const results = await Promise.all(
+      entries.map(async (e) => [e.url, await pingService(e.url)] as const),
+    );
+    this.produce((d) => {
+      for (const [url, probe] of results) d.serviceProbes[url] = probe;
+      d.probing = false;
     });
   }
 
-  public async register() {
-    const url = this.state.registerDraft.trim();
-    if (!url) return;
+  /** Auto-select: reachable this-machine entry first, else lowest latency; then register. */
+  public async autoSelectService() {
+    await this.probeServices();
+    const pick = pickAutoService(this.services, this.state.serviceProbes);
+    if (!pick) {
+      this.produce((d) => {
+        d.registerError = "No service is reachable right now";
+      });
+      return;
+    }
+    await this.registerWith(pick.url);
+  }
+
+  /**
+   * Register this home with a service (`homekb register`) — the single source of truth.
+   * Registration mints a NEW home identity (home_id/home_secret); the ENGINE restarts
+   * an already-installed tunnel onto the fresh credentials (the "phone paired fine but
+   * saw Home is offline" bug lives at the engine level, so it is fixed there — CLI
+   * users get it too). The desktop only covers first-time setup: if no tunnel service
+   * is installed yet, install + start it — pairing is the whole point of registering.
+   */
+  public async registerWith(url: string) {
+    const clean = normalizeBaseUrl(url);
+    if (!clean) return;
     this.produce((d) => {
       d.registerBusy = true;
       d.registerError = null;
     });
     try {
-      await invoke("relay_register", { url });
+      await invoke("relay_register", { url: clean });
+      // Fresh status (never the cached store flag): the engine restarted an installed
+      // tunnel already; a missing one must be installed or the first pairing is dead.
+      const tunnel = await invoke<DaemonStatus>("tunnel_status").catch(() => null);
+      if (tunnel && !tunnel.managed) {
+        await invoke("tunnel_start").catch(() => {});
+      }
       this.produce((d) => {
         d.registerBusy = false;
-        d.registerDraft = "";
       });
-      this.flash("Registered with relay");
+      this.flash("Connected to the service");
       void this.refreshEngine();
     } catch (e) {
       this.produce((d) => {
         d.registerBusy = false;
-        d.registerError = invokeErrorMessage(e, "Registration failed");
+        d.registerError = invokeErrorMessage(e, "Could not connect to the service");
       });
     }
+  }
+
+  /**
+   * Disconnect from the current service (wipe [relay]) → back to the picker.
+   * Also stops the tunnel: without a `[relay]` it cannot run, and a launchd-kept
+   * tunnel would otherwise fail-loop.
+   */
+  public async disconnectService() {
+    if (this.state.registerBusy) return;
+    this.produce((d) => {
+      d.registerBusy = true;
+      d.registerError = null;
+    });
+    try {
+      if (this.state.tunnelManaged) {
+        await invoke("tunnel_stop").catch(() => {}); // best-effort; disconnect still proceeds
+      }
+      await invoke("relay_clear");
+      this.flash("Disconnected — choose a service");
+      await this.refreshEngine();
+    } catch (e) {
+      this.flash(invokeErrorMessage(e, "Could not disconnect"));
+    }
+    this.produce((d) => {
+      d.registerBusy = false;
+    });
+  }
+
+  // ---------- This machine's service (default off, decoupled from the picker) ----------
+  public async refreshLocalRelay() {
+    try {
+      const localRelay = await invoke<LocalRelayStatus>("local_relay_status");
+      this.produce((d) => {
+        d.localRelay = localRelay;
+      });
+    } catch {
+      // Non-fatal: the card keeps its last known state.
+    }
+  }
+
+  public async toggleLocalRelay() {
+    if (this.state.localRelayBusy) return;
+    const running = this.state.localRelay?.running ?? false;
+    this.produce((d) => {
+      d.localRelayBusy = true;
+    });
+    try {
+      await invoke(running ? "local_relay_stop" : "local_relay_start");
+      this.flash(running ? "Service on this machine stopped" : "Service on this machine started");
+    } catch (e) {
+      this.flash(invokeErrorMessage(e, "Service operation failed"));
+    }
+    await this.refreshLocalRelay();
+    this.produce((d) => {
+      d.localRelayBusy = false;
+    });
   }
 
   // ---------- Pairing code ----------

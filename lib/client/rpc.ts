@@ -5,7 +5,6 @@
  * Routing by connection mode (docs/ARCHITECTURE.md "Client connection model"):
  * - desktop (Tauri webview)  → local homekb serve (127.0.0.1:8765, no auth)
  * - relay                    → <relayUrl>/api/relay/rpc (Bearer clientToken hkt_)
- * - direct                   → <serveUrl>/rpc (Bearer serveToken hkd_)
  * UI is written once; only the base URL and auth method differ (engine-first principle).
  */
 
@@ -25,6 +24,8 @@ export class RelayError extends Error {
 
 interface Endpoint {
   rpcUrl: string;
+  /** Streaming RPC (kb.ask only) — the `rpcUrl` sibling; emits delta/done/error SSE frames. */
+  streamUrl: string;
   healthUrl: string;
   /** URL prefix for binary assets; append the asset path (relative to ~/.homekb/assets/). */
   assetBase: string;
@@ -37,6 +38,7 @@ function endpoint(): Endpoint {
   if (isDesktop()) {
     return {
       rpcUrl: `${SERVE_BASE}/rpc`,
+      streamUrl: `${SERVE_BASE}/rpc/stream`,
       healthUrl: `${SERVE_BASE}/health`,
       assetBase: `${SERVE_BASE}/assets/`,
       headers: {},
@@ -50,21 +52,13 @@ function endpoint(): Endpoint {
 
 /** Build the endpoint for an explicit connection (used to verify before storing). */
 export function endpointFor(conn: Connection): Endpoint {
-  if (conn.mode === "relay") {
-    return {
-      rpcUrl: `${conn.relayUrl}/api/relay/rpc`,
-      healthUrl: `${conn.relayUrl}/api/relay/health`,
-      assetBase: `${conn.relayUrl}/api/relay/asset/`,
-      headers: { Authorization: `Bearer ${conn.token}` },
-      healthKind: "relay",
-    };
-  }
   return {
-    rpcUrl: `${conn.baseUrl}/rpc`,
-    healthUrl: `${conn.baseUrl}/health`,
-    assetBase: `${conn.baseUrl}/assets/`,
+    rpcUrl: `${conn.relayUrl}/api/relay/rpc`,
+    streamUrl: `${conn.relayUrl}/api/relay/rpc/stream`,
+    healthUrl: `${conn.relayUrl}/api/relay/health`,
+    assetBase: `${conn.relayUrl}/api/relay/asset/`,
     headers: { Authorization: `Bearer ${conn.token}` },
-    healthKind: "serve",
+    healthKind: "relay",
   };
 }
 
@@ -107,13 +101,92 @@ export async function rpc<T = unknown>(
   return rpcAt<T>(endpoint(), method, params);
 }
 
-/** RPC against an explicit, not-yet-stored connection (direct-mode verification). */
-export async function rpcWith<T = unknown>(
-  conn: Connection,
-  method: string,
-  params: Record<string, unknown> = {},
-): Promise<T> {
-  return rpcAt<T>(endpointFor(conn), method, params);
+/** Terminal metadata of a streaming answer (the `done` frame). */
+export interface AskStreamResult {
+  citations: { path: string; title: string }[];
+  hits?: unknown[];
+}
+
+function parseSseFrame(raw: string): { event: string; data: string } {
+  let event = "";
+  const dataLines: string[] = [];
+  for (const line of raw.split("\n")) {
+    if (line.startsWith("event:")) event = line.slice(6).trim();
+    else if (line.startsWith("data:")) dataLines.push(line.slice(5).replace(/^ /, ""));
+  }
+  return { event, data: dataLines.join("\n") };
+}
+
+/**
+ * Streaming kb.ask (docs/ARCHITECTURE.md "Streaming answer channel"): POSTs to the
+ * `/rpc/stream` endpoint and consumes `delta`/`done`/`error` SSE frames. `onDelta` fires
+ * per answer-text chunk; resolves with the terminal `done` metadata (citations + hits).
+ * Any `error` frame — or an early close — rejects with a RelayError.
+ */
+export async function rpcAskStream(
+  query: string,
+  opts: { onDelta: (text: string) => void; signal?: AbortSignal },
+): Promise<AskStreamResult> {
+  const ep = endpoint();
+  let res: Response;
+  try {
+    res = await fetch(ep.streamUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...ep.headers },
+      body: JSON.stringify({ method: "kb.ask", params: { query } }),
+      signal: opts.signal,
+    });
+  } catch {
+    throw new RelayError("unreachable", "Server is not responding");
+  }
+  if (res.status === 401) {
+    throw new RelayError("unauthorized", "Not authorized — please pair again");
+  }
+  if (!res.ok || !res.body) {
+    const data = await res.json().catch(() => ({}) as Record<string, string>);
+    const code = data.error ?? `http_${res.status}`;
+    const msg =
+      code === "home_offline"
+        ? "Home computer is not online (run `homekb tunnel` on your computer)"
+        : code === "timeout"
+          ? "Home computer timed out"
+          : (data.message ?? "Request failed");
+    throw new RelayError(code, msg);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  let done: AskStreamResult | null = null;
+
+  const handleFrame = (raw: string) => {
+    const { event, data } = parseSseFrame(raw);
+    if (!data) return;
+    if (event === "delta") {
+      const { text } = JSON.parse(data) as { text?: string };
+      if (typeof text === "string" && text) opts.onDelta(text);
+    } else if (event === "done") {
+      done = JSON.parse(data) as AskStreamResult;
+    } else if (event === "error") {
+      const { code, message } = JSON.parse(data) as { code?: string; message?: string };
+      throw new RelayError(code ?? "ask_failed", message ?? "Answer failed");
+    }
+  };
+
+  for (;;) {
+    const { value, done: rdDone } = await reader.read();
+    if (rdDone) break;
+    buf += decoder.decode(value, { stream: true });
+    let idx: number;
+    while ((idx = buf.indexOf("\n\n")) !== -1) {
+      handleFrame(buf.slice(0, idx));
+      buf = buf.slice(idx + 2);
+    }
+  }
+  if (buf.trim()) handleFrame(buf);
+
+  if (!done) throw new RelayError("stream_incomplete", "Answer stream ended early");
+  return done;
 }
 
 export async function checkHealth(): Promise<boolean> {

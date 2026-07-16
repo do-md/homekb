@@ -14,6 +14,7 @@ mod ask;
 mod chunker;
 mod config;
 mod db;
+mod drafts;
 mod hasher;
 mod notes;
 mod pipeline;
@@ -27,8 +28,9 @@ pub use api::{
     Hit, ReindexReport, SearchOptions, SearchOutput, StatusReport, TypeCount, ensure_dirs,
     list_types, rebuild, reindex, search, status,
 };
-pub use ask::{AskOutput, Citation, ask};
+pub use ask::{AskOutput, AskStreamEvent, Citation, ask, ask_stream};
 pub use config::{Config, ConfigOverrides, RelayConfig, ServeConfig, config_path};
+pub use drafts::{DraftMeta, SavedDraft, delete_draft, list_drafts, save_draft};
 pub use notes::{
     CreatedNote, DocMeta, NoteContent, create_note, list_notes, read_note, write_note,
 };

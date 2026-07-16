@@ -1,12 +1,17 @@
 //! `homekb tunnel` — resident home-side client: keeps an SSE connection to
 //! the relay, executes forwarded RPCs locally, posts results back, and runs
-//! the built-in periodic reindex. Reconnects with exponential backoff.
+//! the built-in periodic reindex. Reconnects with exponential backoff plus
+//! full jitter, so a relay restart doesn't make every home stampede back in
+//! lockstep (thundering herd on a weak-CPU relay).
 
 use anyhow::{Context, Result, anyhow};
-use homekb_core::Config;
+use futures::StreamExt;
+use homekb_core::{AskStreamEvent, Config};
 use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::mpsc;
+use tokio_stream::wrappers::UnboundedReceiverStream;
 
 // ---- launchd daemon management (macOS only) ----
 
@@ -92,6 +97,26 @@ pub fn run_status(json_out: bool) -> Result<()> {
 /// Connection is considered dead if no bytes arrive within this window (includes the 25 s ping).
 const READ_TIMEOUT: Duration = Duration::from_secs(90);
 const MAX_BACKOFF_SECS: u64 = 60;
+/// Never reconnect faster than this, so a persistently-failing connect can't hot-loop.
+const MIN_BACKOFF_MS: u64 = 100;
+
+/// "Full jitter" backoff: a uniformly random delay in `[MIN_BACKOFF_MS, ceil]`.
+///
+/// The exponential `ceil` bounds the worst case; the randomness de-synchronizes
+/// mass reconnects. Without it, a relay restart drops every home at the same
+/// instant and they all retry on the identical 1→2→4…s schedule, stampeding the
+/// relay in waves. With full jitter each home picks an independent point in the
+/// window, spreading the TLS-handshake + auth load smoothly over time.
+fn jittered_backoff(ceil_secs: u64) -> Duration {
+    let ceil_ms = ceil_secs.saturating_mul(1000).max(MIN_BACKOFF_MS);
+    let mut buf = [0u8; 8];
+    // If the OS RNG ever fails, fall back to the un-jittered ceiling — correct, just not spread out.
+    let Ok(()) = getrandom::fill(&mut buf) else {
+        return Duration::from_millis(ceil_ms);
+    };
+    let span = u64::from_le_bytes(buf) % ceil_ms; // [0, ceil_ms)
+    Duration::from_millis(span.max(MIN_BACKOFF_MS))
+}
 
 pub fn run(interval: u64) -> Result<()> {
     let config = Arc::new(Config::load()?);
@@ -125,10 +150,12 @@ pub fn run(interval: u64) -> Result<()> {
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("tunnel connect failed: {e:#}; retrying in {backoff}s");
+                    tracing::warn!("tunnel connect failed: {e:#}; retrying (backoff ceil {backoff}s)");
                 }
             }
-            tokio::time::sleep(Duration::from_secs(backoff)).await;
+            let delay = jittered_backoff(backoff);
+            tracing::debug!("reconnect in {:?} (backoff ceil {backoff}s)", delay);
+            tokio::time::sleep(delay).await;
             backoff = (backoff * 2).min(MAX_BACKOFF_SECS);
         }
     })
@@ -266,6 +293,15 @@ fn handle_rpc(
     };
     let method = msg.get("method").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let params = msg.get("params").cloned().unwrap_or_else(|| json!({}));
+
+    // Streaming path (docs/ARCHITECTURE.md "Streaming answer channel"): only kb.ask,
+    // marked by `stream:true` in the rpc event. Stream frames back over the ask channel
+    // instead of posting a single JSON result.
+    if method == "kb.ask" && msg.get("stream").and_then(|v| v.as_bool()).unwrap_or(false) {
+        handle_ask_stream(id, params, client, config, relay);
+        return;
+    }
+
     let client = client.clone();
     let config = config.clone();
     let result_url = format!("{}/api/relay/tunnel/result", relay.url);
@@ -285,6 +321,88 @@ fn handle_rpc(
             .await
         {
             tracing::warn!("failed to post rpc result: {e}");
+        }
+    });
+}
+
+/// Encode one SSE frame the relay pipes verbatim to the client (single `data:` line —
+/// compact JSON escapes newlines).
+fn ask_frame(name: &str, value: &Value) -> String {
+    format!(
+        "event: {name}\ndata: {}\n\n",
+        serde_json::to_string(value).unwrap_or_default()
+    )
+}
+
+fn ask_event_frame(ev: AskStreamEvent) -> String {
+    match ev {
+        AskStreamEvent::Delta(text) => ask_frame("delta", &json!({ "text": text })),
+        AskStreamEvent::Done { citations, hits } => {
+            ask_frame("done", &json!({ "citations": citations, "hits": hits }))
+        }
+    }
+}
+
+/// Streaming ask: run the pipeline and stream `delta`* → `done` (or a trailing `error`)
+/// as the POST body to /api/relay/tunnel/ask/<id>, which the relay pipes to the client.
+/// The body streams lazily from ask_stream's channel, so the relay (and client) start
+/// receiving as soon as the first token is produced.
+fn handle_ask_stream(
+    id: String,
+    params: Value,
+    client: &reqwest::Client,
+    config: &Arc<Config>,
+    relay: &homekb_core::RelayConfig,
+) {
+    let query = params
+        .get("query")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let client = client.clone();
+    let config = config.clone();
+    let ask_url = format!("{}/api/relay/tunnel/ask/{}", relay.url, id);
+    let secret = relay.home_secret.clone();
+
+    tokio::spawn(async move {
+        tracing::info!("rpc kb.ask (stream)");
+        let (tx, rx) = mpsc::unbounded_channel::<AskStreamEvent>();
+        let (err_tx, err_rx) = tokio::sync::oneshot::channel::<Option<(String, String)>>();
+        let cfg = config.clone();
+        tokio::spawn(async move {
+            let result = homekb_core::ask_stream(&cfg, &query, &tx).await;
+            let _ = err_tx.send(result.err().map(|e| ("ask_failed".to_string(), format!("{e:#}"))));
+        });
+
+        // Frame stream: Delta/Done from the channel, then a trailing `error` frame if
+        // synthesis failed. String frames satisfy reqwest's Into<Bytes> body bound.
+        let events =
+            UnboundedReceiverStream::new(rx).map(|ev| Ok::<String, std::io::Error>(ask_event_frame(ev)));
+        let tail = futures::stream::once(async move {
+            match err_rx.await {
+                Ok(Some((code, message))) => Some(Ok::<String, std::io::Error>(ask_frame(
+                    "error",
+                    &json!({ "code": code, "message": message }),
+                ))),
+                _ => None,
+            }
+        })
+        .filter_map(|opt| async move { opt });
+        let body = reqwest::Body::wrap_stream(events.chain(tail));
+
+        match client
+            .post(&ask_url)
+            .bearer_auth(&secret)
+            .header("Content-Type", "text/event-stream")
+            .body(body)
+            .send()
+            .await
+        {
+            Ok(res) if !res.status().is_success() => {
+                tracing::warn!("ask stream upload rejected: HTTP {}", res.status());
+            }
+            Ok(_) => {}
+            Err(e) => tracing::warn!("failed to post ask stream: {e}"),
         }
     });
 }

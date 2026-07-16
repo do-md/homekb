@@ -12,16 +12,18 @@
  * renders its broken-image state — never a stray network request.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import {
   DOMD,
   DOMDProvider,
+  type EditorStore,
   useEditorStoreApi,
   type ImageLoader,
 } from "@do-md/core-react";
 import { isExternalSrc, resolveAssetRef } from "@/lib/client/asset-ref";
 import { isDesktop } from "@/lib/client/desktop";
 import { fetchAssetUrl, SERVE_BASE } from "@/lib/client/rpc";
+import { useKbStoreApi } from "../store/kb-store";
 
 /** Build an ImageLoader bound to the note the markdown came from. */
 export function makeImageLoader(notePath: string): ImageLoader {
@@ -56,6 +58,36 @@ export function KbMarkdown({
   return (
     <div className={`hk-domd ${className}`}>
       <DOMDProvider editable={false} initMd={content} imageLoader={makeImageLoader(notePath)}>
+        <DOMD />
+      </DOMDProvider>
+    </div>
+  );
+}
+
+/** Hands this read-only DOMD editor to the KB store, which feeds it answer deltas via
+ *  insertText (docs/ARCHITECTURE.md "Streaming answer channel"). useLayoutEffect so the
+ *  editor is attached before the store's first flush frame runs. */
+function StreamingBridge() {
+  const editor = useEditorStoreApi() as unknown as EditorStore;
+  const kb = useKbStoreApi();
+  useLayoutEffect(() => {
+    kb.attachLiveEditor(editor);
+    return () => kb.detachLiveEditor(editor);
+  }, [editor, kb]);
+  return null;
+}
+
+/**
+ * Live streaming answer body (design 3b): a persistent read-only DOMD seeded empty
+ * (`initMd=""`). The KB store feeds it token chunks through insertText as they arrive —
+ * real Markdown renders while it writes, no client-side typewriter, no per-token resetMD.
+ * Remounts per answer (the parent gates it on phase), starting from an empty editor.
+ */
+export function KbStreamingAnswer({ className = "" }: { className?: string }) {
+  return (
+    <div className={`hk-domd ${className}`}>
+      <DOMDProvider editable={false} initMd="" imageLoader={makeImageLoader("")}>
+        <StreamingBridge />
         <DOMD />
       </DOMDProvider>
     </div>

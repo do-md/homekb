@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 use crate::api::{SearchOptions, list_types, reindex, search, status, suggestions};
 use crate::ask::ask;
 use crate::config::Config;
+use crate::drafts::{delete_draft, list_drafts, save_draft};
 use crate::notes::{create_note, list_notes, read_note, write_note};
 
 #[derive(Debug, Clone, Serialize)]
@@ -31,6 +32,9 @@ pub const RPC_METHODS: &[&str] = &[
     "kb.read",
     "kb.write",
     "kb.create",
+    "kb.draftList",
+    "kb.draftSave",
+    "kb.draftDelete",
     "kb.list",
     "kb.status",
     "kb.listTypes",
@@ -100,6 +104,23 @@ pub async fn dispatch(config: &Config, method: &str, params: &Value) -> Result<V
             let created = create_note(config, &content, s(params, "title"))
                 .map_err(|e| RpcFailure::new("create_failed", format!("{e:#}")))?;
             to_value(&created)
+        }
+        "kb.draftList" => {
+            let drafts = list_drafts(config)
+                .map_err(|e| RpcFailure::new("draft_list_failed", format!("{e:#}")))?;
+            Ok(json!({ "drafts": drafts }))
+        }
+        "kb.draftSave" => {
+            let text = required(params, "text")?;
+            let saved = save_draft(config, s(params, "id"), &text)
+                .map_err(|e| RpcFailure::new("draft_save_failed", format!("{e:#}")))?;
+            to_value(&saved)
+        }
+        "kb.draftDelete" => {
+            let id = required(params, "id")?;
+            delete_draft(config, &id)
+                .map_err(|e| RpcFailure::new("draft_delete_failed", format!("{e:#}")))?;
+            Ok(json!({ "id": id }))
         }
         "kb.list" => {
             let limit = params

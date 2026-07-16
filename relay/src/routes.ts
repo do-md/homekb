@@ -98,6 +98,32 @@ export async function relayPair(req: Request): Promise<Response> {
   return jsonError(400, "unknown_action");
 }
 
+/**
+ * Unauthenticated liveness/identity probe (docs/ARCHITECTURE.md "Relay HTTP API").
+ * The desktop service picker uses it for reachability checks + latency ranking
+ * (auto-select). Leaks nothing — just "a homekb relay lives here".
+ */
+export async function relayPing(): Promise<Response> {
+  return Response.json({ ok: true, service: "homekb-relay" });
+}
+
+/**
+ * Retire a home identity (docs/ARCHITECTURE.md "Relay HTTP API"): deletes the home
+ * plus all of its grants / pair codes / OAuth codes. Every client paired to it gets
+ * 401 from then on and auto-unpairs on its next health poll — this is what prevents
+ * "zombie" pairings after the home re-registers (new home_id) or leaves the service.
+ */
+export async function relayHomeDelete(req: Request): Promise<Response> {
+  const home = authHome(req);
+  if (!home) return jsonError(401, "unauthorized");
+  const db = relayDb();
+  db.prepare("DELETE FROM grants WHERE home_id = ?").run(home.id);
+  db.prepare("DELETE FROM pair_codes WHERE home_id = ?").run(home.id);
+  db.prepare("DELETE FROM oauth_codes WHERE home_id = ?").run(home.id);
+  db.prepare("DELETE FROM homes WHERE id = ?").run(home.id);
+  return Response.json({ ok: true });
+}
+
 /** Client health check: whether the home device is online */
 export async function relayHealth(req: Request): Promise<Response> {
   const grant = authGrant(req);

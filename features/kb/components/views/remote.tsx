@@ -2,10 +2,10 @@
 
 /**
  * Remote tab (design 7b): the device-connection hub, elevated out of Settings.
- * - Desktop (home machine): pairing card (QR + code + expiry + regenerate),
- *   connection card (relay URL / device name / keep-tunnel-alive), relay signup.
+ * - Desktop (home machine): connection-service setup, then pairing card
+ *   (QR + code + expiry + regenerate), connection card, paired devices.
  * - Web (remote client): current connection + in-app confirmed disconnect.
- * The relay only forwards traffic — it never stores notes. No OS dialogs, ever.
+ * The service only forwards traffic — it never stores notes. No OS dialogs, ever.
  */
 
 import { useEffect, useState } from "react";
@@ -13,6 +13,7 @@ import QRCode from "qrcode";
 import { DesktopNotice } from "@/features/desktop/components/notice";
 import { getConnection } from "@/lib/client/connection";
 import { isDesktop } from "@/lib/client/desktop";
+import { isAllowedServiceUrl } from "@/lib/client/services";
 import {
   useDesktopStore,
   useDesktopStoreApi,
@@ -81,32 +82,26 @@ function countdown(expiresAt: number, now: number): string | null {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-/** Pairing link contract: docs/ARCHITECTURE.md "Pairing link (QR payload)". */
-function pairingLink(relayUrl: string, code: string): string {
-  const webBase = process.env.NEXT_PUBLIC_WEB_URL || "http://localhost:3000";
-  return `${webBase}/?relay=${encodeURIComponent(relayUrl)}&code=${encodeURIComponent(code)}`;
+/**
+ * Fixed Web UI origin for QR links (docs "Pairing link (QR payload)") — never
+ * user-configured. The in-app scanner reads only the query params; the base just
+ * makes the same QR openable from a native camera once the official domain is live.
+ */
+const WEB_BASE = (process.env.NEXT_PUBLIC_WEB_URL || "http://localhost:3000").replace(/\/+$/, "");
+
+/** Relay pairing link contract: docs/ARCHITECTURE.md "Pairing link (QR payload)". */
+function relayPairingLink(relayUrl: string, code: string): string {
+  return `${WEB_BASE}/?relay=${encodeURIComponent(relayUrl)}&code=${encodeURIComponent(code)}`;
 }
 
-function PairingCard() {
-  const api = useDesktopStoreApi();
-  const pair = useDesktopStore((s) => s.state.pair);
-  const busy = useDesktopStore((s) => s.state.pairBusy);
-  const error = useDesktopStore((s) => s.state.pairError);
+/** Small QR data-url hook for the pairing card. */
+function useQrDataUrl(link: string | null): string | null {
   const [qr, setQr] = useState<string | null>(null);
-  const [now, setNow] = useState(() => Date.now());
-  const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    if (!pair) return;
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, [pair]);
-
   useEffect(() => {
     setQr(null);
-    if (!pair) return;
+    if (!link) return;
     let cancelled = false;
-    QRCode.toDataURL(pairingLink(pair.relayUrl, pair.code), {
+    QRCode.toDataURL(link, {
       margin: 0,
       width: 320,
       color: { dark: "#141310", light: "#ffffff" },
@@ -120,6 +115,23 @@ function PairingCard() {
     return () => {
       cancelled = true;
     };
+  }, [link]);
+  return qr;
+}
+
+function PairingCard() {
+  const api = useDesktopStoreApi();
+  const pair = useDesktopStore((s) => s.state.pair);
+  const busy = useDesktopStore((s) => s.state.pairBusy);
+  const error = useDesktopStore((s) => s.state.pairError);
+  const [now, setNow] = useState(() => Date.now());
+  const [copied, setCopied] = useState(false);
+  const qr = useQrDataUrl(pair ? relayPairingLink(pair.relayUrl, pair.code) : null);
+
+  useEffect(() => {
+    if (!pair) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
   }, [pair]);
 
   const remain = pair ? countdown(pair.expiresAt, now) : null;
@@ -288,61 +300,196 @@ function PairedDevicesCard() {
   );
 }
 
-function DesktopRemote() {
+const addInputCls =
+  "min-w-0 flex-1 rounded-xl border border-hk-input-border bg-transparent px-3 py-2 font-mono text-[12.5px] text-hk-text outline-none placeholder:text-hk-weak focus:border-hk-input-focus";
+
+/** Reachability dot + latency for one service entry. */
+function ProbeBadge({ probe }: { probe: { ok: boolean; ms: number | null } | undefined }) {
+  if (!probe) {
+    return <span className="text-[11.5px] text-hk-faint">checking…</span>;
+  }
+  return probe.ok ? (
+    <span className="flex items-center gap-1 text-[11.5px] text-hk-green">
+      <StatusDot /> {probe.ms} ms
+    </span>
+  ) : (
+    <span className="flex items-center gap-1 text-[11.5px] text-hk-orange">
+      <StatusDot /> unreachable
+    </span>
+  );
+}
+
+/**
+ * The service picker (docs "Desktop service picker"): built-ins (baked at build;
+ * currently none) + user-added entries, each probed for reachability/latency;
+ * auto-select prefers a reachable this-machine entry, else the nearest.
+ */
+function ServicePicker({ onSelected }: { onSelected?: () => void }) {
+  const api = useDesktopStoreApi();
+  const userServices = useDesktopStore((s) => s.state.userServices);
+  const probes = useDesktopStore((s) => s.state.serviceProbes);
+  const probing = useDesktopStore((s) => s.state.probing);
+  const registerBusy = useDesktopStore((s) => s.state.registerBusy);
+  const registerError = useDesktopStore((s) => s.state.registerError);
+  const currentUrl = useDesktopStore((s) => s.state.engine?.relay?.url ?? null);
+  const services = useDesktopStore((s) => s.services);
+  const [draft, setDraft] = useState("");
+
+  useEffect(() => {
+    void api.probeServices();
+    // Re-probe when the list length changes (entry added/removed).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api, userServices.length]);
+
+  const use = async (url: string) => {
+    await api.registerWith(url);
+    onSelected?.();
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      {services.length === 0 ? (
+        <p className="text-[12.5px] leading-relaxed text-hk-faint">
+          No services available yet — official ones will appear here in a future update.
+          Add one you host (or someone shared with you), or start this machine&apos;s own
+          service below.
+        </p>
+      ) : (
+        <div className="flex flex-col">
+          {services.map((e, i) => (
+            <div
+              key={e.url}
+              className={`flex items-center gap-3 py-2 ${i > 0 ? "border-t border-hk-hairline" : ""}`}
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-mono text-[12px] text-hk-text">
+                  {e.url}
+                </span>
+                <span className="flex items-center gap-2 text-[11px] text-hk-faint">
+                  {e.builtin && <span>Built-in</span>}
+                  {e.thisMachine && <span>This machine</span>}
+                  <ProbeBadge probe={probes[e.url]} />
+                </span>
+              </span>
+              {e.url === currentUrl ? (
+                <span className="shrink-0 text-[12px] font-medium text-hk-green">In use</span>
+              ) : (
+                <button
+                  className="shrink-0 rounded-lg bg-hk-coral px-2.5 py-1 text-[12.5px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover disabled:opacity-60"
+                  disabled={registerBusy || !probes[e.url]?.ok}
+                  onClick={() => void use(e.url)}
+                >
+                  Use
+                </button>
+              )}
+              {!e.builtin && e.url !== currentUrl && (
+                <button
+                  className="shrink-0 text-[12px] text-hk-weak transition-colors hover:text-hk-orange-text"
+                  onClick={() => api.removeService(e.url)}
+                  title="Remove from the list"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <form
+        className="flex gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!draft.trim()) return;
+          api.addService(draft);
+          setDraft("");
+        }}
+      >
+        <input
+          className={addInputCls}
+          placeholder="https://relay.example.com"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          autoCapitalize="none"
+          autoCorrect="off"
+        />
+        <button
+          type="submit"
+          className="shrink-0 rounded-xl border border-hk-border px-3 py-2 text-[13px] font-semibold text-hk-text-2 transition-colors hover:bg-hk-card-soft disabled:opacity-50"
+          disabled={!draft.trim()}
+        >
+          Add
+        </button>
+      </form>
+      <p className="text-[11.5px] leading-relaxed text-hk-faint">
+        A service address must be publicly reachable over{" "}
+        <span className="font-mono">https://</span> — it is what your phone connects to.
+      </p>
+
+      {services.length > 0 && (
+        <button
+          className="flex items-center justify-center gap-2 rounded-xl bg-hk-coral px-4 py-2.5 text-[14px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover disabled:opacity-60"
+          disabled={registerBusy || probing}
+          onClick={() => void api.autoSelectService()}
+        >
+          {(registerBusy || probing) && <Spinner size={14} />}
+          Auto-select the best service
+        </button>
+      )}
+      {registerError && <p className="text-xs text-hk-orange-text">{registerError}</p>}
+    </div>
+  );
+}
+
+/**
+ * The single remote concept: a connection service (docs "One remote concept").
+ * Unregistered → the picker; registered → pairing QR + connection + devices
+ * (with a "Change service" disclosure back into the picker).
+ */
+function ServiceCard() {
   const api = useDesktopStoreApi();
   const engine = useDesktopStore((s) => s.state.engine);
   const tunnelRunning = useDesktopStore((s) => s.state.tunnelRunning);
   const tunnelBusy = useDesktopStore((s) => s.state.tunnelBusy);
-  const registerDraft = useDesktopStore((s) => s.state.registerDraft);
-  const registerBusy = useDesktopStore((s) => s.state.registerBusy);
-  const registerError = useDesktopStore((s) => s.state.registerError);
-
-  useEffect(() => {
-    void api.refreshEngine();
-  }, [api]);
+  const [changing, setChanging] = useState(false);
 
   if (!engine?.relay) {
     return (
-      <Card title="Remote access">
+      <Card title="Connection service">
         <p className="text-[13px] leading-relaxed text-hk-text-2">
-          Register this computer with a relay so your phone and Claude can reach it. The
-          relay only forwards traffic — it never stores your notes.
+          Connect this computer to a service so your phone and Claude can reach it from
+          anywhere. The service only forwards traffic — it never stores your notes.
         </p>
-        <div className="mt-3 flex gap-2">
-          <input
-            className="min-w-0 flex-1 rounded-xl border border-hk-input-border bg-transparent px-3 py-2 font-mono text-[13px] text-hk-text outline-none placeholder:text-hk-weak focus:border-hk-input-focus"
-            placeholder="https://relay.example.com"
-            value={registerDraft}
-            onChange={(e) => api.setRegisterDraft(e.target.value)}
-            autoCapitalize="none"
-            autoCorrect="off"
-          />
-          <button
-            className="flex items-center gap-1.5 rounded-xl bg-hk-coral px-4 py-2 text-[13.5px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover disabled:opacity-60"
-            disabled={registerBusy || !registerDraft.trim()}
-            onClick={() => void api.register()}
-          >
-            {registerBusy && <Spinner size={13} />}
-            Register
-          </button>
+        <div className="mt-3">
+          <ServicePicker />
         </div>
-        {registerError && <p className="mt-2 text-xs text-hk-orange-text">{registerError}</p>}
       </Card>
     );
   }
 
+  const registerBusy = useDesktopStore((s) => s.state.registerBusy);
+  // Non-https registration works for testing on this machine's network, but a real
+  // phone on another network can't reach it — warn, but never hide the QR.
+  const badServiceUrl = !isAllowedServiceUrl(engine.relay.url);
+
   return (
     <>
+      {/* The QR is the whole point of this screen — always shown once registered. */}
       <PairingCard />
       <Card title="Connection">
-        <Row label="Relay" value={engine.relay.url} />
+        <Row label="Service" value={engine.relay.url} />
+        {badServiceUrl && (
+          <p className="mt-1 text-[12px] leading-relaxed text-hk-orange-text">
+            Not a public <span className="font-mono">https://</span> address — fine for
+            testing on this machine&apos;s network, but a phone elsewhere can&apos;t reach it.
+            Switch to an https service before sharing.
+          </p>
+        )}
         <Row label="This device" value={engine.relay.name} />
         <div className="mt-2 flex items-center justify-between gap-4 border-t border-hk-hairline pt-3">
           <span className="text-[13.5px] text-hk-text-2">
             Keep tunnel alive
-            <span className="block text-xs text-hk-faint">
-              Required for mobile / remote MCP
-            </span>
+            <span className="block text-xs text-hk-faint">Required for mobile / remote MCP</span>
           </span>
           <Toggle
             checked={tunnelRunning}
@@ -350,8 +497,114 @@ function DesktopRemote() {
             onChange={() => void api.toggleTunnel()}
           />
         </div>
+        <div className="mt-3 flex items-center gap-4 border-t border-hk-hairline pt-3">
+          <button
+            className="text-[12.5px] font-medium text-hk-weak transition-colors hover:text-hk-text-2"
+            onClick={() => setChanging((v) => !v)}
+          >
+            {changing ? "Hide service list" : "Change service…"}
+          </button>
+          <button
+            className="text-[12.5px] font-medium text-hk-weak transition-colors hover:text-hk-orange-text disabled:opacity-50"
+            disabled={registerBusy}
+            onClick={() => void api.disconnectService()}
+          >
+            Disconnect
+          </button>
+        </div>
+        {changing && (
+          <div className="mt-3">
+            <ServicePicker onSelected={() => setChanging(false)} />
+            <p className="mt-2 text-[11.5px] leading-relaxed text-hk-faint">
+              Switching services re-registers this computer — devices paired through the old
+              service will need to pair again.
+            </p>
+          </div>
+        )}
       </Card>
       <PairedDevicesCard />
+    </>
+  );
+}
+
+/**
+ * This machine's own connection service (default OFF, deliberately decoupled from
+ * the connection card): a phone can talk straight to this computer — zero middlemen —
+ * once the machine is publicly reachable over HTTPS (docs "Desktop service picker").
+ */
+function LocalServiceCard() {
+  const api = useDesktopStoreApi();
+  const localRelay = useDesktopStore((s) => s.state.localRelay);
+  const busy = useDesktopStore((s) => s.state.localRelayBusy);
+  const [domainDraft, setDomainDraft] = useState("");
+
+  useEffect(() => {
+    void api.refreshLocalRelay();
+  }, [api]);
+
+  const running = localRelay?.running ?? false;
+
+  return (
+    <Card title="Service on this machine">
+      <div className="flex items-center justify-between gap-4">
+        <span className="text-[13.5px] text-hk-text-2">
+          Run a connection service here
+          <span className="block text-xs text-hk-faint">
+            Phones connect straight to this computer — no third party
+          </span>
+        </span>
+        <Toggle checked={running} disabled={busy} onChange={() => void api.toggleLocalRelay()} />
+      </div>
+      {running && (
+        <div className="mt-3 border-t border-hk-hairline pt-3">
+          <p className="text-[12.5px] leading-relaxed text-hk-text-2">
+            The service is running on port 8787. To use it, this machine needs a public{" "}
+            <span className="font-mono text-[11.5px]">https://</span> domain pointing at it
+            (reverse proxy or a Cloudflare-style tunnel — your setup). Then add that domain
+            here; auto-select will prefer it.
+          </p>
+          <form
+            className="mt-3 flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!domainDraft.trim()) return;
+              api.addService(domainDraft, true);
+              setDomainDraft("");
+            }}
+          >
+            <input
+              className={addInputCls}
+              placeholder="https://home.example.com"
+              value={domainDraft}
+              onChange={(e) => setDomainDraft(e.target.value)}
+              autoCapitalize="none"
+              autoCorrect="off"
+            />
+            <button
+              type="submit"
+              className="shrink-0 rounded-xl border border-hk-border px-3 py-2 text-[13px] font-semibold text-hk-text-2 transition-colors hover:bg-hk-card-soft disabled:opacity-50"
+              disabled={!domainDraft.trim()}
+            >
+              Add as service
+            </button>
+          </form>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function DesktopRemote() {
+  const api = useDesktopStoreApi();
+
+  useEffect(() => {
+    void api.refreshEngine();
+  }, [api]);
+
+  return (
+    <>
+      <ServiceCard />
+      <LocalServiceCard />
     </>
   );
 }
@@ -367,12 +620,7 @@ function WebRemote() {
     <>
       <Card title="This device">
         <Row label="Connected to" value={homeName || "Home"} />
-        {conn?.mode === "relay" && <Row label="Relay" value={conn.relayUrl} />}
-        {conn?.mode === "direct" && <Row label="Address" value={conn.baseUrl} />}
-        <Row
-          label="Mode"
-          value={conn?.mode === "direct" ? "direct — no relay in between" : "relay"}
-        />
+        {conn && <Row label="Service" value={conn.relayUrl} />}
         <div className="mt-2 flex items-center gap-2 border-t border-hk-hairline pt-3 text-[13px] text-hk-text-2">
           <span
             className={
@@ -437,8 +685,8 @@ export function RemoteView() {
           <h1 className="text-[21px] font-bold tracking-tight text-hk-heading">Remote</h1>
         </div>
         <p className="mt-1.5 text-[13px] leading-relaxed text-hk-text-2">
-          Connect your phone or Claude to this home. The relay only forwards traffic — it
-          never stores your notes.
+          Connect your phone or Claude to this home. The connection service only forwards
+          traffic — it never stores your notes.
         </p>
         <div className="mt-4 flex flex-col gap-3">
           {isDesktop() ? (

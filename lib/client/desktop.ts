@@ -41,6 +41,12 @@ export interface DaemonStatus {
   managed: boolean; // registered with launchd (plist installed)
 }
 
+/** Return type of Tauri `local_relay_status` (the this-machine connection service). */
+export interface LocalRelayStatus {
+  running: boolean;
+  installed: boolean; // service script present on this machine
+}
+
 /** Return type of Tauri `relay_credentials` (config.toml [relay]). */
 export interface RelayCredentials {
   url: string;

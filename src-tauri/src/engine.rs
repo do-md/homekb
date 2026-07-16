@@ -168,6 +168,57 @@ pub fn set_openai_key(key: &str) -> Result<(), String> {
         .map_err(|e| format!("write {}: {e}", path.display()))
 }
 
+/// Clear the `[relay]` registration (disconnect from the connection service).
+/// Read-modify-write, preserving every other field; a no-op if none exists.
+pub fn clear_relay() -> Result<(), String> {
+    let path = config_path();
+    let mut tbl: toml::Table = match fs::read_to_string(&path).ok().and_then(|raw| toml::from_str(&raw).ok()) {
+        Some(t) => t,
+        None => return Ok(()),
+    };
+    if tbl.remove("relay").is_none() {
+        return Ok(());
+    }
+    let body = toml::to_string_pretty(&tbl).map_err(|e| format!("failed to serialize config: {e}"))?;
+    fs::write(&path, format!("# homekb configuration — see docs/ARCHITECTURE.md\n{body}"))
+        .map_err(|e| format!("write {}: {e}", path.display()))
+}
+
+/// Node binary detection (GUI PATH is minimal; cannot rely on `which`).
+pub fn node_path() -> Option<PathBuf> {
+    let candidates = [
+        PathBuf::from("/opt/homebrew/bin/node"),
+        PathBuf::from("/usr/local/bin/node"),
+        PathBuf::from("/usr/bin/node"),
+        home_dir().join(".volta/bin/node"),
+        home_dir().join(".nvm/current/bin/node"),
+    ];
+    candidates.into_iter().find(|p| p.is_file())
+}
+
+/// The local connection-service script: env HOMEKB_RELAY_DIST > ~/.homekb-relay/server.mjs
+/// (docs/ARCHITECTURE.md "Desktop service picker").
+pub fn local_relay_script() -> PathBuf {
+    if let Ok(p) = std::env::var("HOMEKB_RELAY_DIST") {
+        if !p.is_empty() {
+            return PathBuf::from(p);
+        }
+    }
+    home_dir().join(".homekb-relay").join("server.mjs")
+}
+
+pub fn local_relay_pid_file() -> PathBuf {
+    home_dir().join(".homekb-relay").join("relay.pid")
+}
+
+/// Local connection-service liveness: TCP probe of the relay port (8787).
+pub fn local_relay_running() -> bool {
+    use std::net::TcpStream;
+    use std::time::Duration;
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 8787));
+    TcpStream::connect_timeout(&addr, Duration::from_millis(300)).is_ok()
+}
+
 /// Serve health check: GET /health via raw HTTP/1.1 with 300ms connection timeout (avoids an http client dependency).
 pub fn serve_health() -> bool {
     use std::io::{Read, Write};

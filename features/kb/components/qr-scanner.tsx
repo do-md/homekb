@@ -14,7 +14,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import jsQR from "jsqr";
-import { parsePairingLink } from "@/lib/client/connection";
+import { parsePairingLink, type PairingLink } from "@/lib/client/connection";
 import { IconQr } from "./icons";
 
 /** Camera scanning is possible: capable API + secure context (getUserMedia requires it). */
@@ -56,8 +56,8 @@ export function QrScanner({
   onResult,
   onUnavailable,
 }: {
-  /** Fired once with the decoded pairing link; the camera is stopped first. */
-  onResult: (link: { relayUrl: string; code: string }) => void;
+  /** Fired once with the decoded pairing link (relay or direct); the camera is stopped first. */
+  onResult: (link: PairingLink) => void;
   /** Camera failed to start (denied / missing) — caller falls back to manual entry. */
   onUnavailable: (message: string) => void;
 }) {

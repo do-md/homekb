@@ -1,14 +1,14 @@
 "use client";
 import { createMemo, createReactStore, ZenithStore } from "@do-md/zenith";
-import { nanoid } from "nanoid";
-import { claimPairCode, connectDirect } from "@/lib/client/relay-client";
+import type { EditorStore } from "@do-md/core-react";
+import { claimPairCode } from "@/lib/client/relay-client";
 import {
   clearConnection,
   connectionLabel,
   getConnection,
 } from "@/lib/client/connection";
 import { isDesktop } from "@/lib/client/desktop";
-import { checkHealth, RelayError, rpc } from "@/lib/client/rpc";
+import { checkHealth, RelayError, rpc, rpcAskStream } from "@/lib/client/rpc";
 import type {
   ConnState,
   DocMeta,
@@ -22,10 +22,26 @@ import type {
   RecallPhase,
 } from "../type";
 
-const DRAFTS_KEY = "homekb.drafts.v1";
+/**
+ * Drafts themselves now live on the home device (`~/.homekb/drafts/`, shared by
+ * every paired client) — see docs/ARCHITECTURE.md "kb.draftList/Save/Delete".
+ * This key holds only a per-device *crash-safety autosave of the active compose
+ * buffer* (not the shared drafts list): the text you're currently typing, so a
+ * reload / view-switch — even while offline — never loses in-progress work. It's
+ * cleared once the buffer is saved to the home or sent to the library.
+ */
+const COMPOSE_KEY = "homekb.compose.v1";
 const LAST_CONNECTED_KEY = "homekb.lastConnectedAt.v1";
 const OPENED_KEY = "homekb.recentOpened.v1";
 const OPENED_MAX = 8;
+
+/**
+ * Delay before the single silent auto-reconnect probe (see refreshHealth).
+ * Deliberately short — it only exists to swallow a transient "Home is offline"
+ * blip (a health probe that raced a tunnel reconnect), not to ride out a real
+ * outage. One retry, not an escalating backoff.
+ */
+const RECONNECT_RETRY_MS = 1500;
 
 /** "Recently opened" is genuinely open history (design 2a), kept per device. */
 export interface OpenedDoc {
@@ -54,23 +70,37 @@ function persistOpenedDocs(docs: OpenedDoc[]) {
   }
 }
 
-function loadDrafts(): Draft[] {
-  if (typeof window === "undefined") return [];
+/** The active compose buffer: what the user is currently typing, plus the id of
+ *  the home-side draft it maps to (null = a brand-new note not yet saved). */
+interface ComposeBuffer {
+  text: string;
+  editingDraftId: string | null;
+}
+
+function loadCompose(): ComposeBuffer {
+  const empty: ComposeBuffer = { text: "", editingDraftId: null };
+  if (typeof window === "undefined") return empty;
   try {
-    const raw = window.localStorage.getItem(DRAFTS_KEY);
-    if (!raw) return [];
-    const list = JSON.parse(raw) as Draft[];
-    return Array.isArray(list) ? list : [];
+    const raw = window.localStorage.getItem(COMPOSE_KEY);
+    if (!raw) return empty;
+    const buf = JSON.parse(raw) as ComposeBuffer;
+    return typeof buf?.text === "string"
+      ? { text: buf.text, editingDraftId: buf.editingDraftId ?? null }
+      : empty;
   } catch {
-    return [];
+    return empty;
   }
 }
 
-function persistDrafts(drafts: Draft[]) {
+function persistCompose(buf: ComposeBuffer | null) {
   try {
-    window.localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+    if (!buf || !buf.text.trim()) {
+      window.localStorage.removeItem(COMPOSE_KEY);
+    } else {
+      window.localStorage.setItem(COMPOSE_KEY, JSON.stringify(buf));
+    }
   } catch {
-    // Quota/private-mode failures: drafts silently stay in-memory only.
+    // Quota/private-mode failures: the buffer simply isn't crash-persisted.
   }
 }
 
@@ -109,6 +139,12 @@ interface KbState {
   suggestions: KbSuggestion[];
   docTypes: string[];
   typeFilter: string | null;
+  // Per-slice "loaded at least once" flags: the home screen loads fire while the
+  // tunnel may still be reconnecting; failures are silent by design, so the health
+  // poll backfills whichever slice never succeeded (self-healing home screen).
+  recentLoaded: boolean;
+  suggestionsLoaded: boolean;
+  typesLoaded: boolean;
 
   // reader
   readerPath: string | null;
@@ -120,8 +156,10 @@ interface KbState {
   editMode: boolean;
   saveBusy: boolean;
 
-  // compose (new note) + drafts
+  // compose (new note) + drafts (drafts live on the home; see loadDrafts)
   drafts: Draft[];
+  /** Home-side drafts loaded at least once (self-healing backfill flag). */
+  draftsLoaded: boolean;
   editingDraftId: string | null;
   editorSeed: string;
   /** Bumped to remount the editor with a new seed. */
@@ -140,12 +178,30 @@ const memo = createMemo<KbStore>();
 
 export class KbStore extends ZenithStore<KbState> {
   private noticeTimer: ReturnType<typeof setTimeout> | undefined;
+  private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+  /** True while the one-shot silent auto-reconnect probe is scheduled/in-flight. */
+  private reconnectPending = false;
+
+  // ---- streaming answer: non-reactive insertText channel into the live DOMD editor ----
+  // Kept off the reactive state (per-token setState would thrash); the answer text lives
+  // in the DOMD editor, fed incrementally via insertText and frame-batched with rAF.
+  /** The read-only DOMD editor currently rendering the streaming answer (null when unmounted). */
+  private liveEditor: EditorStore | null = null;
+  /** Deltas accumulated since the last rAF flush. */
+  private pendingDelta = "";
+  private rafId: number | null = null;
+  /** Full answer text so far — backfills a late-mounting editor and seeds state.answer at done. */
+  private liveText = "";
+  /** True once the single auto-reconnect for the current offline episode is spent (reset on going online). */
+  private autoRetryUsed = false;
   /** Last content saved to the library — suppresses the auto-stash that fires on editor remount. */
   private lastLibrarySaved: string | null = null;
 
   constructor() {
     const desktop = isDesktop();
     const conn = typeof window !== "undefined" ? getConnection() : null;
+    // Restore the crash-safety compose buffer so in-progress text survives a reload.
+    const compose = loadCompose();
     super({
       desktop,
       paired: desktop || !!conn,
@@ -168,6 +224,9 @@ export class KbStore extends ZenithStore<KbState> {
       suggestions: [],
       docTypes: [],
       typeFilter: null,
+      recentLoaded: false,
+      suggestionsLoaded: false,
+      typesLoaded: false,
       readerPath: null,
       readerContent: "",
       readerVersion: 0,
@@ -175,9 +234,10 @@ export class KbStore extends ZenithStore<KbState> {
       readerError: null,
       editMode: false,
       saveBusy: false,
-      drafts: loadDrafts(),
-      editingDraftId: null,
-      editorSeed: "",
+      drafts: [],
+      draftsLoaded: false,
+      editingDraftId: compose.editingDraftId,
+      editorSeed: compose.text,
       editorSession: 0,
       newBusy: false,
       newSavedPath: null,
@@ -204,21 +264,12 @@ export class KbStore extends ZenithStore<KbState> {
   }
 
   // ---------- Pairing ----------
-  /** Relay mode: claim a pairing code at the chosen relay (URL editable on the pairing screen). */
+  /** Claim a pairing code at the connection service (URL from the QR link or the default). */
   public async pairRelay(relayUrl: string, code: string) {
     await this.runPairing(async () => {
       const label = typeof navigator !== "undefined" ? navigator.platform || "web" : "web";
       const home = await claimPairCode(relayUrl, code, `web:${label}`);
       return home.homeName || "Home";
-    });
-  }
-
-  /** Direct mode: verify a publicly bound serve (URL + serveToken) and connect. */
-  public async pairDirect(baseUrl: string, token: string) {
-    await this.runPairing(async () => {
-      await connectDirect(baseUrl, token);
-      const conn = getConnection();
-      return conn ? connectionLabel(conn) : "Direct";
     });
   }
 
@@ -250,10 +301,14 @@ export class KbStore extends ZenithStore<KbState> {
     void this.loadSuggestions();
     void this.loadStatus({ silent: true });
     void this.loadTypes();
+    void this.loadDrafts();
   }
 
   public unpair() {
     if (this.state.desktop) return; // Desktop mode has no pairing concept
+    clearTimeout(this.reconnectTimer);
+    this.reconnectPending = false;
+    this.autoRetryUsed = false;
     clearConnection();
     this.produce((d) => {
       d.paired = false;
@@ -261,39 +316,107 @@ export class KbStore extends ZenithStore<KbState> {
       d.online = null;
       d.hits = [];
       d.answer = null;
+      d.recentDocs = [];
+      d.suggestions = [];
+      d.docTypes = [];
+      d.recentLoaded = false;
+      d.suggestionsLoaded = false;
+      d.typesLoaded = false;
+      d.status = null;
       d.view = "recall";
+      // Drafts belong to the previous home; a future pairing may be a different one.
+      d.drafts = [];
+      d.draftsLoaded = false;
       // Open history belongs to the previous home — a future pairing may be a different one.
       d.openedDocs = [];
     });
     persistOpenedDocs([]);
   }
 
-  public async refreshHealth() {
+  public async refreshHealth(opts: { backfill?: boolean } = {}) {
     if (!this.state.paired) return;
+    // A silent auto-reconnect is already scheduled/in-flight — let it settle the
+    // state so the 30s poll can't race it into a premature offline commit.
+    if (this.reconnectPending) return;
+
+    let online: boolean;
     try {
-      const online = await checkHealth();
-      this.produce((d) => {
-        d.online = online;
-        if (online) d.lastConnectedAt = Date.now();
-      });
-      if (online) {
-        try {
-          window.localStorage.setItem(LAST_CONNECTED_KEY, String(Date.now()));
-        } catch {
-          // best-effort persistence only
-        }
-      }
+      online = await checkHealth();
     } catch (e) {
-      if (e instanceof RelayError && e.code === "unauthorized") this.unpair();
-      else
-        this.produce((d) => {
-          d.online = false;
-        });
+      if (e instanceof RelayError && e.code === "unauthorized") {
+        this.unpair();
+        return;
+      }
+      // Any other health error is treated as "not reachable right now".
+      online = false;
     }
+
+    if (online) {
+      this.autoRetryUsed = false; // arm the one-shot retry again for the next episode
+      this.produce((d) => {
+        d.online = true;
+        d.lastConnectedAt = Date.now();
+      });
+      try {
+        window.localStorage.setItem(LAST_CONNECTED_KEY, String(Date.now()));
+      } catch {
+        // best-effort persistence only
+      }
+      // Home is reachable — recover whatever the home screen failed to load
+      // earlier (e.g. boot raced a tunnel reconnect). The 30s health poll makes
+      // this eventually consistent; loadStatus passes backfill:false to avoid
+      // a retry loop through its own trailing health refresh.
+      if (opts.backfill !== false) this.backfillHomeData();
+      return;
+    }
+
+    // Offline reading. Already showing the offline screen: keep it as-is (a
+    // committed offline state only clears when a probe comes back online) — no
+    // re-arming, so the screen never flickers back to "Connecting…" every 30s.
+    if (this.state.online === false) return;
+
+    // First offline blip this episode: silently try to reconnect exactly once
+    // before surfacing the offline screen. Most "Home is offline" flashes are
+    // transient (a health probe that raced a tunnel reconnect) and recover on a
+    // second probe, so we stay on the amber "Connecting…" look — the user never
+    // sees the scary offline action screen for a blip. Only if this single silent
+    // retry also fails do we commit to offline. (One retry, not a backoff.)
+    if (!this.autoRetryUsed) {
+      this.autoRetryUsed = true;
+      this.reconnectPending = true;
+      this.produce((d) => {
+        d.online = null; // stay "connecting"; don't reveal the offline screen yet
+      });
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = setTimeout(() => {
+        this.reconnectPending = false;
+        void this.refreshHealth(opts);
+      }, RECONNECT_RETRY_MS);
+      return;
+    }
+
+    // The one silent retry is spent and home is still unreachable → show the screen.
+    this.produce((d) => {
+      d.online = false;
+    });
+  }
+
+  /** Re-fire only the home-screen loads that have never succeeded. */
+  private backfillHomeData() {
+    if (!this.state.recentLoaded) void this.loadRecent();
+    if (!this.state.suggestionsLoaded) void this.loadSuggestions();
+    if (!this.state.typesLoaded) void this.loadTypes();
+    if (!this.state.status) void this.loadStatus({ silent: true });
+    if (!this.state.draftsLoaded) void this.loadDrafts();
   }
 
   /** Offline screen's coral Retry button: back to amber "connecting", then re-probe. */
   public retryConnection() {
+    // Re-arm the one-shot silent auto-reconnect so a manual tap also gets the
+    // second-probe grace before falling back to the offline screen.
+    clearTimeout(this.reconnectTimer);
+    this.reconnectPending = false;
+    this.autoRetryUsed = false;
     this.produce((d) => {
       d.online = null;
     });
@@ -363,10 +486,21 @@ export class KbStore extends ZenithStore<KbState> {
     });
     try {
       if (mode === "answer") {
-        const res = await rpc<KbAnswer>("kb.ask", { query: q });
+        // Real token streaming (docs/ARCHITECTURE.md "Streaming answer channel"):
+        // deltas feed the live DOMD editor via insertText; phase flips to "streaming"
+        // on the first token; the terminal `done` frame carries citations + hits.
+        this.resetLive();
+        const done = await rpcAskStream(q, {
+          onDelta: (t) => this.appendAnswerDelta(t),
+        });
+        this.flushDelta();
         this.produce((d) => {
-          d.answer = res;
-          d.hits = res.hits ?? [];
+          d.answer = {
+            answer: this.liveText,
+            citations: done.citations ?? [],
+            hits: (done.hits as KbHit[] | undefined) ?? [],
+          };
+          d.hits = (done.hits as KbHit[] | undefined) ?? [];
           d.answerMs = Date.now() - startedAt;
           d.phase = "done";
         });
@@ -392,11 +526,76 @@ export class KbStore extends ZenithStore<KbState> {
     }
   }
 
+  // ---- streaming answer: live DOMD editor feed (insertText, frame-batched) ----
+
+  /** StreamingAnswer mounts → hand its DOMD editor to the store; backfill anything
+   *  already accumulated before the editor existed (single insertText, never resetMD). */
+  public attachLiveEditor(ed: EditorStore) {
+    this.liveEditor = ed;
+    this.pendingDelta = "";
+    if (this.liveText) ed.insertText(this.liveText);
+  }
+
+  public detachLiveEditor(ed: EditorStore) {
+    if (this.liveEditor === ed) {
+      this.flushDelta();
+      this.liveEditor = null;
+    }
+  }
+
+  /** A new answer chunk: accumulate, flip to "streaming" on the first token, feed the editor. */
+  public appendAnswerDelta(text: string) {
+    this.liveText += text;
+    if (this.state.phase !== "streaming") {
+      this.produce((d) => {
+        d.phase = "streaming";
+      });
+    }
+    // Only queue insertText once the editor exists; otherwise attach() backfills liveText.
+    if (this.liveEditor) {
+      this.pendingDelta += text;
+      this.scheduleFlush();
+    }
+  }
+
+  private scheduleFlush() {
+    if (this.rafId != null) return;
+    this.rafId = requestAnimationFrame(() => {
+      this.rafId = null;
+      const text = this.pendingDelta;
+      this.pendingDelta = "";
+      if (text && this.liveEditor) this.liveEditor.insertText(text);
+    });
+  }
+
+  private flushDelta() {
+    if (this.rafId != null) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+    }
+    if (this.pendingDelta && this.liveEditor) {
+      this.liveEditor.insertText(this.pendingDelta);
+      this.pendingDelta = "";
+    }
+  }
+
+  /** Start a fresh answer: cancel any pending flush and clear the accumulators + editor ref. */
+  private resetLive() {
+    if (this.rafId != null) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+    }
+    this.pendingDelta = "";
+    this.liveText = "";
+    this.liveEditor = null;
+  }
+
   public async loadRecent() {
     try {
       const res = await rpc<{ docs: DocMeta[] }>("kb.list", { limit: 8 });
       this.produce((d) => {
         d.recentDocs = res.docs ?? [];
+        d.recentLoaded = true;
       });
     } catch {
       // Don't bother the user if the homepage recent list fails
@@ -408,6 +607,7 @@ export class KbStore extends ZenithStore<KbState> {
       const res = await rpc<{ suggestions: KbSuggestion[] }>("kb.suggestions", { limit: 3 });
       this.produce((d) => {
         d.suggestions = res.suggestions ?? [];
+        d.suggestionsLoaded = true;
       });
     } catch {
       // Silent: an old engine without kb.suggestions (or a fresh index)
@@ -420,9 +620,25 @@ export class KbStore extends ZenithStore<KbState> {
       const res = await rpc<{ types: { docType: string; count: number }[] }>("kb.listTypes", {});
       this.produce((d) => {
         d.docTypes = (res.types ?? []).map((t) => t.docType);
+        d.typesLoaded = true;
       });
     } catch {
       // No chip row without the type list — non-fatal.
+    }
+  }
+
+  /** Load the shared drafts from the home (`~/.homekb/drafts/`). Silent on
+   *  failure — the health poll backfills once the home is reachable again. */
+  public async loadDrafts() {
+    try {
+      const res = await rpc<{ drafts: Draft[] }>("kb.draftList", {});
+      const list = (res.drafts ?? []).slice().sort((a, b) => b.editedAt - a.editedAt);
+      this.produce((d) => {
+        d.drafts = list;
+        d.draftsLoaded = true;
+      });
+    } catch {
+      // Home unreachable: keep whatever we have; backfillHomeData retries.
     }
   }
 
@@ -513,6 +729,13 @@ export class KbStore extends ZenithStore<KbState> {
   }
 
   // ---------- Compose (new note) + drafts ----------
+  //
+  // Drafts live on the home device (`~/.homekb/drafts/`), shared by every paired
+  // client. The client keeps only a per-device crash-safety autosave of the
+  // *active compose buffer* (COMPOSE_KEY) so in-progress text survives a
+  // reload/navigation even while offline; the shared drafts list only changes
+  // when the home is reachable (decision: require connection, no offline queue).
+
   /** Fresh editor (New note tab / "New note" from drafts). */
   public composeNew() {
     this.produce((d) => {
@@ -523,6 +746,7 @@ export class KbStore extends ZenithStore<KbState> {
       d.newSavedPath = null;
       d.newError = null;
     });
+    persistCompose(null);
   }
 
   /** Re-enter the compose tab keeping whatever session was in progress. */
@@ -545,13 +769,27 @@ export class KbStore extends ZenithStore<KbState> {
       d.newSavedPath = null;
       d.newError = null;
     });
+    persistCompose({ text: draft.text, editingDraftId: draft.id });
   }
 
-  /** Explicit "Save draft" — local only, works offline. */
-  public saveDraft(markdown: string) {
+  /**
+   * Explicit "Save draft". Persists the text to the home so every device sees
+   * it. The compose buffer is written first (instant, offline-safe crash net);
+   * the shared save then requires the home to be online.
+   */
+  public async saveDraft(markdown: string) {
     if (!markdown.trim()) return;
-    this.upsertDraft(markdown);
-    this.flash("Draft saved on this device");
+    // Crash-safety first: never lose the text, connected or not.
+    this.produce((d) => {
+      d.editorSeed = markdown;
+    });
+    persistCompose({ text: markdown, editingDraftId: this.state.editingDraftId });
+    try {
+      await this.pushDraft(markdown);
+      this.flash("Draft saved");
+    } catch {
+      this.flash("Home offline — draft kept here until you reconnect");
+    }
   }
 
   /** Silent stash when the editor unmounts with unsaved content — never lose work. */
@@ -559,42 +797,66 @@ export class KbStore extends ZenithStore<KbState> {
     if (!markdown.trim()) return;
     // Just saved to the library: don't resurrect it as a draft.
     if (this.lastLibrarySaved !== null && markdown.trim() === this.lastLibrarySaved.trim()) return;
-    // Skip when identical to the resumed seed (nothing typed).
+    // Skip when identical to the draft we're editing (nothing typed).
     if (this.state.editingDraftId) {
       const existing = this.state.drafts.find((x) => x.id === this.state.editingDraftId);
       if (existing && existing.text === markdown) return;
     }
-    this.upsertDraft(markdown);
-  }
-
-  private upsertDraft(markdown: string) {
+    // Keep the crash-safety buffer regardless of connectivity.
     this.produce((d) => {
-      const id = d.editingDraftId ?? nanoid(10);
-      const at = Date.now();
-      const existing = d.drafts.find((x) => x.id === id);
-      if (existing) {
-        existing.text = markdown;
-        existing.editedAt = at;
-      } else {
-        d.drafts.unshift({ id, text: markdown, editedAt: at });
-      }
-      d.drafts.sort((a, b) => b.editedAt - a.editedAt);
-      d.editingDraftId = id;
       d.editorSeed = markdown;
     });
-    persistDrafts(this.state.drafts);
+    persistCompose({ text: markdown, editingDraftId: this.state.editingDraftId });
+    // Best-effort promote to a shared draft; silent when the home is offline.
+    void this.pushDraft(markdown).catch(() => {});
   }
 
-  public deleteDraft(id: string) {
+  /**
+   * Upsert the current compose text as a home-side draft and mirror the result
+   * locally. Throws when the home is unreachable (callers decide whether to
+   * surface it). Guards against a late resolution clobbering a fresh compose.
+   */
+  private async pushDraft(markdown: string) {
+    const res = await rpc<{ id: string; editedAt: number }>("kb.draftSave", {
+      id: this.state.editingDraftId ?? undefined,
+      text: markdown,
+    });
+    // If the editor moved on to different content, only record the draft in the
+    // list — don't hijack editingDraftId / the buffer for the new work.
+    const stillCurrent = this.state.editorSeed === markdown;
+    this.produce((d) => {
+      const existing = d.drafts.find((x) => x.id === res.id);
+      if (existing) {
+        existing.text = markdown;
+        existing.editedAt = res.editedAt;
+      } else {
+        d.drafts.unshift({ id: res.id, text: markdown, editedAt: res.editedAt });
+      }
+      d.drafts.sort((a, b) => b.editedAt - a.editedAt);
+      d.draftsLoaded = true;
+      if (stillCurrent) d.editingDraftId = res.id;
+    });
+    if (stillCurrent) persistCompose({ text: markdown, editingDraftId: res.id });
+  }
+
+  public async deleteDraft(id: string) {
+    // Optimistic removal for a snappy list; restore by reloading if the home rejects it.
+    const clearingCurrent = this.state.editingDraftId === id;
     this.produce((d) => {
       d.drafts = d.drafts.filter((x) => x.id !== id);
-      if (d.editingDraftId === id) {
+      if (clearingCurrent) {
         d.editingDraftId = null;
         d.editorSeed = "";
         d.editorSession += 1;
       }
     });
-    persistDrafts(this.state.drafts);
+    if (clearingCurrent) persistCompose(null);
+    try {
+      await rpc("kb.draftDelete", { id });
+    } catch {
+      this.flash("Home offline — couldn't delete draft");
+      void this.loadDrafts(); // resync so the draft reappears if it wasn't removed
+    }
   }
 
   /** "Save to library" — writes to home (needs home online). Title = first line. */
@@ -612,9 +874,10 @@ export class KbStore extends ZenithStore<KbState> {
         title: title || undefined,
       });
       this.lastLibrarySaved = content;
+      const publishedDraftId = this.state.editingDraftId;
       this.produce((d) => {
-        if (d.editingDraftId) {
-          d.drafts = d.drafts.filter((x) => x.id !== d.editingDraftId);
+        if (publishedDraftId) {
+          d.drafts = d.drafts.filter((x) => x.id !== publishedDraftId);
         }
         d.editingDraftId = null;
         d.editorSeed = "";
@@ -622,7 +885,11 @@ export class KbStore extends ZenithStore<KbState> {
         d.newBusy = false;
         d.newSavedPath = res.path;
       });
-      persistDrafts(this.state.drafts);
+      persistCompose(null);
+      // The draft has become a real note: remove it from the shared store too.
+      if (publishedDraftId) {
+        void rpc("kb.draftDelete", { id: publishedDraftId }).catch(() => {});
+      }
       void this.loadRecent();
     } catch (e) {
       this.produce((d) => {
@@ -651,7 +918,7 @@ export class KbStore extends ZenithStore<KbState> {
       });
       if (!opts.silent) this.flash(e instanceof Error ? e.message : "Failed to load status");
     }
-    void this.refreshHealth();
+    void this.refreshHealth({ backfill: false });
   }
 
   public async reindex() {

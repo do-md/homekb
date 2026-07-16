@@ -1,9 +1,10 @@
 "use client";
 
 /**
- * Drafts collection (design 5b): in-progress notes kept on this device until
- * saved to the library. Focused mode (no pill nav); centered single column.
- * Deleting asks for confirmation in-app (never an OS dialog).
+ * Drafts collection (design 5b): in-progress notes kept on the home device
+ * (`~/.homekb/drafts/`) until saved to the library — shared across every paired
+ * device, not stored per-browser. Focused mode (no pill nav); centered single
+ * column. Deleting asks for confirmation in-app (never an OS dialog).
  */
 
 import { useState } from "react";
@@ -128,7 +129,8 @@ export function DraftsView() {
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-xl px-4 py-4 pb-[max(env(safe-area-inset-bottom),24px)]">
           <p className="text-[12.5px] text-hk-weak">
-            Kept on this device until you save them to your library.
+            Kept on your computer and shared across your devices until you save
+            them to your library.
           </p>
           {drafts.length === 0 ? (
             <div className="flex flex-col items-center py-14 text-center">

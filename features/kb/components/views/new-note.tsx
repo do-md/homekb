@@ -3,9 +3,11 @@
 /**
  * New note (design 5a): a focused compose mode — no pill nav. Pure WYSIWYG
  * Markdown editor; the first line becomes the title. Two actions only:
- * "Save draft" (local, works offline) and "Save to library" (writes to home,
- * needs home online). Phone: actions in a bottom bar (thumb zone); desktop: header.
- * Leaving the view auto-stashes unsaved content as a draft — work is never lost.
+ * "Save draft" (saved to the home so every device sees it — needs home online)
+ * and "Save to library" (writes to home, needs home online). Phone: actions in a
+ * bottom bar (thumb zone); desktop: header. Leaving the view auto-stashes unsaved
+ * content — the text is crash-safe on this device even offline, and promoted to a
+ * shared draft as soon as the home is reachable.
  */
 
 import { useEffect, useRef } from "react";
@@ -25,15 +27,17 @@ function ActionButtons({ editorRef }: { editorRef: React.MutableRefObject<KbEdit
   return (
     <>
       <button
-        className="rounded-xl border border-hk-border px-3.5 py-2 text-[13.5px] font-semibold text-hk-text-2 transition-colors hover:bg-hk-card"
-        onClick={() => api.saveDraft(read())}
+        className="rounded-xl border border-hk-border px-3.5 py-2 text-[13.5px] font-semibold text-hk-text-2 transition-colors hover:bg-hk-card disabled:opacity-50"
+        disabled={!online}
+        title={online ? undefined : "Home is offline — text is kept on this device until you reconnect"}
+        onClick={() => void api.saveDraft(read())}
       >
         Save draft
       </button>
       <button
         className="flex items-center gap-1.5 rounded-xl bg-hk-coral px-3.5 py-2 text-[13.5px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover disabled:opacity-50"
         disabled={busy || !online}
-        title={online ? undefined : "Home is offline — drafts still save locally"}
+        title={online ? undefined : "Home is offline — reconnect to save"}
         onClick={() => {
           const md = read();
           void api.saveToLibrary(md, titleFromMarkdown(md));

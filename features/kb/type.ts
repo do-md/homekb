@@ -46,7 +46,11 @@ export interface KbSuggestion {
   mtime: number;
 }
 
-/** A locally kept, not-yet-saved note (design 5a/5b: drafts stay on this device). */
+/**
+ * A not-yet-published note. Drafts live on the home device (`~/.homekb/drafts/`)
+ * and are shared across every paired client via the `kb.draft*` RPCs — not kept
+ * in per-device local storage. `id` is the home-side draft id (its filename stem).
+ */
 export interface Draft {
   id: string;
   text: string;
@@ -68,7 +72,8 @@ export type KbView =
   | "settings";
 
 export type RecallMode = "list" | "answer";
-export type RecallPhase = "idle" | "searching" | "done";
+/** "streaming" = answer tokens arriving (Answer mode only); "done" = complete. */
+export type RecallPhase = "idle" | "searching" | "streaming" | "done";
 
 /** Product-defining connection language (design: green online / amber connecting / orange offline). */
 export type ConnState = "online" | "connecting" | "offline";

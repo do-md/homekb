@@ -14,6 +14,57 @@ if (!BASE || !SECRET) {
 
 const MIME = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".pdf": "application/pdf", ".txt": "text/plain" };
 
+/** Canned recall hit reused by kb.query / kb.ask (one-shot and streaming). */
+const HIT = {
+  kind: "chunk",
+  path: "test-note.md",
+  title: "Test Note",
+  headingPath: "Test Note > Section 1",
+  content: "This is the canned recall content returned by the fake home.",
+  score: 0.032,
+  mtime: 1770000000,
+  docType: "tech_note",
+};
+
+/**
+ * Streaming answer channel (docs/ARCHITECTURE.md): chunk the canned answer into
+ * `delta` frames, then a terminal `done` frame, and POST them as the SSE body to
+ * /api/relay/tunnel/ask/<id>. Mirrors the real engine's streaming synthesize.
+ */
+async function serveAskStream(id, params) {
+  const answer = `About "${params.query}": this is a synthesized streaming answer from the fake home, for link testing only.`;
+  const parts = answer.match(/.{1,12}/g) ?? [answer];
+  let body = "";
+  for (const p of parts) body += `event: delta\ndata: ${JSON.stringify({ text: p })}\n\n`;
+  body += `event: done\ndata: ${JSON.stringify({ citations: [{ path: "test-note.md", title: "Test Note" }], hits: [HIT] })}\n\n`;
+  console.log("[fake-home] ask-stream:", JSON.stringify(params));
+  await fetch(`${BASE}/api/relay/tunnel/ask/${id}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${SECRET}`, "Content-Type": "text/event-stream" },
+    body,
+  });
+}
+
+/**
+ * In-memory drafts store (mirrors the home's ~/.homekb/drafts/ over the tunnel).
+ * Kept stateful so smoke tests exercise the real save → list → delete cycle.
+ */
+const drafts = new Map(); // id -> { id, text, editedAt }
+let draftSeq = 0;
+function draftSave({ id, text }) {
+  const key = id && String(id).trim() ? String(id).trim() : `fake-draft-${++draftSeq}`;
+  const editedAt = Date.now();
+  drafts.set(key, { id: key, text, editedAt });
+  return { id: key, editedAt };
+}
+function draftList() {
+  return { drafts: [...drafts.values()].sort((a, b) => b.editedAt - a.editedAt) };
+}
+function draftDelete({ id }) {
+  drafts.delete(id);
+  return { id };
+}
+
 /** Binary asset channel: read the requested file from ASSETS_DIR and stream it back. */
 async function serveAsset(id, assetPath) {
   const post = (body, headers) =>
@@ -62,18 +113,13 @@ for await (const chunk of res.body) {
       continue;
     }
     if (event !== "rpc") continue;
-    const { id, method, params } = JSON.parse(data);
+    const { id, method, params, stream } = JSON.parse(data);
     console.log("[fake-home] rpc:", method, JSON.stringify(params));
-    const HIT = {
-      kind: "chunk",
-      path: "test-note.md",
-      title: "Test Note",
-      headingPath: "Test Note > Section 1",
-      content: "This is the canned recall content returned by the fake home.",
-      score: 0.032,
-      mtime: 1770000000,
-      docType: "tech_note",
-    };
+    // Streaming ask goes over the dedicated ask channel, not the JSON result channel.
+    if (method === "kb.ask" && stream) {
+      serveAskStream(id, params);
+      continue;
+    }
     const canned = {
       "kb.query": { query: params.query, results: [HIT] },
       "kb.ask": {
@@ -115,7 +161,16 @@ for await (const chunk of res.body) {
       },
       "kb.reindex": { started: true },
     };
-    const result = canned[method] ?? { echo: { method, params }, fake: true };
+    // Draft methods are stateful (dispatched here, not via the eager `canned`
+    // literal, so they only run for their own method).
+    const draftHandlers = {
+      "kb.draftList": () => draftList(),
+      "kb.draftSave": () => draftSave(params),
+      "kb.draftDelete": () => draftDelete(params),
+    };
+    const result = draftHandlers[method]
+      ? draftHandlers[method]()
+      : (canned[method] ?? { echo: { method, params }, fake: true });
     await fetch(`${BASE}/api/relay/tunnel/result`, {
       method: "POST",
       headers: {

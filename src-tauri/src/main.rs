@@ -161,6 +161,28 @@ async fn engine_init(openai_key: Option<String>) -> Result<(), String> {
 
 // ---------- serve lifecycle ----------
 
+/// Spawn a `homekb serve` child (reads bind host from config.toml) and wait until healthy.
+fn spawn_serve() -> Result<String, String> {
+    let bin = require_engine()?;
+    let log = engine::log_file("serve")?;
+    let log2 = log.try_clone().map_err(|e| e.to_string())?;
+    let child = Command::new(&bin)
+        .arg("serve")
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(log))
+        .stderr(Stdio::from(log2))
+        .spawn()
+        .map_err(|e| format!("failed to start homekb serve: {e}"))?;
+    PROCS.lock().unwrap().serve = Some(child);
+    for _ in 0..50 {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        if engine::serve_health() {
+            return Ok("spawned".to_string());
+        }
+    }
+    Err("homekb serve did not become ready within 5 seconds (see ~/Library/Logs/HomeKB/serve.log)".to_string())
+}
+
 /// Already running (external process) → attach; not running → spawn child and wait for healthy.
 #[tauri::command]
 async fn serve_ensure() -> Result<String, String> {
@@ -168,24 +190,7 @@ async fn serve_ensure() -> Result<String, String> {
         if engine::serve_health() {
             return Ok("external".to_string());
         }
-        let bin = require_engine()?;
-        let log = engine::log_file("serve")?;
-        let log2 = log.try_clone().map_err(|e| e.to_string())?;
-        let child = Command::new(&bin)
-            .arg("serve")
-            .stdin(Stdio::null())
-            .stdout(Stdio::from(log))
-            .stderr(Stdio::from(log2))
-            .spawn()
-            .map_err(|e| format!("failed to start homekb serve: {e}"))?;
-        PROCS.lock().unwrap().serve = Some(child);
-        for _ in 0..50 {
-            std::thread::sleep(std::time::Duration::from_millis(100));
-            if engine::serve_health() {
-                return Ok("spawned".to_string());
-            }
-        }
-        Err("homekb serve did not become ready within 5 seconds (see ~/Library/Logs/HomeKB/serve.log)".to_string())
+        spawn_serve()
     })
     .await
 }
@@ -224,6 +229,21 @@ async fn relay_register(url: String) -> Result<(), String> {
         let bin = require_engine()?;
         engine::run_cli(&bin, &["register", "--relay", url.trim()])?;
         Ok(())
+    })
+    .await
+}
+
+/// Disconnect from the current connection service: wraps `homekb unregister`
+/// (retire the registration at the service so paired devices auto-unpair via 401,
+/// clear `[relay]`, remove the tunnel agent). Falls back to a plain config wipe
+/// when the engine binary is missing.
+#[tauri::command]
+async fn relay_clear() -> Result<(), String> {
+    blocking(|| {
+        match engine::engine_path() {
+            Some(bin) => engine::run_cli(&bin, &["unregister"]).map(|_| ()),
+            None => engine::clear_relay(),
+        }
     })
     .await
 }
@@ -323,6 +343,91 @@ async fn compile_status() -> Result<DaemonStatus, String> {
     .await
 }
 
+// ---------- local connection service (this machine, port 8787; default off) ----------
+//
+// Decoupled from the connection card (docs "Desktop service picker"). The spawned
+// process deliberately outlives the app — phones depend on it — so it is NOT
+// registered in PROCS; stop only kills a pid this app (or the user) recorded in
+// ~/.homekb-relay/relay.pid. launchd management is the follow-up.
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LocalRelayStatus {
+    running: bool,
+    /// The service script exists (this machine can start one).
+    installed: bool,
+}
+
+#[tauri::command]
+async fn local_relay_status() -> Result<LocalRelayStatus, String> {
+    blocking(|| {
+        Ok(LocalRelayStatus {
+            running: engine::local_relay_running(),
+            installed: engine::local_relay_script().is_file(),
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+async fn local_relay_start() -> Result<(), String> {
+    blocking(|| {
+        if engine::local_relay_running() {
+            return Ok(()); // already up (possibly started outside the app)
+        }
+        let script = engine::local_relay_script();
+        if !script.is_file() {
+            return Err(format!(
+                "service files not installed ({} missing)",
+                script.display()
+            ));
+        }
+        let node = engine::node_path().ok_or("Node.js not found on this machine")?;
+        let log = engine::log_file("relay")?;
+        let log2 = log.try_clone().map_err(|e| e.to_string())?;
+        let child = Command::new(&node)
+            .arg(&script)
+            .args(["--port", "8787"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(log))
+            .stderr(Stdio::from(log2))
+            .spawn()
+            .map_err(|e| format!("failed to start the service: {e}"))?;
+        // Record the pid, then drop the handle — the process outlives the app.
+        let pid_file = engine::local_relay_pid_file();
+        if let Some(parent) = pid_file.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        std::fs::write(&pid_file, child.id().to_string())
+            .map_err(|e| format!("write pid file: {e}"))?;
+        drop(child);
+        for _ in 0..30 {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            if engine::local_relay_running() {
+                return Ok(());
+            }
+        }
+        Err("the service did not become ready within 3 seconds (see ~/Library/Logs/HomeKB/relay.log)".to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+async fn local_relay_stop() -> Result<(), String> {
+    blocking(|| {
+        let pid_file = engine::local_relay_pid_file();
+        let pid = std::fs::read_to_string(&pid_file)
+            .ok()
+            .and_then(|s| s.trim().parse::<u32>().ok())
+            .ok_or("the service was not started by this app (no pid recorded)")?;
+        // SIGTERM via /bin/kill — avoids a libc dependency for one syscall.
+        let _ = Command::new("/bin/kill").arg(pid.to_string()).status();
+        let _ = std::fs::remove_file(&pid_file);
+        Ok(())
+    })
+    .await
+}
+
 // ---------- desktop affordances ----------
 
 /// Reveal the notes directory in the OS file manager (design 4a "Open HomeKB folder").
@@ -358,6 +463,7 @@ fn main() {
             serve_ensure,
             config_set_openai_key,
             relay_register,
+            relay_clear,
             relay_credentials,
             pair_new,
             tunnel_status,
@@ -366,6 +472,9 @@ fn main() {
             compile_status,
             compile_start,
             compile_stop,
+            local_relay_status,
+            local_relay_start,
+            local_relay_stop,
             open_notes_dir,
         ])
         .build(tauri::generate_context!())

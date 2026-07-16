@@ -61,6 +61,8 @@ export interface AssetDelivery {
 }
 
 const DEFAULT_TIMEOUT = 30_000;
+/** Streaming ask: the home connects back near-instantly, but retrieval + first token can lag. */
+const ASK_STREAM_TIMEOUT = 60_000;
 
 export class TunnelHub {
   private conns = new Map<string, HomeConn>();
@@ -106,6 +108,23 @@ export class TunnelHub {
       "asset",
       (id) => JSON.stringify({ id, path }),
       `asset ${path}`,
+      timeoutMs,
+    ) as Promise<AssetDelivery>;
+  }
+
+  /**
+   * Streaming answer channel (docs/ARCHITECTURE.md): push an `rpc` event flagged
+   * `stream:true` and wait for the home to open POST /api/relay/tunnel/ask/<id>. Same
+   * correlation + delivery shape as assets — the delivered `stream` is the home's SSE
+   * frame body, piped verbatim to the client. The timeout only bounds the home's
+   * connect-back (first byte); the stream itself may then run as long as synthesis takes.
+   */
+  requestAskStream(homeId: string, params: unknown, timeoutMs = ASK_STREAM_TIMEOUT): Promise<AssetDelivery> {
+    return this.request(
+      homeId,
+      "rpc",
+      (id) => JSON.stringify({ id, method: "kb.ask", params: params ?? {}, stream: true }),
+      "ask-stream",
       timeoutMs,
     ) as Promise<AssetDelivery>;
   }
@@ -177,6 +196,9 @@ export const RPC_METHODS = new Set([
   "kb.read",
   "kb.write",
   "kb.create",
+  "kb.draftList",
+  "kb.draftSave",
+  "kb.draftDelete",
   "kb.list",
   "kb.status",
   "kb.listTypes",

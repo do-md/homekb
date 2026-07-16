@@ -185,6 +185,24 @@ pub fn uninstall(label: &str) -> Result<()> {
     Ok(())
 }
 
+/// Restart a service if (and only if) it is currently loaded: `kickstart -k`
+/// (kill + start, forcing a fresh config read). Returns whether a restart happened.
+/// Used by `homekb register`: registering mints a new home identity, so a running
+/// tunnel must reload its credentials or the new home looks offline to phones.
+pub fn restart_if_loaded(label: &str) -> Result<bool> {
+    if !status(label)?.loaded {
+        return Ok(false);
+    }
+    let out = launchctl(&["kickstart", "-k", &service_target(label)?])?;
+    if !out.status.success() {
+        bail!(
+            "launchctl kickstart failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    Ok(true)
+}
+
 /// Query status: uses `launchctl print` (more reliably distinguishes loaded vs running than `list`).
 pub fn status(label: &str) -> Result<ServiceState> {
     let installed = plist_path(label)?.exists();
