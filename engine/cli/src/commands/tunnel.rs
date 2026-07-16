@@ -336,6 +336,9 @@ fn ask_frame(name: &str, value: &Value) -> String {
 
 fn ask_event_frame(ev: AskStreamEvent) -> String {
     match ev {
+        AskStreamEvent::Sources { citations, hits } => {
+            ask_frame("sources", &json!({ "citations": citations, "hits": hits }))
+        }
         AskStreamEvent::Delta(text) => ask_frame("delta", &json!({ "text": text })),
         AskStreamEvent::Done { citations, hits } => {
             ask_frame("done", &json!({ "citations": citations, "hits": hits }))

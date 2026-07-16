@@ -226,7 +226,7 @@ function AnswerResult() {
         )}
       </div>
 
-      {!writing && answer && citationCount > 0 && (
+      {answer && citationCount > 0 && (
         <div>
           <div className="hk-label">Based on your notes</div>
           <div className="mt-2 flex flex-col">

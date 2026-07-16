@@ -193,6 +193,9 @@ fn sse_frame(name: &str, value: Value) -> Event {
 
 fn sse_ask_event(ev: AskStreamEvent) -> Event {
     match ev {
+        AskStreamEvent::Sources { citations, hits } => {
+            sse_frame("sources", json!({ "citations": citations, "hits": hits }))
+        }
         AskStreamEvent::Delta(text) => sse_frame("delta", json!({ "text": text })),
         AskStreamEvent::Done { citations, hits } => {
             sse_frame("done", json!({ "citations": citations, "hits": hits }))

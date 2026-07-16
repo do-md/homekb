@@ -491,6 +491,20 @@ export class KbStore extends ZenithStore<KbState> {
         // on the first token; the terminal `done` frame carries citations + hits.
         this.resetLive();
         const done = await rpcAskStream(q, {
+          // Sources arrive before the first token (docs "Streaming answer
+          // channel") — render the citation list right away and flip to the
+          // streaming phase so the Answer card mounts while tokens cook.
+          onSources: (sources) => {
+            this.produce((d) => {
+              d.answer = {
+                answer: "",
+                citations: sources.citations ?? [],
+                hits: (sources.hits as KbHit[] | undefined) ?? [],
+              };
+              d.hits = (sources.hits as KbHit[] | undefined) ?? [];
+              d.phase = "streaming";
+            });
+          },
           onDelta: (t) => this.appendAnswerDelta(t),
         });
         this.flushDelta();

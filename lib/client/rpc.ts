@@ -119,13 +119,19 @@ function parseSseFrame(raw: string): { event: string; data: string } {
 
 /**
  * Streaming kb.ask (docs/ARCHITECTURE.md "Streaming answer channel"): POSTs to the
- * `/rpc/stream` endpoint and consumes `delta`/`done`/`error` SSE frames. `onDelta` fires
- * per answer-text chunk; resolves with the terminal `done` metadata (citations + hits).
+ * `/rpc/stream` endpoint and consumes `sources`/`delta`/`done`/`error` SSE frames.
+ * `onSources` fires once right after retrieval (before the first token) with the citation
+ * metadata so the UI can render the source list immediately; `onDelta` fires per
+ * answer-text chunk; resolves with the terminal `done` metadata (identical to sources).
  * Any `error` frame — or an early close — rejects with a RelayError.
  */
 export async function rpcAskStream(
   query: string,
-  opts: { onDelta: (text: string) => void; signal?: AbortSignal },
+  opts: {
+    onDelta: (text: string) => void;
+    onSources?: (sources: AskStreamResult) => void;
+    signal?: AbortSignal;
+  },
 ): Promise<AskStreamResult> {
   const ep = endpoint();
   let res: Response;
@@ -165,6 +171,8 @@ export async function rpcAskStream(
     if (event === "delta") {
       const { text } = JSON.parse(data) as { text?: string };
       if (typeof text === "string" && text) opts.onDelta(text);
+    } else if (event === "sources") {
+      opts.onSources?.(JSON.parse(data) as AskStreamResult);
     } else if (event === "done") {
       done = JSON.parse(data) as AskStreamResult;
     } else if (event === "error") {

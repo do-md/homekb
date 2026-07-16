@@ -71,7 +71,7 @@ fn preset_embedding_model(provider: &str) -> Option<(&'static str, usize)> {
 fn preset_chat_model(provider: &str) -> Option<&'static str> {
     match provider {
         "openai" => Some("gpt-4o-mini"),
-        "gemini" => Some("gemini-flash-latest"),
+        "gemini" => Some("gemini-flash-lite-latest"),
         _ => None,
     }
 }

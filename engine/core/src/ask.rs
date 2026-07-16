@@ -61,10 +61,17 @@ pub struct AskOutput {
 }
 
 /// One frame on the streaming ask channel (docs/ARCHITECTURE.md "Streaming answer channel").
+/// `Sources` is emitted right after retrieval — before the first token — so clients can
+/// render the citation list immediately instead of waiting out the synthesize latency.
 /// `Delta`s carry incremental answer text as the synthesizer produces tokens; exactly one
-/// terminal `Done` follows, carrying the source metadata (citations mirror the `[n]` numbering).
+/// terminal `Done` follows, repeating the source metadata (kept identical to `Sources`
+/// for backward compatibility with clients that only read the terminal frame).
 #[derive(Debug, Clone)]
 pub enum AskStreamEvent {
+    Sources {
+        citations: Vec<Citation>,
+        hits: Vec<Hit>,
+    },
     Delta(String),
     Done {
         citations: Vec<Citation>,
@@ -202,6 +209,10 @@ pub async fn ask_stream(
     let cli = client(config)?;
 
     let Some(r) = retrieve(&cli, config, question).await? else {
+        let _ = tx.send(AskStreamEvent::Sources {
+            citations: vec![],
+            hits: vec![],
+        });
         let _ = tx.send(AskStreamEvent::Delta(EMPTY_KB_ANSWER.to_string()));
         let _ = tx.send(AskStreamEvent::Done {
             citations: vec![],
@@ -210,10 +221,22 @@ pub async fn ask_stream(
         return Ok(());
     };
 
-    synthesize_stream(&cli, config, question, &r.context_block, tx).await?;
-
+    // Sources are fully known after retrieval — send them before synthesis so
+    // the client renders the citation list while tokens are still cooking.
     let citations = citations_of(&r);
-    let hits = r.groups.into_iter().map(SourceGroup::into_hit).collect();
+    let Retrieval {
+        groups,
+        context_block,
+        ..
+    } = r;
+    let hits: Vec<Hit> = groups.into_iter().map(SourceGroup::into_hit).collect();
+    let _ = tx.send(AskStreamEvent::Sources {
+        citations: citations.clone(),
+        hits: hits.clone(),
+    });
+
+    synthesize_stream(&cli, config, question, &context_block, tx).await?;
+
     let _ = tx.send(AskStreamEvent::Done { citations, hits });
     Ok(())
 }

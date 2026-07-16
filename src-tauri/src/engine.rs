@@ -119,7 +119,7 @@ fn preset_default_model(provider: &str, chat: bool) -> &'static str {
         ("voyage", false) => "voyage-4",
         ("cohere", false) => "embed-v4.0",
         ("openai", true) => "gpt-4o-mini",
-        ("gemini", true) => "gemini-flash-latest",
+        ("gemini", true) => "gemini-flash-lite-latest",
         _ => "",
     }
 }

@@ -149,7 +149,7 @@ One OpenAI-protocol client serves every built-in provider — a preset is just a
 | Provider | Base URL | Default embedding model (dim) | Default chat model | Key env fallback |
 |---|---|---|---|---|
 | `openai` | `https://api.openai.com/v1` | `text-embedding-3-small` (1536) | `gpt-4o-mini` | `OPENAI_API_KEY` |
-| `gemini` | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-embedding-001` (3072) | `gemini-flash-latest` | `GEMINI_API_KEY` |
+| `gemini` | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-embedding-001` (3072) | `gemini-flash-lite-latest` | `GEMINI_API_KEY` |
 | `voyage` | `https://api.voyageai.com/v1` | `voyage-4` (1024) | — (embedding only) | `VOYAGE_API_KEY` |
 | `cohere` | `https://api.cohere.ai/compatibility/v1` | `embed-v4.0` (1536) | — (embedding only) | `COHERE_API_KEY` |
 | `custom` | from `base_url` | `model` + `dim` required | `model` required | — |
@@ -278,7 +278,7 @@ The relay lives in `relay/` as a **standalone Node HTTP service** — it is **no
 | `POST /api/relay/tunnel/result` `{id, ok, result?, error?}` | homeSecret | Home device returns the RPC execution result → 204 |
 | `POST /api/relay/tunnel/asset/<id>` | homeSecret | Home device streams the requested asset back: raw bytes body + `Content-Type`; on failure empty body + `X-Asset-Error: <code>` header → 204 |
 | `POST /api/relay/rpc` `{method, params}` | clientToken | Forward to the home device, 30s timeout; offline → 502 `{error:"home_offline"}` |
-| `POST /api/relay/rpc/stream` `{method, params}` | clientToken | Streaming forward — **`kb.ask` only** (see "Streaming answer channel"): → `text/event-stream` piped verbatim from the home (`delta`* → `done`, or `error`). Home offline → 502; no first byte within 60s → 504 |
+| `POST /api/relay/rpc/stream` `{method, params}` | clientToken | Streaming forward — **`kb.ask` only** (see "Streaming answer channel"): → `text/event-stream` piped verbatim from the home (`sources` → `delta`* → `done`, or `error`). Home offline → 502; no first byte within 60s → 504 |
 | `POST /api/relay/tunnel/ask/<id>` | homeSecret | Home device streams the answer back: request body is the SSE frame stream (`delta`/`done`/`error`); the relay pipes it straight into the pending client response → 204 once fully piped |
 | `GET  /api/relay/asset/<path>` | clientToken | Binary asset fetch through the tunnel (see below); streams the home's bytes to the client without buffering |
 | `GET  /api/relay/health` | clientToken | → `{online}` whether the home device is online |
@@ -306,12 +306,12 @@ Clients never put tokens in asset URLs: the Web UI fetches with an `Authorizatio
 
 1. Client → relay: `POST /api/relay/rpc/stream {method:"kb.ask", params:{query}}` (Bearer clientToken); the relay holds this response open as `text/event-stream`.
 2. Relay → home (SSE): `event: rpc` `{id, method, params, stream:true}`; the relay registers a pending stream (60s to first byte → 504, home offline → 502).
-3. Home → relay: runs the ask pipeline (route ∥ embed → retrieve → **synthesize with chat-completions streaming**) and immediately opens `POST /api/relay/tunnel/ask/<id>`, writing SSE frames into the request body as tokens arrive: `event: delta {"text"}`* → `event: done {"citations","hits"}` (or a single `event: error {"code","message"}`).
+3. Home → relay: runs the ask pipeline (route ∥ embed → retrieve → **synthesize with chat-completions streaming**) and immediately opens `POST /api/relay/tunnel/ask/<id>`, writing SSE frames into the request body: `event: sources {"citations","hits"}` (**emitted right after retrieval, before the first token** — the sources are fully known then, so clients render the citation list immediately instead of waiting out the synthesize latency) → `event: delta {"text"}`* → `event: done {"citations","hits"}` (or a single `event: error {"code","message"}`).
 4. Relay pipes the home's request body straight into the client's open response. Client went away → the relay aborts the home upload; home fully piped → 204 to the home.
 
 Desktop mode skips the relay entirely: the webview hits `POST http://127.0.0.1:8765/rpc/stream` and consumes the same frame protocol directly from serve.
 
-The answer's `[n]` markers and `citations` follow the same source-numbering contract as the one-shot `kb.ask` (see the RPC table) — `citations`/`hits` arrive once, in the terminal `done` frame.
+The answer's `[n]` markers and `citations` follow the same source-numbering contract as the one-shot `kb.ask` (see the RPC table). `citations`/`hits` arrive **twice**: early in the `sources` frame (render-first UX) and again in the terminal `done` frame (kept for backward compatibility — older clients that only read `done` keep working; the payloads are identical).
 
 ## RPC methods (tunnel protocol, executed by the home device)
 
