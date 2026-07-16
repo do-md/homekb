@@ -39,5 +39,30 @@ pub fn run(json: bool) -> Result<()> {
     );
     println!("pending          : {}", report.pending);
     println!("recorded failures: {}", report.failures);
+
+    // Category taxonomy overview + collapse warning. A vocabulary dominated
+    // by `other` cannot drive category-filtered retrieval.
+    let types = homekb_core::list_types(&cfg)?;
+    if !types.is_empty() {
+        let line = types
+            .iter()
+            .map(|t| format!("{} ({})", t.doc_type, t.count))
+            .collect::<Vec<_>>()
+            .join(", ");
+        println!("doc types        : {}", line);
+        let total: i64 = types.iter().map(|t| t.count).sum();
+        let other: i64 = types
+            .iter()
+            .find(|t| t.doc_type == "other")
+            .map(|t| t.count)
+            .unwrap_or(0);
+        if total >= 10 && other * 2 > total {
+            println!(
+                "⚠ taxonomy collapsed: {}/{} docs are 'other' — category \
+                 filtering is ineffective. Run `homekb reindex --reclassify`.",
+                other, total
+            );
+        }
+    }
     Ok(())
 }

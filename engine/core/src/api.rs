@@ -151,6 +151,17 @@ pub struct Suggestion {
 ///
 /// `quiet` suppresses per-step info logging (errors still log).
 pub async fn reindex(cfg: &Config, quiet: bool) -> Result<ReindexReport> {
+    reindex_opts(cfg, quiet, false).await
+}
+
+/// `reindex` with options. `reclassify` resets **every** doc_type to NULL
+/// under the compile lock before reconciling, so the whole taxonomy
+/// re-emerges through the normal sequential metadata backfill (summaries
+/// and embeddings are untouched — this is a pure re-labelling pass). It is
+/// the repair path for a collapsed doc_type vocabulary (e.g. everything
+/// funneled into `other`), which otherwise self-perpetuates because the
+/// categorizer prefers reusing frequent categories.
+pub async fn reindex_opts(cfg: &Config, quiet: bool, reclassify: bool) -> Result<ReindexReport> {
     let started = std::time::Instant::now();
 
     if !cfg.notes_dir.is_dir() {
@@ -168,6 +179,13 @@ pub async fn reindex(cfg: &Config, quiet: bool) -> Result<ReindexReport> {
     }
 
     let mut conn = db::open_live(&cfg.live_db, &cfg.embedding, &cfg.summary.model)?;
+
+    if reclassify {
+        let reset = conn.execute("UPDATE docs SET doc_type = NULL", [])?;
+        if !quiet {
+            tracing::info!("reclassify: reset doc_type on {} docs", reset);
+        }
+    }
 
     let fs_entries = scanner::scan(&cfg.notes_dir);
     if !quiet {
@@ -271,6 +289,27 @@ pub async fn reindex(cfg: &Config, quiet: bool) -> Result<ReindexReport> {
         }
     }
     report.failed = errors;
+
+    // Taxonomy-health tripwire: when most docs sit in the `other` bucket the
+    // doc_type vocabulary can no longer drive the ask router's category
+    // filter (recipes and restaurant logs end up indistinguishable). This
+    // failure mode is silent by nature — every individual categorize call
+    // "succeeded" — so make the aggregate visible on every compile run.
+    let (typed_total, other_count): (i64, i64) = conn.query_row(
+        "SELECT COUNT(*), COALESCE(SUM(doc_type = 'other'), 0)
+         FROM docs WHERE index_state = 'ok' AND doc_type IS NOT NULL",
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    if typed_total >= 10 && other_count * 2 > typed_total {
+        tracing::warn!(
+            "doc_type taxonomy looks collapsed: {}/{} docs are 'other' — \
+             the ask router cannot filter by category. \
+             Run `homekb reindex --reclassify` to rebuild the taxonomy.",
+            other_count,
+            typed_total
+        );
+    }
 
     // Safety net: never overwrite a healthy snapshot with an empty one. If
     // every document failed to embed (a bad key / disabled billing / wrong

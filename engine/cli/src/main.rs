@@ -40,6 +40,11 @@ enum Cmd {
     Reindex {
         #[arg(long)]
         quiet: bool,
+        /// Reset ALL doc_type labels first so the category taxonomy
+        /// re-emerges (repair for a collapsed vocabulary; summaries and
+        /// embeddings are untouched).
+        #[arg(long)]
+        reclassify: bool,
     },
     /// Foreground loop: reindex every N seconds. Errors are logged, not fatal.
     ///
@@ -174,9 +179,9 @@ fn main() -> Result<()> {
             init_tracing(false);
             commands::init::run(root, notes, openai_key)
         }
-        Cmd::Reindex { quiet } => {
+        Cmd::Reindex { quiet, reclassify } => {
             init_tracing(quiet);
-            commands::reindex::run(quiet)
+            commands::reindex::run(quiet, reclassify)
         }
         Cmd::Watch { interval, install, uninstall, status, json } => {
             let managing = install || uninstall || status;

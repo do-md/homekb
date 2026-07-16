@@ -26,7 +26,7 @@ mod types;
 
 pub use api::{
     Hit, ReindexReport, SearchOptions, SearchOutput, StatusReport, TypeCount, ensure_dirs,
-    list_types, rebuild, reindex, search, status,
+    list_types, rebuild, reindex, reindex_opts, search, status,
 };
 pub use ask::{AskOutput, AskStreamEvent, Citation, ask, ask_stream};
 pub use config::{
