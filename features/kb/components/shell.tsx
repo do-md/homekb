@@ -152,7 +152,7 @@ function Header() {
                 className={`flex items-center rounded-full py-2 text-[13px] font-semibold transition-all duration-300 ${
                   isActive
                     ? "bg-hk-pill px-3 text-hk-heading"
-                    : "bg-hk-card px-2 text-hk-weak hover:bg-hk-card-strong hover:text-hk-text-2"
+                    : "bg-hk-card px-3.5 text-hk-weak hover:bg-hk-card-strong hover:text-hk-text-2"
                 }`}
                 title={label}
               >
