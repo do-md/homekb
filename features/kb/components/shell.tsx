@@ -5,8 +5,8 @@
  *
  * Header layout: Search / Status / Remote tabs on the left; "New note" sits alone
  * on the far right because its surface is special (focused compose mode renders
- * its own header, no pill nav). The connection state is not a standalone header
- * widget anymore — it rides as a small dot badge on the Remote tab icon, and the
+ * its own header, no pill nav). The connection state has no standalone widget
+ * anywhere — it rides as a small dot badge on the Remote tab icon, and the
  * Remote page itself shows the full connection details.
  *
  * Mounted once from app/(app)/layout.tsx and persists across tab navigation, so
@@ -38,40 +38,8 @@ import {
   IconPlus,
   IconSearch,
   IconSliders,
-  Spinner,
-  StatusDot,
 } from "./icons";
 import { PairScreen } from "./pair-screen";
-
-/** Full connection indicator (dot + label) — used by focused surfaces that have no Remote tab (compose header). */
-export function ConnIndicator() {
-  const connState = useKbStore((s) => s.connState);
-  const desktop = useKbStore((s) => s.state.desktop);
-
-  const text: Record<ConnState, string> = desktop
-    ? { online: "Engine online", connecting: "Starting engine…", offline: "Engine offline" }
-    : { online: "Connected to home", connecting: "Connecting to home…", offline: "Home is offline" };
-  const color: Record<ConnState, string> = {
-    online: "text-hk-green",
-    connecting: "text-hk-amber",
-    offline: "text-hk-orange",
-  };
-  const textColor: Record<ConnState, string> = {
-    online: "text-hk-weak",
-    connecting: "text-hk-amber-text",
-    offline: "text-hk-orange-text",
-  };
-
-  return (
-    <span className={`flex items-center gap-1.5 ${color[connState]}`}>
-      <StatusDot />
-      {connState === "connecting" && <Spinner size={11} className="opacity-70" />}
-      <span className={`hidden text-[12px] font-medium min-[420px]:inline ${textColor[connState]}`}>
-        {text[connState]}
-      </span>
-    </span>
-  );
-}
 
 /**
  * Tiny connection badge riding the Remote tab icon's top-right corner — the
@@ -176,10 +144,10 @@ function Header() {
         {/* New note lives apart from the tabs: its surface is a focused mode with its own header. */}
         <button
           onClick={goCompose}
-          className="ml-auto flex shrink-0 items-center gap-1.5 rounded-full border border-hk-hairline px-2.5 py-1.5 text-[12.5px] font-medium text-hk-text-2 transition-colors hover:bg-hk-card"
+          className="ml-auto flex shrink-0 items-center gap-1.5 rounded-full bg-hk-coral px-3 py-2 text-[12.5px] leading-4 font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover"
           title="New note"
         >
-          <IconPlus size={15} strokeWidth={1.8} />
+          <IconPlus size={15} strokeWidth={2} />
           <span className="hidden min-[420px]:inline">New note</span>
         </button>
       </div>

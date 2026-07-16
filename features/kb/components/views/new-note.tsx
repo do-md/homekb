@@ -15,7 +15,6 @@ import { useRouter } from "next/navigation";
 import { hashHref } from "@/lib/client/hash-route";
 import { useKbStore, useKbStoreApi } from "../../store/kb-store";
 import { KbEditor, type KbEditorHandle, titleFromMarkdown } from "../domd";
-import { ConnIndicator } from "../shell";
 import { IconChevronLeft, Spinner, StatusDot } from "../icons";
 
 function ActionButtons({ editorRef }: { editorRef: React.MutableRefObject<KbEditorHandle | null> }) {
@@ -96,11 +95,10 @@ export function NewNoteView() {
               </span>
             )}
           </button>
-          <div className="ml-auto flex items-center gap-3">
-            <div className="hidden items-center gap-2 sm:flex">
-              <ActionButtons editorRef={editorRef} />
-            </div>
-            <ConnIndicator />
+          {/* Connection state lives on the Remote tab badge / save-button disabled
+              states now — no standalone indicator here. */}
+          <div className="ml-auto hidden items-center gap-2 sm:flex">
+            <ActionButtons editorRef={editorRef} />
           </div>
         </div>
       </header>
