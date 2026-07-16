@@ -24,7 +24,7 @@
     {
       "binding": "DB",
       "database_name": "homekb-relay",
-      "database_id": "REPLACED_AFTER_D1_CREATE"
+      "database_id": "89beeb4a-5a97-4922-ab67-c0336a36f887"
     }
   ],
   "observability": {
