@@ -17,6 +17,20 @@ use tokio::sync::Semaphore;
 
 type OpenAIClient = Client<async_openai::config::OpenAIConfig>;
 
+/// Placeholder for empty/whitespace-only input. OpenAI silently accepts an
+/// empty string (returns some vector), but Gemini's OpenAI-compat layer rejects
+/// it with `400 content contains an empty Part` — and one empty item fails the
+/// whole batch. An empty chunk or an empty LLM summary (Gemini sometimes
+/// returns a blank digest) has no retrieval value anyway, so coerce it to a
+/// single space to keep the request valid and provider-agnostic.
+fn embeddable(text: &str) -> String {
+    if text.trim().is_empty() {
+        " ".to_string()
+    } else {
+        text.to_string()
+    }
+}
+
 /// Lenient embeddings response for the BYOT path: some OpenAI-compatible
 /// providers (e.g. Gemini's compat layer) omit per-datum fields like `index`
 /// that the strict typed response requires. Data order is positional on
@@ -143,7 +157,7 @@ pub async fn embed_query(
     loop {
         let req = CreateEmbeddingRequestArgs::default()
             .model(model)
-            .input(EmbeddingInput::String(query.to_string()))
+            .input(EmbeddingInput::String(embeddable(query)))
             .build()?;
         let attempt_resp: Result<LenientEmbeddingResponse, _> =
             client.embeddings().create_byot(req).await;
@@ -184,11 +198,12 @@ async fn embed_one_batch(
     expected_dim: usize,
     texts: Vec<String>,
 ) -> Result<Vec<Vec<f32>>> {
+    let safe: Vec<String> = texts.iter().map(|t| embeddable(t)).collect();
     let mut attempt = 0u32;
     loop {
         let req = CreateEmbeddingRequestArgs::default()
             .model(model)
-            .input(EmbeddingInput::StringArray(texts.clone()))
+            .input(EmbeddingInput::StringArray(safe.clone()))
             .build()?;
 
         let attempt_resp: Result<LenientEmbeddingResponse, _> =

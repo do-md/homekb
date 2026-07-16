@@ -339,7 +339,12 @@ fn build_context(groups: &[SourceGroup]) -> (String, usize) {
 }
 
 /// Build the synthesize chat request (shared by the one-shot and streaming paths).
-/// `create_stream` flips `stream` on itself, so the builder leaves it unset.
+/// `stream` is left unset here and toggled by the caller: the streaming path
+/// sets `stream = true` explicitly. NOTE: with the `byot` feature enabled
+/// (which we need for lenient embedding responses), `create_stream` no longer
+/// auto-sets `stream = true` — so the streaming path MUST set it itself, or the
+/// request goes out non-streaming and the SSE reader yields zero tokens (empty
+/// answer).
 fn synthesize_request(
     config: &Config,
     question: &str,
@@ -389,7 +394,8 @@ async fn synthesize_stream(
     context_block: &str,
     tx: &mpsc::UnboundedSender<AskStreamEvent>,
 ) -> Result<()> {
-    let req = synthesize_request(config, question, context_block)?;
+    let mut req = synthesize_request(config, question, context_block)?;
+    req.stream = Some(true); // required under the `byot` feature (see synthesize_request)
     let mut stream = cli.chat().create_stream(req).await?;
     while let Some(item) = stream.next().await {
         let resp = item?;
