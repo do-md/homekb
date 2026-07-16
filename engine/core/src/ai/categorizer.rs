@@ -53,23 +53,27 @@ counts) and the built-in ones.
 Pick the BEST category for this document.
 
 Rules:
-- STRONGLY prefer an available category if it's a reasonable fit. Reuse is \
-the default; new categories should be rare.
-- Only invent a new category when no available one applies.
-- Category names MUST be ENGLISH, short, lowercase, snake_case. NEVER \
-answer in the document's language — even for a Chinese or Japanese document \
-the category name is English.
+- STRONGLY prefer an available category if it's a reasonable fit — even \
+when its language differs from the document's (a Chinese cooking note \
+still belongs in `recipe`). Reuse is the default; new categories should \
+be rare. Never create a same-meaning duplicate of an available category \
+in another language.
+- Only invent a new category when no available one applies. Write a new \
+category in the document's own primary language so its owner recognizes \
+it: for Latin scripts use short lowercase snake_case (e.g. tech_note); \
+for CJK use a compact plain form (e.g. 宠物饲养). Letters, digits, and \
+underscores only — no punctuation, no emoji.
 - `other` is a last-resort fallback, not a real category: use it only when \
 nothing fits AND no sensible new category exists. Never pick it because it \
 is frequent.
 - Output ONLY the category name. No explanation, no quotes, no markdown, \
 no trailing punctuation.";
 
-/// Corrective follow-up when the model answered with a label that \
-/// sanitized to nothing (e.g. a CJK-only category name).
-const ENGLISH_RETRY_PROMPT: &str = "Your previous answer was not a valid \
-category name. Answer again with ONLY an ENGLISH lowercase snake_case \
-category name (ASCII letters, digits, underscores). Nothing else.";
+/// Corrective follow-up when the model answered with a label that
+/// sanitized to nothing (e.g. punctuation/emoji only).
+const LABEL_RETRY_PROMPT: &str = "Your previous answer was not a valid \
+category name. Answer again with ONLY a short category name made of \
+letters, digits, or underscores (any language). Nothing else.";
 
 pub struct Categorizer {
     client: OpenAIClient,
@@ -112,7 +116,7 @@ impl Categorizer {
         );
 
         let mut attempt = 0u32;
-        let mut english_retry_done = false;
+        let mut label_retry_done = false;
         loop {
             let mut messages = vec![
                 ChatCompletionRequestSystemMessageArgs::default()
@@ -124,10 +128,10 @@ impl Categorizer {
                     .build()?
                     .into(),
             ];
-            if english_retry_done {
+            if label_retry_done {
                 messages.push(
                     ChatCompletionRequestUserMessageArgs::default()
-                        .content(ENGLISH_RETRY_PROMPT)
+                        .content(LABEL_RETRY_PROMPT)
                         .build()?
                         .into(),
                 );
@@ -151,21 +155,21 @@ impl Categorizer {
                         .unwrap_or_default();
                     match sanitize(&raw) {
                         Some(label) => return Ok(label),
-                        // Degenerate label (e.g. answered in the document's
-                        // language — CJK strips to nothing). One corrective
-                        // retry demanding English; then fall back to `other`
-                        // loudly instead of silently poisoning the taxonomy.
-                        None if !english_retry_done => {
-                            english_retry_done = true;
+                        // Degenerate label (nothing valid survives — e.g.
+                        // punctuation/emoji only). One corrective retry;
+                        // then fall back to `other` loudly instead of
+                        // silently poisoning the taxonomy.
+                        None if !label_retry_done => {
+                            label_retry_done = true;
                             tracing::warn!(
-                                "categorize returned a non-English/degenerate label {:?}; \
-                                 retrying with an explicit English instruction",
+                                "categorize returned a degenerate label {:?}; \
+                                 retrying with an explicit format instruction",
                                 raw.trim()
                             );
                         }
                         None => {
                             tracing::warn!(
-                                "categorize still degenerate after English retry ({:?}); \
+                                "categorize still degenerate after retry ({:?}); \
                                  falling back to 'other'",
                                 raw.trim()
                             );
@@ -211,25 +215,34 @@ fn vocab_block(vocab: &[(String, i64)]) -> String {
     lines.join("\n")
 }
 
-/// Normalize raw LLM output to `lowercase_snake_case`. Strips whitespace,
-/// quotes, trailing punctuation. Replaces interior whitespace and dashes
-/// with underscores. Caps length at 32 chars.
+/// Normalize raw LLM output into the doc_type key space: **Unicode letters,
+/// digits, and underscores, in any script** — NFC-normalized, lowercase-folded
+/// (a no-op for caseless scripts like CJK), interior whitespace/dashes turned
+/// into underscores, quotes/punctuation/emoji stripped, capped at 32 chars.
 ///
-/// Returns `None` when nothing survives sanitization (empty response, or a
-/// label made entirely of dropped characters — CJK, emoji, punctuation).
-/// The caller treats that as a retryable failure instead of silently
-/// collapsing the label; the old behavior of returning `"other"` here is
-/// exactly what let a Chinese-answering model funnel a whole corpus into
-/// one useless bucket.
+/// This is a *normalization + validation* layer, not a language gate: a
+/// Chinese label like `菜谱` is a first-class key. The key space must stay
+/// language-open because labels can also emerge from the corpus language and,
+/// later, from user-defined categories. (The previous ASCII-only version
+/// silently dropped every CJK label — which is how a Chinese-answering model
+/// funneled a whole corpus into `other`.)
+///
+/// Returns `None` when nothing survives (empty response, or a label made
+/// entirely of dropped characters — emoji/punctuation only). The caller
+/// treats that as a retryable failure instead of silently coercing a label.
 fn sanitize(raw: &str) -> Option<String> {
-    let trimmed = raw.trim().trim_matches(|c: char| c == '"' || c == '\'' || c == '.');
-    let mut out = String::with_capacity(trimmed.len());
-    for ch in trimmed.chars() {
+    use unicode_normalization::UnicodeNormalization;
+    let trimmed = raw
+        .trim()
+        .trim_matches(|c: char| c == '"' || c == '\'' || c == '`' || c == '.');
+    let nfc: String = trimmed.nfc().collect();
+    let mut out = String::with_capacity(nfc.len());
+    for ch in nfc.chars() {
         match ch {
-            'A'..='Z' => out.extend(ch.to_lowercase()),
-            'a'..='z' | '0'..='9' | '_' => out.push(ch),
             ' ' | '-' | '\t' => out.push('_'),
-            _ => {} // drop punctuation, emoji, CJK, etc.
+            '_' => out.push('_'),
+            c if c.is_alphanumeric() => out.extend(c.to_lowercase()),
+            _ => {} // drop punctuation, emoji, symbols
         }
     }
     // Collapse repeated underscores.
@@ -268,16 +281,27 @@ mod tests {
     }
 
     #[test]
+    fn sanitize_key_space_is_language_open() {
+        // The doc_type key space accepts any script — a CJK label is a
+        // first-class key, not something to launder into ASCII (regression:
+        // the ASCII-only sanitizer silently collapsed every CJK label into
+        // `other`, destroying the whole taxonomy).
+        assert_eq!(sanitize("菜谱").as_deref(), Some("菜谱"));
+        assert_eq!(sanitize("「食谱」").as_deref(), Some("食谱"));
+        assert_eq!(sanitize("宠物饲养。").as_deref(), Some("宠物饲养"));
+        assert_eq!(sanitize("菜谱 recipe").as_deref(), Some("菜谱_recipe"));
+        // Café — NFC-normalized and lowercased, accents kept.
+        assert_eq!(sanitize("Cafe\u{0301}").as_deref(), Some("café"));
+    }
+
+    #[test]
     fn sanitize_degenerate_is_none_not_other() {
-        // A non-English label must surface as a retryable failure, never
-        // silently become "other" (regression: CJK labels collapsed the
-        // whole taxonomy into `other`).
+        // A label with no valid characters must surface as a retryable
+        // failure, never silently become "other".
         assert_eq!(sanitize(""), None);
         assert_eq!(sanitize("🎉"), None);
-        assert_eq!(sanitize("菜谱"), None);
-        assert_eq!(sanitize("「食谱」"), None);
-        // Mixed CJK + English keeps the English part.
-        assert_eq!(sanitize("菜谱 recipe").as_deref(), Some("recipe"));
+        assert_eq!(sanitize("!!!"), None);
+        assert_eq!(sanitize("「」…"), None);
     }
 
     #[test]
