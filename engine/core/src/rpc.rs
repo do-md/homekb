@@ -6,7 +6,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::api::{SearchOptions, list_types, reindex, search, status, suggestions};
-use crate::ask::ask;
+use crate::ask::{ask, search_routed};
 use crate::config::Config;
 use crate::drafts::{delete_draft, list_drafts, save_draft};
 use crate::notes::{create_note, list_notes, read_note, write_note};
@@ -73,10 +73,24 @@ pub async fn dispatch(config: &Config, method: &str, params: &Value) -> Result<V
                     .get("maxDistance")
                     .and_then(|v| v.as_f64())
                     .unwrap_or(0.0),
+                enumerate: params
+                    .get("enumerate")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false),
             };
-            let out = search(config, &opts)
-                .await
-                .map_err(|e| RpcFailure::new("search_failed", format!("{e:#}")))?;
+            // route: true → the engine runs the ask router first and applies
+            // the inferred docType/enumeration (docs/ARCHITECTURE.md
+            // "routed search"). Explicit params take precedence.
+            let routed = params.get("route").and_then(|v| v.as_bool()).unwrap_or(false);
+            let out = if routed {
+                search_routed(config, &opts)
+                    .await
+                    .map_err(|e| RpcFailure::new("search_failed", format!("{e:#}")))?
+            } else {
+                search(config, &opts)
+                    .await
+                    .map_err(|e| RpcFailure::new("search_failed", format!("{e:#}")))?
+            };
             to_value(&out)
         }
         "kb.ask" => {

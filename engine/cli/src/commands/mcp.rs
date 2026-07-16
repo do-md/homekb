@@ -122,7 +122,7 @@ fn map_tool(name: &str, a: &Value) -> Option<(&'static str, Value)> {
     match name {
         "kb_search" => Some((
             "kb.query",
-            json!({ "query": g("query"), "limit": g("limit"), "docType": g("doc_type"), "full": g("full") }),
+            json!({ "query": g("query"), "limit": g("limit"), "docType": g("doc_type"), "full": g("full"), "enumerate": g("enumerate") }),
         )),
         "kb_read" => Some(("kb.read", json!({ "path": g("path") }))),
         "kb_create" => Some(("kb.create", json!({ "content": g("content"), "title": g("title") }))),
@@ -144,7 +144,8 @@ fn tool_defs() -> Value {
                     "query": { "type": "string", "description": "Natural-language search query" },
                     "limit": { "type": "number", "description": "Max results (default 10)" },
                     "doc_type": { "type": "string", "description": "Optional document type filter" },
-                    "full": { "type": "boolean", "description": "Return whole documents instead of chunks" }
+                    "full": { "type": "boolean", "description": "Return whole documents instead of chunks" },
+                    "enumerate": { "type": "boolean", "description": "Whole-category sweep: return EVERY doc of doc_type (content = summary) ranked by relevance. Use for 'list everything in X' intents; requires doc_type; limit is ignored" }
                 },
                 "required": ["query"]
             }

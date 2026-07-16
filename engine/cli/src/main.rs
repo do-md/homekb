@@ -93,6 +93,14 @@ enum Cmd {
         /// List the doc_type vocabulary (name + count) instead of searching.
         #[arg(long)]
         list_types: bool,
+        /// Category enumeration: return EVERY doc of --type (content =
+        /// summary) ranked by relevance; limit/max-distance are ignored.
+        #[arg(long)]
+        enumerate: bool,
+        /// Let the engine's LLM router infer --type / --enumerate from the
+        /// query (needs the [ask] or [summary] endpoint configured).
+        #[arg(long)]
+        route: bool,
     },
     /// Print index status (counts, last compile, generation).
     Status {
@@ -193,10 +201,15 @@ fn main() -> Result<()> {
                 _ => commands::watch::run(interval),
             }
         }
-        Cmd::Query { query, json, limit, doc_type, full, group, max_distance, list_types } => {
+        Cmd::Query {
+            query, json, limit, doc_type, full, group, max_distance, list_types, enumerate, route,
+        } => {
             // Keep stdout clean for results; only warnings/errors on stderr.
             init_tracing(true);
-            commands::query::run(query, json, limit, doc_type, full, group, max_distance, list_types)
+            commands::query::run(
+                query, json, limit, doc_type, full, group, max_distance, list_types, enumerate,
+                route,
+            )
         }
         Cmd::Status { json } => {
             init_tracing(true);

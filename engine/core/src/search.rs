@@ -182,6 +182,39 @@ pub fn search(conn: &Connection, query_vec: &[f32], p: SearchParams) -> Result<V
     Ok(all)
 }
 
+/// Category enumeration: **every** doc of `doc_type`, ranked by summary-vector
+/// distance to the query (docs/ARCHITECTURE.md "Category enumeration").
+///
+/// Coverage-first — no `k` narrowing beyond the whole pool, no distance
+/// cutoff: for "what do I have in X" intent the query vector is far from
+/// every individual document, so KNN top-K + max-distance truncate the
+/// category arbitrarily. Distance is kept purely as *ordering*, so a hybrid
+/// question ("recipes that use shrimp") floats matches to the top while the
+/// rest of the category stays present. Capped at `cap` (caller logs the
+/// truncation — no silent caps). Docs whose summary vector is still pending
+/// are absent from the pool and thus skipped.
+pub fn enumerate_docs(
+    conn: &Connection,
+    query_vec: &[f32],
+    doc_type: &str,
+    cap: usize,
+) -> Result<Vec<RawHit>> {
+    let pool: i64 = conn.query_row("SELECT COUNT(*) FROM vec_docs", [], |r| r.get(0))?;
+    if pool == 0 {
+        return Ok(vec![]);
+    }
+    // KNN over the entire doc pool (k = pool size), filtered to the category:
+    // guarantees full category coverage while sqlite-vec computes distances.
+    let qbytes = encode(query_vec);
+    let mut hits = query_docs(conn, &qbytes, pool as usize, Some(doc_type))?;
+    for (i, h) in hits.iter_mut().enumerate() {
+        // Rank-based score keeps Hit.score semantics consistent with fusion.
+        h.set_score(1.0 / (RRF_K + (i + 1) as f64));
+    }
+    hits.truncate(cap);
+    Ok(hits)
+}
+
 fn query_docs(
     conn: &Connection,
     qbytes: &[u8],

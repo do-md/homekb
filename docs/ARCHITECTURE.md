@@ -165,7 +165,7 @@ The index snapshot records `embedding_provider` (+ `embedding_base_url` for `cus
 ```
 homekb                       # No subcommand = print help (like git)
 homekb ask [--json] <QUESTION>   # Ask: retrieval + LLM-synthesized answer (with citations)
-homekb query [--json] [--limit N] [--type T] [--full] [--group] [--max-distance D] QUERY
+homekb query [--json] [--limit N] [--type T] [--full] [--group] [--max-distance D] [--enumerate] [--route] QUERY
 homekb query --list-types [--json]  # List the doc_type vocabulary (name + count, for category routing before search)
 homekb new [--title T] [FILE]    # Add a new note (reads stdin when FILE is omitted)
 homekb init [--root PATH] [--notes PATH] [--openai-key KEY]  # Create the directory tree + write config
@@ -185,7 +185,7 @@ homekb tunnel --install [--interval N] / --uninstall / --status [--json]  # Mana
 
 Integrate the local MCP into Claude Code: `claude mcp add homekb -- homekb mcp`.
 
-**The ask pipeline (core::answer, completed end-to-end inside the engine)**: LLM routing (infer the doc_type filter + whether the full document is needed) is **dispatched in parallel with query vectorization** (the vector depends only on the question string, not on the routing result) → dual-pool retrieval (local KNN, using the ready-made vectors) → assemble the context block (**numbered per source document** — one `[n]` per doc with its snippets listed under it) → LLM-synthesized answer (based solely on the retrieved snippets, citing sources, following the question's language). The user-facing `hits`/`citations` are source-level (see the `kb.ask` row in the RPC table). Three external requests total: route(chat) ∥ embed(embeddings) → synthesize(chat), reusing shared per-endpoint OpenAI-protocol clients in-process (connection-pool keep-alive). Route + synthesize use the `[ask]` endpoint (falling back to `[summary]`); embed uses the `[embedding]` endpoint pinned by the snapshot meta. Ported from claude-os kb.service's kbInferRoute/kbSynthesize. The engine exposes both a one-shot `ask()` (blocking synthesize) and an `ask_stream()` (synthesize via OpenAI `create_stream`, emitting `AskStreamEvent::Delta` chunks then a terminal `AskStreamEvent::Done{citations,hits}`) — both share the identical route/embed/retrieve path; only the synthesize call differs.
+**The ask pipeline (core::answer, completed end-to-end inside the engine)**: LLM routing (infer the doc_type filter + whether the full document is needed + **whether the question is a category enumeration** — "what recipes do I have" wants coverage of a category, not a KNN top-K) is **dispatched in parallel with query vectorization** (the vector depends only on the question string, not on the routing result) → retrieval: normally dual-pool local KNN with the ready-made vectors; **when the router says `enumerate` with a valid docType, retrieval switches to the category summary sweep** (every doc of the category, content = compiled summary, ranked by summary-vector distance, no distance cutoff — the synthesizer then judges over the whole category's summaries, which beats vector recall for enumeration/recommendation intents; `needs_full` is ignored in this mode) → assemble the context block (**numbered per source document** — one `[n]` per doc with its snippets listed under it) → LLM-synthesized answer (based solely on the retrieved snippets, citing sources, following the question's language). The user-facing `hits`/`citations` are source-level (see the `kb.ask` row in the RPC table). Three external requests total: route(chat) ∥ embed(embeddings) → synthesize(chat), reusing shared per-endpoint OpenAI-protocol clients in-process (connection-pool keep-alive). Route + synthesize use the `[ask]` endpoint (falling back to `[summary]`); embed uses the `[embedding]` endpoint pinned by the snapshot meta. Ported from claude-os kb.service's kbInferRoute/kbSynthesize. The engine exposes both a one-shot `ask()` (blocking synthesize) and an `ask_stream()` (synthesize via OpenAI `create_stream`, emitting `AskStreamEvent::Delta` chunks then a terminal `AskStreamEvent::Done{citations,hits}`) — both share the identical route/embed/retrieve path; only the synthesize call differs.
 
 ### HTTP RPC (homekb serve)
 
@@ -333,7 +333,7 @@ The answer's `[n]` markers and `citations` follow the same source-numbering cont
 
 | method | params | result |
 |--------|--------|--------|
-| `kb.query` | `{query, limit?, docType?, full?, group?, maxDistance?}` | `{query, results: Hit[]}` |
+| `kb.query` | `{query, limit?, docType?, full?, group?, maxDistance?, enumerate?, route?}` | `{query, results: Hit[], route?: {docType?, enumerate}}` |
 | `kb.ask` | `{query}` | `{answer, citations: [{path,title}], hits: Hit[]}` (LLM-synthesized answer, home-device key. **No chunk granularity at the user layer**: `hits` is aggregated per source document — kind `doc`\|`doc_full`, best snippet, `matches` = merged hit count; the answer's inline `[n]` markers number *sources*, and `citations` aligns 1:1 with that numbering, listing only sources that made it into the context) |
 | `kb.read` | `{path}` | `{path, content, mtime}` |
 | `kb.write` | `{path, content}` | `{path}` (only `.md` within notes, to prevent path traversal) |
@@ -353,13 +353,17 @@ The `kb.ask` row above is the **one-shot** form (single JSON response), used by 
 
 `group: true` = source-aggregation mode (used by the UI "hit list"): internally amplifies retrieval (the fusion pool takes `limit*5`), and after narrowing by `maxDistance` **merges the same path into a single entry** (kind is always `doc`; content/headingPath take that document's top-ranked hit; `matches` = the number of merged hit segments). The source order = the position of each document's first hit in the fusion ranking, and `limit` applies to the merged document count. When both `full` and `group` are given, `full` takes precedence. There is still only one embedding request and zero LLM calls.
 
+**Category enumeration** (`enumerate: true`, requires `docType`): coverage-first retrieval for "what do I have in X" intent, where KNN cutoffs are exactly wrong — the question's vector is far from every individual document, so top-K + `maxDistance` truncate the category arbitrarily. Enumeration returns **every** doc of the category as `kind:"doc"` hits (content = the doc's compiled summary), **ranked by summary-vector distance to the query** so a hybrid question ("recipes that use shrimp") floats matches to the top while the rest of the category stays visible. `limit`/`maxDistance`/`full`/`group` are ignored (hard cap 500 docs, truncation logged — no silent caps). Still one embedding request, zero LLM calls.
+
+`route: true` = **routed search** (used by the UI List mode, whose caller has no LLM of its own): the engine first runs the same router as `kb.ask` (`{docType?, enumerate}` — the `[ask]`/`[summary]` chat endpoint; router failure degrades to plain unrouted search) and applies the inferred filter/enumeration; the applied route is echoed back in the result's `route` field so clients can label the result set (e.g. "recipe · 17"). Explicit `docType`/`enumerate` params take precedence over inferred ones. Agent-facing callers (MCP, CLI, the knowledge-base skill) normally keep routing themselves and pass explicit params instead.
+
 path is always relative to notes_dir. Error result: `{ok:false, error:{code, message}}`; on success the relay wraps a `{ok:true, result}` layer and returns it to the client.
 
 ## MCP tools (local stdio and remote /api/mcp are identical)
 
 | tool | Parameters | Behavior |
 |------|------------|----------|
-| `kb_search` | `{query, limit?, doc_type?, full?}` | Semantic retrieval, returns hits JSON |
+| `kb_search` | `{query, limit?, doc_type?, full?, enumerate?}` | Semantic retrieval, returns hits JSON. `enumerate: true` (requires `doc_type`) = whole-category summary sweep ranked by relevance — use for "list everything in X" intents |
 | `kb_read` | `{path}` | Read a whole md file |
 | `kb_create` | `{content, title?}` | Create a new note |
 | `kb_update` | `{path, content}` | Overwrite an existing note |

@@ -25,10 +25,10 @@ mod search;
 mod types;
 
 pub use api::{
-    Hit, ReindexReport, SearchOptions, SearchOutput, StatusReport, TypeCount, ensure_dirs,
-    list_types, rebuild, reindex, reindex_opts, search, status,
+    AppliedRoute, Hit, ReindexReport, SearchOptions, SearchOutput, StatusReport, TypeCount,
+    ensure_dirs, list_types, rebuild, reindex, reindex_opts, search, status,
 };
-pub use ask::{AskOutput, AskStreamEvent, Citation, ask, ask_stream};
+pub use ask::{AskOutput, AskStreamEvent, Citation, ask, ask_stream, search_routed};
 pub use config::{
     ChatEndpoint, Config, ConfigOverrides, EmbeddingEndpoint, RelayConfig, ServeConfig,
     config_path,

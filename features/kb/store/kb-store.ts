@@ -508,12 +508,21 @@ export class KbStore extends ZenithStore<KbState> {
           d.phase = "done";
         });
       } else {
-        // List mode: whole notes, one per source; maxDistance drops irrelevant tails
-        const res = await rpc<{ results: KbHit[] }>("kb.query", {
+        // List mode: routed search (docs/ARCHITECTURE.md "routed search") —
+        // the engine's router detects category-enumeration intent ("what
+        // recipes do I have") and returns the WHOLE category (summaries,
+        // relevance-ranked, no distance cutoff) instead of a truncated
+        // KNN top-K. Non-enumeration queries keep the grouped KNN behavior
+        // below (limit/maxDistance apply only in that fallback).
+        const res = await rpc<{
+          results: KbHit[];
+          route?: { docType?: string; enumerate: boolean };
+        }>("kb.query", {
           query: q,
           limit: 20,
           group: true,
           maxDistance: 1.1,
+          route: true,
         });
         this.produce((d) => {
           d.hits = res.results ?? [];

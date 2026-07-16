@@ -4,6 +4,7 @@ use anyhow::{Result, bail};
 use homekb_core::{Config, SearchOptions};
 use std::io::Read;
 
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     query: Option<String>,
     json: bool,
@@ -13,9 +14,14 @@ pub fn run(
     group: bool,
     max_distance: f64,
     list_types: bool,
+    enumerate: bool,
+    route: bool,
 ) -> Result<()> {
     if list_types {
         return run_list_types(json);
+    }
+    if enumerate && doc_type.is_none() && !route {
+        bail!("--enumerate requires --type (or --route to infer it)");
     }
     let query = match query {
         Some(s) => s,
@@ -34,10 +40,15 @@ pub fn run(
         full,
         group,
         max_distance,
+        enumerate,
     };
 
     let rt = super::runtime()?;
-    let out = rt.block_on(homekb_core::search(&cfg, &opts))?;
+    let out = if route {
+        rt.block_on(homekb_core::search_routed(&cfg, &opts))?
+    } else {
+        rt.block_on(homekb_core::search(&cfg, &opts))?
+    };
 
     let mut stdout = std::io::stdout().lock();
     if json {

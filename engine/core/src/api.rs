@@ -42,6 +42,10 @@ pub struct ReindexReport {
     pub duration_ms: u64,
 }
 
+/// Hard cap on category-enumeration results (a backstop far above any
+/// personal-KB category size; hitting it logs a truncation warning).
+const ENUMERATE_CAP: usize = 500;
+
 /// Options for [`search`].
 #[derive(Debug, Clone)]
 pub struct SearchOptions {
@@ -61,6 +65,11 @@ pub struct SearchOptions {
     /// Drop results whose embedding distance exceeds this threshold.
     /// 0 = no filter.
     pub max_distance: f64,
+    /// Category enumeration (docs/ARCHITECTURE.md "Category enumeration"):
+    /// return EVERY doc of `doc_type` (content = compiled summary), ranked
+    /// by summary-vector distance. Requires `doc_type`; `limit`, `full`,
+    /// `group` and `max_distance` are ignored in this mode.
+    pub enumerate: bool,
 }
 
 impl Default for SearchOptions {
@@ -72,6 +81,7 @@ impl Default for SearchOptions {
             full: false,
             group: false,
             max_distance: 0.0,
+            enumerate: false,
         }
     }
 }
@@ -102,6 +112,20 @@ pub struct Hit {
 pub struct SearchOutput {
     pub query: String,
     pub results: Vec<Hit>,
+    /// Present only on routed searches (`kb.query {route: true}`): the
+    /// filter/enumeration the engine's router actually applied, so clients
+    /// can label the result set (e.g. "recipe · 17").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub route: Option<AppliedRoute>,
+}
+
+/// Echo of the route applied by a routed search.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppliedRoute {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub doc_type: Option<String>,
+    pub enumerate: bool,
 }
 
 /// Index status, read from the snapshot.
@@ -456,6 +480,29 @@ pub fn search_with_vector(cfg: &Config, opts: &SearchOptions, vec: &[f32]) -> Re
         }
     }
 
+    // Category enumeration: whole-category summary sweep, coverage-first —
+    // no top-K, no distance cutoff (docs/ARCHITECTURE.md "Category
+    // enumeration"). Distance is kept purely as ordering.
+    if opts.enumerate {
+        let t = opts
+            .doc_type
+            .as_deref()
+            .context("enumerate requires docType")?;
+        let raw = retrieval::enumerate_docs(&conn, vec, t, ENUMERATE_CAP)?;
+        if raw.len() == ENUMERATE_CAP {
+            tracing::warn!(
+                "enumerate '{}' hit the {} doc cap — result may be truncated",
+                t,
+                ENUMERATE_CAP
+            );
+        }
+        return Ok(SearchOutput {
+            query: query.to_string(),
+            results: raw.into_iter().map(to_public_hit).collect(),
+            route: None,
+        });
+    }
+
     // `full` and `group` both cap the limit on *documents*, so over-fetch
     // the fused list to give the collapse/grouping material to work with.
     let effective_limit = if opts.full || opts.group { opts.limit * 5 } else { opts.limit };
@@ -480,6 +527,7 @@ pub fn search_with_vector(cfg: &Config, opts: &SearchOptions, vec: &[f32]) -> Re
     Ok(SearchOutput {
         query: query.to_string(),
         results,
+        route: None,
     })
 }
 

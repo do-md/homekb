@@ -26,7 +26,10 @@ use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
-use crate::api::{Hit, SearchOptions, embed_search_query, list_types, search_with_vector};
+use crate::api::{
+    AppliedRoute, Hit, SearchOptions, SearchOutput, embed_search_query, list_types,
+    search_with_vector,
+};
 use crate::config::Config;
 
 const MAX_DISTANCE: f64 = 1.1;
@@ -84,6 +87,11 @@ struct Route {
     doc_type: Option<String>,
     #[serde(default)]
     needs_full: bool,
+    /// Category-enumeration intent ("what recipes do I have"): retrieval
+    /// switches from KNN to the whole-category summary sweep. Only honored
+    /// when `doc_type` resolves to a known category.
+    #[serde(default)]
+    enumerate: bool,
 }
 
 type OpenAIClient = Client<async_openai::config::OpenAIConfig>;
@@ -133,13 +141,28 @@ async fn retrieve(
         .doc_type
         .filter(|t| types.iter().any(|k| &k.doc_type == t));
 
-    let opts = SearchOptions {
-        query: question.to_string(),
-        limit: if route.needs_full { FULL_LIMIT } else { CHUNK_LIMIT },
-        doc_type,
-        full: route.needs_full,
-        group: false,
-        max_distance: MAX_DISTANCE,
+    // Enumeration intent + a resolved category → whole-category summary
+    // sweep (coverage-first, no distance cutoff); the synthesizer judges
+    // over every summary in the category. Otherwise: dual-pool KNN.
+    let enumerate = route.enumerate && doc_type.is_some();
+    let opts = if enumerate {
+        SearchOptions {
+            query: question.to_string(),
+            doc_type,
+            enumerate: true,
+            max_distance: 0.0,
+            ..Default::default()
+        }
+    } else {
+        SearchOptions {
+            query: question.to_string(),
+            limit: if route.needs_full { FULL_LIMIT } else { CHUNK_LIMIT },
+            doc_type,
+            full: route.needs_full,
+            group: false,
+            max_distance: MAX_DISTANCE,
+            enumerate: false,
+        }
     };
     let out = search_with_vector(config, &opts, &vec)?;
     if out.results.is_empty() {
@@ -241,6 +264,55 @@ pub async fn ask_stream(
     Ok(())
 }
 
+/// Routed search (docs/ARCHITECTURE.md `kb.query {route: true}`): run the
+/// same router as ask, apply the inferred docType/enumeration to a plain
+/// no-synthesis search, and echo the applied route in the output. Built for
+/// UI list surfaces whose caller has no LLM of its own; agent callers route
+/// themselves and pass explicit params instead.
+///
+/// Explicit `opts.doc_type` / `opts.enumerate` take precedence over the
+/// inferred route. A router failure (or an unconfigured ask/summary
+/// endpoint) degrades to a plain unrouted search — never an error.
+pub async fn search_routed(config: &Config, opts: &SearchOptions) -> Result<SearchOutput> {
+    let question = opts.query.trim();
+    anyhow::ensure!(!question.is_empty(), "query is empty");
+
+    let types = list_types(config).unwrap_or_default();
+    let type_names: Vec<&str> = types.iter().map(|t| t.doc_type.as_str()).collect();
+
+    // route ∥ embed, same trick as ask: the query vector depends only on
+    // the query string, so embedding hides the route latency.
+    let route_fut = async {
+        match client(config) {
+            Ok(cli) => infer_route(&cli, config, question, &type_names)
+                .await
+                .unwrap_or_default(),
+            Err(_) => Route::default(),
+        }
+    };
+    let (route, vec) = tokio::join!(route_fut, embed_search_query(config, question));
+    let vec = vec.context("embed query")?;
+
+    let inferred_type = route
+        .doc_type
+        .filter(|t| types.iter().any(|k| &k.doc_type == t));
+
+    let mut applied = opts.clone();
+    if applied.doc_type.is_none() {
+        applied.doc_type = inferred_type;
+    }
+    if !applied.enumerate && route.enumerate && applied.doc_type.is_some() {
+        applied.enumerate = true;
+    }
+
+    let mut out = search_with_vector(config, &applied, &vec)?;
+    out.route = Some(AppliedRoute {
+        doc_type: applied.doc_type.clone(),
+        enumerate: applied.enumerate,
+    });
+    Ok(out)
+}
+
 /// All hits of one source document, in fused score order (best first).
 struct SourceGroup {
     path: String,
@@ -295,12 +367,19 @@ async fn infer_route(
     }
     let system = format!(
         "You route knowledge-base queries. Known doc_type values: [{}].\n\
-         Output ONLY a JSON object: {{\"doc_type\": string|null, \"needs_full\": boolean}}.\n\
+         Output ONLY a JSON object: {{\"doc_type\": string|null, \"needs_full\": boolean, \
+         \"enumerate\": boolean}}.\n\
          doc_type: pick one ONLY when the question clearly targets that category; \
          when in doubt output null (a false positive filter hides content; null never does).\n\
+         enumerate: true when the question asks to list, browse, count, or pick across \
+         EVERYTHING in a category — coverage intent (\"what recipes do I have\", \
+         \"list my travel notes\", \"recommend two dishes\") — rather than to find \
+         specific content. Requires doc_type to be set; conditions are fine \
+         (\"recipes that use shrimp\" is still enumerate).\n\
          needs_full: true only when the user needs complete documents \
          (e.g. a full recipe procedure, a whole article, entire code); \
-         false when snippets suffice (definitions, lookups, background).",
+         false when snippets suffice (definitions, lookups, background). \
+         Ignored when enumerate is true.",
         types.join(", ")
     );
     let req = CreateChatCompletionRequestArgs::default()

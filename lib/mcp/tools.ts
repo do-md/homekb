@@ -27,6 +27,9 @@ export const MCP_TOOLS: McpToolDef[] = [
         limit: num("Max results (default 10)"),
         doc_type: str("Optional document type filter (see kb_status types)"),
         full: bool("Return whole documents instead of chunks (default false)"),
+        enumerate: bool(
+          "Whole-category sweep: return EVERY doc of doc_type (content = summary) ranked by relevance. Use for 'list everything in X' intents; requires doc_type; limit is ignored",
+        ),
       },
       required: ["query"],
     },
@@ -37,6 +40,7 @@ export const MCP_TOOLS: McpToolDef[] = [
         limit: a.limit,
         docType: a.doc_type,
         full: a.full,
+        enumerate: a.enumerate,
       },
     }),
   },
