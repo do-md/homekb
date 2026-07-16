@@ -394,6 +394,8 @@ path is always relative to notes_dir. Error result: `{ok:false, error:{code, mes
 
 Local: `homekb mcp` calls the engine core directly. Remote: `/api/mcp` (served by the relay) is stateless Streamable HTTP (POST JSON-RPC → JSON response), where tool calls are translated into RPC and forwarded over the tunnel.
 
+Real-client compatibility (verified 2026-07 against the Workers relay): **claude.ai / Claude mobile** (Settings → Connectors, account-level) and **ChatGPT web** (individual plans: Settings → Security and login → Developer mode, then create the app at `chatgpt.com/plugins` → `+` — NOT the Connectors page; apps land in Drafts and are enabled per-conversation via `+` → Developer mode). Both complete the pairing-code OAuth (dynamic registration + PKCE) and accept the stateless JSON response mode. ChatGPT Deep Research additionally requires dedicated `search`/`fetch` tools (not implemented; would wrap `kb.query`/`kb.read`).
+
 ## OAuth for the remote MCP (account-free, pairing code)
 
 - `GET /.well-known/oauth-authorization-server`, `GET /.well-known/oauth-protected-resource`: RFC8414/9728 metadata.
