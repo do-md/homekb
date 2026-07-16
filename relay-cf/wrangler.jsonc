@@ -1,0 +1,33 @@
+{
+  // HomeKB relay — Cloudflare Workers target (see docs/ARCHITECTURE.md "Relay service").
+  // Same HTTP API + tunnel SSE protocol as the Node target; D1 replaces relay.db,
+  // one Durable Object per home replaces the in-process tunnel hub.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "homekb-relay",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-01",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "TUNNEL_DO",
+        "class_name": "HomeTunnelDO"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["HomeTunnelDO"]
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "homekb-relay",
+      "database_id": "REPLACED_AFTER_D1_CREATE"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}

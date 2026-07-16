@@ -274,13 +274,35 @@ All authentication uniformly uses `Authorization: Bearer <token>`.
 
 ## Relay service (standalone, multi-tenant)
 
-The relay lives in `relay/` as a **standalone Node HTTP service** — it is **not** part of the Next.js app. One process, one SQLite file, no framework:
+The relay has **two deployment targets sharing one protocol contract** (this API, byte-identical — clients and the engine cannot tell them apart):
 
-- Run: `npm run relay:dev` (tsx, port **8787**) during development; `npm run relay:build` bundles to `relay/dist/server.mjs` (esbuild, `better-sqlite3` kept external), deploy = copy + `node relay/dist/server.mjs` on any box with Node ≥ 20. Port via `--port`/`PORT` (default 8787), DB via `HOMEKB_RELAY_DB` (default `~/.homekb-relay/relay.db`).
-- **Multi-tenant by design**: one relay instance serves many homes/users (`homes`/`grants`/`pair_codes` are all keyed by home). The product operates official instance(s) so regular users need zero server knowledge; self-hosting the same file is possible but not the default story.
-- **Pure pipe**: knowledge-base data and asset bytes only stream through request/response bodies; nothing is written to disk. relay.db stores pairing relationships and token hashes only.
+1. **Node self-host** (`relay/`) — a standalone Node HTTP service, **not** part of the Next.js app. One process, one SQLite file, no framework. For power users who want the pipe on their own box.
+2. **Cloudflare Workers official hosting** (`relay-cf/`) — the product's official instance, deployed on `*.workers.dev`. This is the default story for regular users.
+
+Shared invariants (both targets):
+
+- **Multi-tenant by design**: one relay instance serves many homes/users (`homes`/`grants`/`pair_codes` are all keyed by home). Regular users need zero server knowledge.
+- **Pure pipe**: knowledge-base data and asset bytes only stream through request/response bodies; nothing is written to disk. The relay DB stores pairing relationships and token hashes only.
 - **CORS**: `*` on all API routes (the Web UI is on another origin — Vercel; auth is Bearer-token-based, not origin-based).
 - The relay also serves the OAuth **authorize page** itself (`GET /oauth/authorize`, server-rendered HTML form) since the Next.js app no longer hosts server routes.
+
+### Node target (`relay/`)
+
+- Run: `npm run relay:dev` (port **8787**) during development; `npm run relay:build` bundles to `relay/dist/server.mjs` (esbuild, `better-sqlite3` kept external), deploy = copy + `node relay/dist/server.mjs` on any box with Node ≥ 20. Port via `--port`/`PORT` (default 8787), DB via `HOMEKB_RELAY_DB` (default `~/.homekb-relay/relay.db`).
+
+### Cloudflare Workers target (`relay-cf/`)
+
+- **Topology**: a stateless Worker handles all HTTP routes; **one Durable Object per home** (`HomeTunnelDO`, `idFromName(home_id)`) is the tunnel hub — it holds the home's open SSE downstream, correlates rpc/result by request id, and body-pipes the asset/ask channels between the home's upstream POST and the pending client response. **D1** stores the same schema as relay.db (verbatim SQL, async API).
+- **Tunnel protocol unchanged**: the home still speaks `GET /api/relay/tunnel` SSE with 25s pings — existing engine binaries connect without modification. (A WebSocket + DO Hibernation transport is a planned cost optimization — an SSE stream keeps the DO active while connected — and will be spec'd here before implementation.)
+- **Why workers.dev and not a custom domain**: the GFW-blocked state of `*.workers.dev` is *predictable* — it is included in mainstream proxy rule sets, so "this service needs a proxy" is common knowledge requiring zero per-user configuration. A custom domain reachable today could be blocked tomorrow, and no user's routing rules would know about it. Corollary: **both sides need a proxy in mainland China** — the remote client *and* the home machine running `homekb tunnel`.
+- **Auditability**: the Worker code in this repo is exactly what runs — the platform offers no shell, no sidecar processes, no place to bolt on out-of-band traffic capture, unlike an operator-run box. The residual trust is in Cloudflare itself: transit plaintext is visible to the platform (same operator trust model as any relay; see the trust-boundary note below).
+- **Limits**: Workers' egress/runtime fits the pipe exactly — streaming responses have no wall-clock cap while the client stays connected; request bodies stream through without buffering; the DO pins in memory while its home is connected.
+
+### Relay trust boundary
+
+- **At rest: zero.** No knowledge-base data is ever persisted; long-lived credentials (`hks_`/`hkt_`, 24 random bytes) are stored as sha256 hashes only — a stolen relay DB yields no usable token. The only plaintext secrets at rest are short-lived and single-use: pairing codes (10 min) and OAuth authorization codes (5 min).
+- **Tenant isolation is structural.** A clientToken is bound to exactly one `home_id` at pairing time; every forward routes by the server-side `grant.home_id` lookup. Requests carry no client-controllable target-home parameter, so cross-tenant access is inexpressible, not merely rejected.
+- **In transit: the operator is trusted.** TLS terminates at the relay; content passes through relay memory in plaintext. The relay never logs bodies, but that is policy, not cryptography. Self-hosting the Node target removes this trust point entirely; the Workers target narrows it to the platform (auditable code, no operator side-channels). End-to-end encryption could remove it for HomeKB's own clients, but the Claude connector speaks standard MCP and cannot participate — that path inherently trusts the relay operator.
 
 ## Relay HTTP API
 
