@@ -28,7 +28,10 @@ pub fn run(json: bool) -> Result<()> {
         crate::output::format_unix_date_time(report.last_compile_at),
         if report.last_compile_host.is_empty() { "—" } else { &report.last_compile_host },
     );
-    println!("embedding model  : {}", report.embedding_model);
+    println!(
+        "embedding        : {} ({})",
+        report.embedding_model, report.embedding_provider
+    );
     println!("docs             : {}", report.docs);
     println!(
         "chunks           : {} ({} with vectors)",

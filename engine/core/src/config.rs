@@ -1,9 +1,22 @@
 //! homekb configuration.
 //!
-//! Config file location: `$HOMEKB_CONFIG` > `~/.config/homekb/config.toml`
-//! (honoring `$XDG_CONFIG_HOME`). Every field is optional — a missing file
-//! resolves to all defaults, so `Config::load()` never fails just because
-//! the user hasn't run `homekb init` yet.
+//! Config file location: `$HOMEKB_CONFIG` > `~/.homekb/config.toml` (the
+//! product's own home — HomeKB is self-contained under one folder) >
+//! `~/.config/homekb/config.toml` (legacy location, read-only fallback;
+//! migrated to the new path on the first write). Every field is optional —
+//! a missing file resolves to all defaults, so `Config::load()` never fails
+//! just because the user hasn't run `homekb init` yet.
+//!
+//! The config file is a **fixed anchor**: it always lives at
+//! `~/.homekb/config.toml` even when `root`/`notes_dir` redirect the data
+//! elsewhere (the config defines those paths, so it cannot move with them).
+//!
+//! AI endpoints (docs/ARCHITECTURE.md "AI provider presets"): one
+//! OpenAI-protocol client serves every built-in provider — a preset is just
+//! a base URL + default model + an env-var fallback for the key.
+//!   [embedding]  required for compile & retrieval
+//!   [summary]    required for compile (summaries / doc_type / question)
+//!   [ask]        optional; falls back to [summary]
 //!
 //! Path defaults:
 //!   root          = ~/.homekb
@@ -16,8 +29,144 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+// ---------------------------------------------------------------------------
+// AI provider presets
+// ---------------------------------------------------------------------------
+
+/// Preset base URL per built-in provider (identical for embeddings and chat —
+/// all of them speak the OpenAI protocol, natively or via a compat layer).
+pub fn preset_base_url(provider: &str) -> Option<&'static str> {
+    match provider {
+        "openai" => Some("https://api.openai.com/v1"),
+        "gemini" => Some("https://generativelanguage.googleapis.com/v1beta/openai"),
+        "voyage" => Some("https://api.voyageai.com/v1"),
+        "cohere" => Some("https://api.cohere.ai/compatibility/v1"),
+        _ => None,
+    }
+}
+
+/// Env var consulted when a section has no `api_key`.
+pub fn preset_key_env(provider: &str) -> Option<&'static str> {
+    match provider {
+        "openai" => Some("OPENAI_API_KEY"),
+        "gemini" => Some("GEMINI_API_KEY"),
+        "voyage" => Some("VOYAGE_API_KEY"),
+        "cohere" => Some("COHERE_API_KEY"),
+        _ => None,
+    }
+}
+
+/// Default embedding model + native output dimension per provider.
+fn preset_embedding_model(provider: &str) -> Option<(&'static str, usize)> {
+    match provider {
+        "openai" => Some(("text-embedding-3-small", 1536)),
+        "gemini" => Some(("gemini-embedding-001", 3072)),
+        "voyage" => Some(("voyage-4", 1024)),
+        "cohere" => Some(("embed-v4.0", 1536)),
+        _ => None,
+    }
+}
+
+/// Default chat model per provider. Voyage/Cohere are embedding-only presets.
+fn preset_chat_model(provider: &str) -> Option<&'static str> {
+    match provider {
+        "openai" => Some("gpt-4o-mini"),
+        "gemini" => Some("gemini-flash-latest"),
+        _ => None,
+    }
+}
+
+/// Resolve the API key for a provider: explicit config value > provider env
+/// var > (openai only) the legacy `~/.config/openai/api_key` file kept for
+/// pre-provider installs. `custom` endpoints may legitimately have no key
+/// (self-hosted gateways) — they resolve to an empty string instead of
+/// erroring.
+pub fn resolve_provider_key(
+    provider: &str,
+    configured: Option<&str>,
+    section: &str,
+) -> Result<String> {
+    if let Some(k) = configured {
+        let trimmed = k.trim();
+        if !trimmed.is_empty() {
+            return Ok(trimmed.to_string());
+        }
+    }
+    if let Some(env) = preset_key_env(provider) {
+        if let Ok(k) = std::env::var(env) {
+            let trimmed = k.trim().to_string();
+            if !trimmed.is_empty() {
+                return Ok(trimmed);
+            }
+        }
+    }
+    if provider == "openai" {
+        // Legacy fallback (kb-compile era); kept so existing installs survive.
+        if let Ok(cfg_home) = xdg_config_home() {
+            let path = cfg_home.join("openai").join("api_key");
+            if path.is_file() {
+                if let Ok(raw) = std::fs::read_to_string(&path) {
+                    let key = raw.trim().to_string();
+                    if !key.is_empty() {
+                        return Ok(key);
+                    }
+                }
+            }
+        }
+    }
+    if provider == "custom" {
+        return Ok(String::new());
+    }
+    let env_hint = preset_key_env(provider)
+        .map(|e| format!(" or ${e}"))
+        .unwrap_or_default();
+    bail!(
+        "no API key for [{section}] (provider \"{provider}\"). \
+         Set `api_key` under [{section}] in config.toml{env_hint}."
+    )
+}
+
+/// Resolved `[embedding]` endpoint — everything the engine needs to embed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmbeddingEndpoint {
+    pub provider: String,
+    pub base_url: String,
+    /// Key from the config file only; use [`EmbeddingEndpoint::resolve_key`].
+    pub api_key: Option<String>,
+    pub model: String,
+    /// Expected vector dimension (validation only — no dimensions param is
+    /// ever sent; switching model/provider requires `rebuild --force`).
+    pub dim: usize,
+}
+
+impl EmbeddingEndpoint {
+    pub fn resolve_key(&self) -> Result<String> {
+        resolve_provider_key(&self.provider, self.api_key.as_deref(), "embedding")
+    }
+}
+
+/// Resolved chat endpoint (`[summary]`, or `[ask]` with summary fallback).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChatEndpoint {
+    pub provider: String,
+    pub base_url: String,
+    pub api_key: Option<String>,
+    pub model: String,
+    /// Which config section this endpoint came from (error messages).
+    pub section: &'static str,
+}
+
+impl ChatEndpoint {
+    pub fn resolve_key(&self) -> Result<String> {
+        resolve_provider_key(&self.provider, self.api_key.as_deref(), self.section)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// On-disk shapes
+// ---------------------------------------------------------------------------
+
 /// `[relay]` section — credentials written by `homekb register`.
-/// Parsed and persisted only; the network side lands in a later iteration.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RelayConfig {
     #[serde(default)]
@@ -30,7 +179,7 @@ pub struct RelayConfig {
     pub name: String,
 }
 
-/// `[serve]` section — HTTP RPC bind address + direct-mode credential
+/// `[serve]` section — HTTP RPC bind address + public-bind credential
 /// (docs/ARCHITECTURE.md "HTTP RPC (homekb serve)"). All optional:
 /// host defaults to 127.0.0.1, port to 8765; token (`hkd_…`) is required
 /// only for non-loopback binds and is auto-generated on first public bind.
@@ -44,9 +193,24 @@ pub struct ServeConfig {
     pub token: Option<String>,
 }
 
+/// On-disk shape of one AI endpoint section ([embedding]/[summary]/[ask]).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+struct AiSectionFile {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    api_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    dim: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    base_url: Option<String>,
+}
+
 /// On-disk shape of config.toml: everything optional.
-/// NOTE: the table sections (`serve`, `relay`) must stay the last fields —
-/// TOML requires tables after plain values when serializing.
+/// NOTE: the table sections must stay the last fields — TOML requires
+/// tables after plain values when serializing.
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct ConfigFile {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -54,9 +218,13 @@ struct ConfigFile {
     #[serde(skip_serializing_if = "Option::is_none")]
     notes_dir: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    drafts_dir: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     snapshot_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     live_db: Option<String>,
+    // Legacy top-level keys (pre-provider configs). Parsed and mapped onto
+    // [embedding]/[summary] with provider = "openai"; never written back.
     #[serde(skip_serializing_if = "Option::is_none")]
     openai_api_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -76,6 +244,12 @@ struct ConfigFile {
     #[serde(skip_serializing_if = "Option::is_none")]
     embed_batch_size: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    embedding: Option<AiSectionFile>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    summary: Option<AiSectionFile>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ask: Option<AiSectionFile>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     serve: Option<ServeConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     relay: Option<RelayConfig>,
@@ -86,15 +260,19 @@ struct ConfigFile {
 pub struct Config {
     pub root: PathBuf,
     pub notes_dir: PathBuf,
+    /// Unpublished drafts store (`<root>/drafts` by default). Never a scan
+    /// target; kept under the data root even when `notes_dir` is overridden.
+    pub drafts_dir: PathBuf,
     pub snapshot_path: PathBuf,
     pub live_db: PathBuf,
-    /// Key from the config file only. Use [`Config::openai_api_key`] to
-    /// resolve with the full env > file > ~/.config/openai/api_key order.
-    pub openai_api_key: Option<String>,
 
-    pub embedding_model: String,
-    pub embedding_dim: usize,
-    pub summarizer_model: String,
+    /// `[embedding]` — required for compile & retrieval.
+    pub embedding: EmbeddingEndpoint,
+    /// `[summary]` — required for compile (summaries, doc_type, question).
+    pub summary: ChatEndpoint,
+    /// `[ask]` — optional override; `ask_endpoint()` falls back to summary.
+    pub ask: Option<ChatEndpoint>,
+
     pub chunk_target_tokens: u32,
     pub chunk_hard_max: u32,
     pub summary_diff_threshold: f32,
@@ -110,11 +288,14 @@ pub struct Config {
 pub struct ConfigOverrides {
     pub root: Option<PathBuf>,
     pub notes_dir: Option<PathBuf>,
+    /// Legacy convenience: `init --openai-key` — applies to the openai
+    /// provider's [embedding]/[summary] sections.
     pub openai_api_key: Option<String>,
 }
 
 impl Config {
-    /// Load from `$HOMEKB_CONFIG` / `~/.config/homekb/config.toml`.
+    /// Load from `$HOMEKB_CONFIG` / `~/.homekb/config.toml` (legacy
+    /// `~/.config/homekb/config.toml` as read fallback).
     /// A missing file yields the all-default config (never an error).
     pub fn load() -> Result<Self> {
         Self::load_with(ConfigOverrides::default())
@@ -147,6 +328,14 @@ impl Config {
             .or_else(|| file.notes_dir.as_deref().map(|p| expand_tilde(p, &home)))
             .unwrap_or_else(|| root.join("notes"));
 
+        // Drafts live under the data root regardless of a custom notes_dir:
+        // they are unpublished working files, not part of the scanned corpus.
+        let drafts_dir = file
+            .drafts_dir
+            .as_deref()
+            .map(|p| expand_tilde(p, &home))
+            .unwrap_or_else(|| root.join("drafts"));
+
         let snapshot_path = file
             .snapshot_path
             .as_deref()
@@ -164,17 +353,35 @@ impl Config {
                     .join("live.db")
             });
 
+        let legacy_key = ov.openai_api_key.clone().or(file.openai_api_key.clone());
+
+        let embedding = resolve_embedding_section(
+            file.embedding.as_ref(),
+            legacy_key.as_deref(),
+            file.embedding_model.as_deref(),
+            file.embedding_dim,
+        )?;
+        let summary = resolve_chat_section(
+            file.summary.as_ref(),
+            "summary",
+            legacy_key.as_deref(),
+            file.summarizer_model.as_deref(),
+        )?
+        .context("[summary] resolution produced no endpoint")?;
+        let ask = match file.ask.as_ref() {
+            None => None,
+            Some(sec) => resolve_chat_section(Some(sec), "ask", None, None)?,
+        };
+
         Ok(Self {
             root,
             notes_dir,
+            drafts_dir,
             snapshot_path,
             live_db,
-            openai_api_key: ov.openai_api_key.or(file.openai_api_key),
-            embedding_model: file
-                .embedding_model
-                .unwrap_or_else(|| "text-embedding-3-small".into()),
-            embedding_dim: file.embedding_dim.unwrap_or(1536),
-            summarizer_model: file.summarizer_model.unwrap_or_else(|| "gpt-4o-mini".into()),
+            embedding,
+            summary,
+            ask,
             chunk_target_tokens: file.chunk_target_tokens.unwrap_or(800),
             chunk_hard_max: file.chunk_hard_max.unwrap_or(2000),
             summary_diff_threshold: file.summary_diff_threshold.unwrap_or(0.15),
@@ -185,11 +392,19 @@ impl Config {
         })
     }
 
-    /// Write the current configuration back to config.toml
-    /// (`$HOMEKB_CONFIG` or `~/.config/homekb/config.toml`).
-    /// Used by `init` and, later, `register`. Returns the path written.
+    /// The chat endpoint the ask pipeline uses: `[ask]` when configured,
+    /// else `[summary]` — so `homekb ask` works out of the box while
+    /// retrieval-only integrations never have to fill [ask] in.
+    pub fn ask_endpoint(&self) -> ChatEndpoint {
+        self.ask.clone().unwrap_or_else(|| self.summary.clone())
+    }
+
+    /// Write the current configuration to `$HOMEKB_CONFIG` or
+    /// `~/.homekb/config.toml` (always the new anchor — a legacy
+    /// `~/.config/homekb/config.toml` is renamed to `config.toml.migrated`
+    /// after a successful write). Returns the path written.
     pub fn save(&self) -> Result<PathBuf> {
-        let path = config_path()?;
+        let path = write_config_path()?;
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("create {}", parent.display()))?;
@@ -197,59 +412,58 @@ impl Config {
         let file = ConfigFile {
             root: Some(self.root.display().to_string()),
             notes_dir: Some(self.notes_dir.display().to_string()),
+            drafts_dir: Some(self.drafts_dir.display().to_string()),
             snapshot_path: Some(self.snapshot_path.display().to_string()),
             live_db: Some(self.live_db.display().to_string()),
-            openai_api_key: self.openai_api_key.clone(),
-            embedding_model: Some(self.embedding_model.clone()),
-            embedding_dim: Some(self.embedding_dim),
-            summarizer_model: Some(self.summarizer_model.clone()),
+            openai_api_key: None,
+            embedding_model: None,
+            embedding_dim: None,
+            summarizer_model: None,
             chunk_target_tokens: Some(self.chunk_target_tokens),
             chunk_hard_max: Some(self.chunk_hard_max),
             summary_diff_threshold: Some(self.summary_diff_threshold),
             embed_concurrency: Some(self.embed_concurrency),
             embed_batch_size: Some(self.embed_batch_size),
+            embedding: Some(AiSectionFile {
+                provider: Some(self.embedding.provider.clone()),
+                api_key: self.embedding.api_key.clone(),
+                model: Some(self.embedding.model.clone()),
+                dim: Some(self.embedding.dim),
+                base_url: (self.embedding.provider == "custom")
+                    .then(|| self.embedding.base_url.clone()),
+            }),
+            summary: Some(AiSectionFile {
+                provider: Some(self.summary.provider.clone()),
+                api_key: self.summary.api_key.clone(),
+                model: Some(self.summary.model.clone()),
+                dim: None,
+                base_url: (self.summary.provider == "custom")
+                    .then(|| self.summary.base_url.clone()),
+            }),
+            ask: self.ask.as_ref().map(|a| AiSectionFile {
+                provider: Some(a.provider.clone()),
+                api_key: a.api_key.clone(),
+                model: Some(a.model.clone()),
+                dim: None,
+                base_url: (a.provider == "custom").then(|| a.base_url.clone()),
+            }),
             serve: self.serve.clone(),
             relay: self.relay.clone(),
         };
         let body = toml::to_string_pretty(&file).context("serialize config")?;
         let content = format!("# homekb configuration — see docs/ARCHITECTURE.md\n{body}");
         std::fs::write(&path, content).with_context(|| format!("write {}", path.display()))?;
-        Ok(path)
-    }
 
-    /// Resolve the OpenAI API key.
-    ///
-    /// Lookup order:
-    ///   1. `$OPENAI_API_KEY`
-    ///   2. `openai_api_key` in config.toml
-    ///   3. `~/.config/openai/api_key` (honoring `$XDG_CONFIG_HOME`)
-    pub fn openai_api_key(&self) -> Result<String> {
-        if let Ok(k) = std::env::var("OPENAI_API_KEY") {
-            let trimmed = k.trim();
-            if !trimmed.is_empty() {
-                return Ok(trimmed.to_string());
+        // One-way migration: once the new anchor exists, retire the legacy
+        // file so no process reads stale state from it (best-effort).
+        if std::env::var("HOMEKB_CONFIG").map(|v| !v.is_empty()).unwrap_or(false) == false {
+            if let Ok(legacy) = legacy_config_path() {
+                if legacy.is_file() && legacy != path {
+                    let _ = std::fs::rename(&legacy, legacy.with_extension("toml.migrated"));
+                }
             }
         }
-        if let Some(k) = &self.openai_api_key {
-            let trimmed = k.trim();
-            if !trimmed.is_empty() {
-                return Ok(trimmed.to_string());
-            }
-        }
-        let path = xdg_config_home()?.join("openai").join("api_key");
-        if path.is_file() {
-            let raw = std::fs::read_to_string(&path)
-                .with_context(|| format!("read {}", path.display()))?;
-            let key = raw.trim().to_string();
-            if !key.is_empty() {
-                return Ok(key);
-            }
-        }
-        bail!(
-            "no OpenAI API key found. Set $OPENAI_API_KEY, put `openai_api_key` in config.toml, \
-             or write the key to {}",
-            path.display()
-        );
+        Ok(path)
     }
 
     /// Compile lock file, colocated with the live db (local disk, never synced).
@@ -261,20 +475,137 @@ impl Config {
     }
 }
 
-/// Path of the config file: `$HOMEKB_CONFIG` if set, else
-/// `$XDG_CONFIG_HOME/homekb/config.toml` (default `~/.config/homekb/config.toml`).
-/// The file does not have to exist.
+fn resolve_embedding_section(
+    sec: Option<&AiSectionFile>,
+    legacy_key: Option<&str>,
+    legacy_model: Option<&str>,
+    legacy_dim: Option<usize>,
+) -> Result<EmbeddingEndpoint> {
+    let default = AiSectionFile::default();
+    let sec = sec.unwrap_or(&default);
+    let provider = sec.provider.clone().unwrap_or_else(|| "openai".into());
+
+    let base_url = match sec.base_url.clone() {
+        Some(u) => u.trim_end_matches('/').to_string(),
+        None => preset_base_url(&provider)
+            .with_context(|| bad_provider_msg("embedding", &provider, true))?
+            .to_string(),
+    };
+    let (preset_model, preset_dim) = preset_embedding_model(&provider).unzip();
+    let model = sec
+        .model
+        .clone()
+        .or_else(|| legacy_model.map(str::to_string))
+        .or_else(|| preset_model.map(str::to_string))
+        .with_context(|| format!("[embedding] provider \"{provider}\" requires `model`"))?;
+    // A custom dim only makes sense with a custom/legacy model; when the
+    // model is the preset default, the preset dim is authoritative.
+    let dim = sec
+        .dim
+        .or(legacy_dim)
+        .or(preset_dim)
+        .with_context(|| format!("[embedding] provider \"{provider}\" requires `dim`"))?;
+    let api_key = sec
+        .api_key
+        .clone()
+        .or_else(|| (provider == "openai").then(|| legacy_key.map(str::to_string)).flatten());
+
+    Ok(EmbeddingEndpoint {
+        provider,
+        base_url,
+        api_key,
+        model,
+        dim,
+    })
+}
+
+fn resolve_chat_section(
+    sec: Option<&AiSectionFile>,
+    section: &'static str,
+    legacy_key: Option<&str>,
+    legacy_model: Option<&str>,
+) -> Result<Option<ChatEndpoint>> {
+    let default = AiSectionFile::default();
+    let sec = sec.unwrap_or(&default);
+    let provider = sec.provider.clone().unwrap_or_else(|| "openai".into());
+
+    let base_url = match sec.base_url.clone() {
+        Some(u) => u.trim_end_matches('/').to_string(),
+        None => preset_base_url(&provider)
+            .with_context(|| bad_provider_msg(section, &provider, false))?
+            .to_string(),
+    };
+    let model = sec
+        .model
+        .clone()
+        .or_else(|| legacy_model.map(str::to_string))
+        .or_else(|| preset_chat_model(&provider).map(str::to_string))
+        .with_context(|| {
+            format!("[{section}] provider \"{provider}\" has no default chat model — set `model`")
+        })?;
+    let api_key = sec
+        .api_key
+        .clone()
+        .or_else(|| (provider == "openai").then(|| legacy_key.map(str::to_string)).flatten());
+
+    Ok(Some(ChatEndpoint {
+        provider,
+        base_url,
+        api_key,
+        model,
+        section,
+    }))
+}
+
+fn bad_provider_msg(section: &str, provider: &str, embedding: bool) -> String {
+    let known = if embedding {
+        "openai | gemini | voyage | cohere | custom"
+    } else {
+        "openai | gemini | custom"
+    };
+    if provider == "custom" {
+        format!("[{section}] provider \"custom\" requires `base_url`")
+    } else {
+        format!("[{section}] unknown provider \"{provider}\" (known: {known})")
+    }
+}
+
+/// Read path of the config file: `$HOMEKB_CONFIG` if set, else the new
+/// anchor `~/.homekb/config.toml` when it exists, else the legacy
+/// `~/.config/homekb/config.toml` when it exists, else the new anchor.
 pub fn config_path() -> Result<PathBuf> {
     if let Ok(p) = std::env::var("HOMEKB_CONFIG") {
         if !p.is_empty() {
             return Ok(PathBuf::from(p));
         }
     }
+    let anchored = home_dir()?.join(".homekb").join("config.toml");
+    if anchored.is_file() {
+        return Ok(anchored);
+    }
+    let legacy = legacy_config_path()?;
+    if legacy.is_file() {
+        return Ok(legacy);
+    }
+    Ok(anchored)
+}
+
+/// Write path: `$HOMEKB_CONFIG` or always the new anchor (writes migrate).
+fn write_config_path() -> Result<PathBuf> {
+    if let Ok(p) = std::env::var("HOMEKB_CONFIG") {
+        if !p.is_empty() {
+            return Ok(PathBuf::from(p));
+        }
+    }
+    Ok(home_dir()?.join(".homekb").join("config.toml"))
+}
+
+fn legacy_config_path() -> Result<PathBuf> {
     Ok(xdg_config_home()?.join("homekb").join("config.toml"))
 }
 
 /// XDG-style config home: `$XDG_CONFIG_HOME` if set, else `$HOME/.config`.
-/// Used on every platform so config lives in the same place regardless of OS.
+/// Only used for legacy fallbacks now (old config location, openai key file).
 pub fn xdg_config_home() -> Result<PathBuf> {
     if let Ok(x) = std::env::var("XDG_CONFIG_HOME") {
         if !x.is_empty() {

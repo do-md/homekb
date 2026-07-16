@@ -47,20 +47,29 @@ pub fn engine_version(bin: &Path) -> Option<String> {
     Some(s.trim().trim_start_matches("homekb").trim().to_string())
 }
 
-/// config.toml path: $HOMEKB_CONFIG > $XDG_CONFIG_HOME/homekb/config.toml
-/// > ~/.config/homekb/config.toml (same lookup order as engine config.rs).
+/// config.toml path: $HOMEKB_CONFIG > ~/.homekb/config.toml (new anchor,
+/// when it exists) > $XDG_CONFIG_HOME/homekb/config.toml (legacy fallback)
+/// > ~/.homekb/config.toml (same lookup order as engine config.rs).
 pub fn config_path() -> PathBuf {
     if let Ok(p) = std::env::var("HOMEKB_CONFIG") {
         if !p.is_empty() {
             return PathBuf::from(p);
         }
     }
+    let anchored = home_dir().join(".homekb").join("config.toml");
+    if anchored.is_file() {
+        return anchored;
+    }
     let xdg = std::env::var("XDG_CONFIG_HOME")
         .ok()
         .filter(|s| !s.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| home_dir().join(".config"));
-    xdg.join("homekb").join("config.toml")
+    let legacy = xdg.join("homekb").join("config.toml");
+    if legacy.is_file() {
+        return legacy;
+    }
+    anchored
 }
 
 fn expand_tilde(p: &str) -> PathBuf {
@@ -103,9 +112,19 @@ pub fn read_config() -> ConfigSummary {
         .map(expand_tilde)
         .unwrap_or_else(|| root.join("notes"));
 
-    // Whether the key is reachable by the engine: config field or ~/.config/openai/api_key fallback.
-    // (OPENAI_API_KEY env var is typically absent in GUI processes and is not counted.)
-    let key_in_config = str_of("openai_api_key").is_some();
+    // Whether a key is reachable by the engine: [embedding]/[summary] api_key,
+    // the legacy top-level openai_api_key, or the ~/.config/openai/api_key
+    // fallback. (Env vars are typically absent in GUI processes; not counted.)
+    let section_key = |name: &str| {
+        tbl.get(name)
+            .and_then(|v| v.as_table())
+            .and_then(|t| t.get("api_key"))
+            .and_then(|v| v.as_str())
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false)
+    };
+    let key_in_config =
+        str_of("openai_api_key").is_some() || section_key("embedding") || section_key("summary");
     let key_in_fallback = {
         let xdg = std::env::var("XDG_CONFIG_HOME")
             .ok()

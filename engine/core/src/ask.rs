@@ -22,7 +22,9 @@ use async_openai::{
         CreateChatCompletionRequestArgs,
     },
 };
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc;
 
 use crate::api::{Hit, SearchOptions, embed_search_query, list_types, search_with_vector};
 use crate::config::Config;
@@ -32,6 +34,16 @@ const CHUNK_LIMIT: usize = 24;
 const FULL_LIMIT: usize = 6;
 /// Cap on the assembled context block sent to the synthesizer.
 const CONTEXT_BUDGET_CHARS: usize = 60_000;
+/// Answer returned when retrieval finds nothing relevant in the KB.
+const EMPTY_KB_ANSWER: &str = "No relevant content found in the knowledge base for this question.";
+/// Synthesizer system prompt — shared by the one-shot and streaming paths.
+const SYNTH_SYSTEM: &str = "You answer questions about the user's personal knowledge base.\n\
+    Rules:\n\
+    - Use ONLY the provided sources; if they don't contain the answer, say so plainly.\n\
+    - Cite sources inline like [1][2] matching the source numbers.\n\
+    - Mind recency: snippets may describe things that changed over time.\n\
+    - Answer in the same language as the question.\n\
+    - Be direct and concise; no preamble.";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -48,6 +60,18 @@ pub struct AskOutput {
     pub hits: Vec<Hit>,
 }
 
+/// One frame on the streaming ask channel (docs/ARCHITECTURE.md "Streaming answer channel").
+/// `Delta`s carry incremental answer text as the synthesizer produces tokens; exactly one
+/// terminal `Done` follows, carrying the source metadata (citations mirror the `[n]` numbering).
+#[derive(Debug, Clone)]
+pub enum AskStreamEvent {
+    Delta(String),
+    Done {
+        citations: Vec<Citation>,
+        hits: Vec<Hit>,
+    },
+}
+
 #[derive(Debug, Default, Deserialize)]
 struct Route {
     doc_type: Option<String>,
@@ -57,24 +81,41 @@ struct Route {
 
 type OpenAIClient = Client<async_openai::config::OpenAIConfig>;
 
+/// Chat client for the ask pipeline (route + synthesize): the `[ask]`
+/// endpoint when configured, else `[summary]` (docs/ARCHITECTURE.md
+/// "config.toml" — [ask] is optional so retrieval-only integrations never
+/// need it, yet `homekb ask` works out of the box).
 fn client(config: &Config) -> Result<OpenAIClient> {
-    let key = config.openai_api_key()?;
-    Ok(crate::ai::embedder::shared_client(&key))
+    let ep = config.ask_endpoint();
+    let key = ep.resolve_key()?;
+    Ok(crate::ai::embedder::shared_client(&ep.base_url, &key))
 }
 
-pub async fn ask(config: &Config, question: &str) -> Result<AskOutput> {
-    let question = question.trim();
-    anyhow::ensure!(!question.is_empty(), "question is empty");
-    let cli = client(config)?;
+/// The retrieval half of ask, shared by the one-shot and streaming paths:
+/// route ∥ embed → dual-pool KNN → per-source context block. `Ok(None)` means
+/// nothing relevant was found (the caller answers with the empty-KB message).
+struct Retrieval {
+    /// Source documents in context order (first hit rank); consumed into `hits`.
+    groups: Vec<SourceGroup>,
+    /// Numbered `[n]` context block sent to the synthesizer.
+    context_block: String,
+    /// How many sources fit the budget — `citations` mirror exactly this many.
+    cited: usize,
+}
 
-    // 1. route ∥ embed — the query vector depends only on the question string,
-    //    so embedding runs concurrently with routing to hide the route latency.
-    //    A route failure is non-fatal (degrades to unfiltered chunk search);
-    //    an embed failure is fatal.
+async fn retrieve(
+    cli: &OpenAIClient,
+    config: &Config,
+    question: &str,
+) -> Result<Option<Retrieval>> {
+    // route ∥ embed — the query vector depends only on the question string,
+    // so embedding runs concurrently with routing to hide the route latency.
+    // A route failure is non-fatal (degrades to unfiltered chunk search);
+    // an embed failure is fatal.
     let types = list_types(config).unwrap_or_default();
     let type_names: Vec<&str> = types.iter().map(|t| t.doc_type.as_str()).collect();
     let (route, vec) = tokio::join!(
-        infer_route(&cli, config, question, &type_names),
+        infer_route(cli, config, question, &type_names),
         embed_search_query(config, question),
     );
     let route = route.unwrap_or_default();
@@ -85,7 +126,6 @@ pub async fn ask(config: &Config, question: &str) -> Result<AskOutput> {
         .doc_type
         .filter(|t| types.iter().any(|k| &k.doc_type == t));
 
-    // 2. retrieve (local KNN with the precomputed query vector)
     let opts = SearchOptions {
         query: question.to_string(),
         limit: if route.needs_full { FULL_LIMIT } else { CHUNK_LIMIT },
@@ -96,35 +136,86 @@ pub async fn ask(config: &Config, question: &str) -> Result<AskOutput> {
     };
     let out = search_with_vector(config, &opts, &vec)?;
     if out.results.is_empty() {
-        return Ok(AskOutput {
-            answer: "No relevant content found in the knowledge base for this question.".to_string(),
-            citations: vec![],
-            hits: vec![],
-        });
+        return Ok(None);
     }
 
-    // 3. synthesize. The context numbers *source documents*, not snippets,
-    //    so the answer's inline [n] markers point at sources.
+    // The context numbers *source documents*, not snippets, so the answer's
+    // inline [n] markers point at sources.
     let groups = group_sources(out.results);
     let (context_block, cited) = build_context(&groups);
-    let answer = synthesize(&cli, config, question, &context_block).await?;
+    Ok(Some(Retrieval {
+        groups,
+        context_block,
+        cited,
+    }))
+}
 
-    // Citations align 1:1 with the [n] numbering: only sources that
-    // actually made it into the context block, in context order.
-    let citations: Vec<Citation> = groups
+/// Citations align 1:1 with the `[n]` numbering: only sources that actually made
+/// it into the context block, in context order. Borrows `groups` so the caller
+/// can still consume them into `hits` afterwards.
+fn citations_of(r: &Retrieval) -> Vec<Citation> {
+    r.groups
         .iter()
-        .take(cited)
+        .take(r.cited)
         .map(|g| Citation {
             path: g.path.clone(),
             title: g.title.clone(),
         })
-        .collect();
+        .collect()
+}
 
+/// One-shot ask: blocking synthesize, whole answer in one `AskOutput`.
+/// Used by the local MCP, `homekb ask`, and any non-streaming caller.
+pub async fn ask(config: &Config, question: &str) -> Result<AskOutput> {
+    let question = question.trim();
+    anyhow::ensure!(!question.is_empty(), "question is empty");
+    let cli = client(config)?;
+
+    let Some(r) = retrieve(&cli, config, question).await? else {
+        return Ok(AskOutput {
+            answer: EMPTY_KB_ANSWER.to_string(),
+            citations: vec![],
+            hits: vec![],
+        });
+    };
+
+    let answer = synthesize(&cli, config, question, &r.context_block).await?;
+    let citations = citations_of(&r);
     Ok(AskOutput {
         answer,
         citations,
-        hits: groups.into_iter().map(SourceGroup::into_hit).collect(),
+        hits: r.groups.into_iter().map(SourceGroup::into_hit).collect(),
     })
+}
+
+/// Streaming ask (docs/ARCHITECTURE.md "Streaming answer channel"): identical
+/// retrieval, but synthesize streams token chunks as `AskStreamEvent::Delta`,
+/// followed by exactly one terminal `AskStreamEvent::Done` with the source
+/// metadata. Sends on `tx`; a closed receiver (client gone) stops synthesis.
+pub async fn ask_stream(
+    config: &Config,
+    question: &str,
+    tx: &mpsc::UnboundedSender<AskStreamEvent>,
+) -> Result<()> {
+    let question = question.trim();
+    anyhow::ensure!(!question.is_empty(), "question is empty");
+    let cli = client(config)?;
+
+    let Some(r) = retrieve(&cli, config, question).await? else {
+        let _ = tx.send(AskStreamEvent::Delta(EMPTY_KB_ANSWER.to_string()));
+        let _ = tx.send(AskStreamEvent::Done {
+            citations: vec![],
+            hits: vec![],
+        });
+        return Ok(());
+    };
+
+    synthesize_stream(&cli, config, question, &r.context_block, tx).await?;
+
+    let citations = citations_of(&r);
+    let hits = r.groups.into_iter().map(SourceGroup::into_hit).collect();
+    let _ = tx.send(AskStreamEvent::Done { citations, hits });
+    Ok(())
 }
 
 /// All hits of one source document, in fused score order (best first).
@@ -190,7 +281,7 @@ async fn infer_route(
         types.join(", ")
     );
     let req = CreateChatCompletionRequestArgs::default()
-        .model(&config.summarizer_model)
+        .model(config.ask_endpoint().model)
         .temperature(0.0)
         .max_tokens(60u32)
         .messages([
@@ -247,27 +338,21 @@ fn build_context(groups: &[SourceGroup]) -> (String, usize) {
     (out, cited)
 }
 
-async fn synthesize(
-    cli: &OpenAIClient,
+/// Build the synthesize chat request (shared by the one-shot and streaming paths).
+/// `create_stream` flips `stream` on itself, so the builder leaves it unset.
+fn synthesize_request(
     config: &Config,
     question: &str,
     context_block: &str,
-) -> Result<String> {
-    let system = "You answer questions about the user's personal knowledge base.\n\
-        Rules:\n\
-        - Use ONLY the provided sources; if they don't contain the answer, say so plainly.\n\
-        - Cite sources inline like [1][2] matching the source numbers.\n\
-        - Mind recency: snippets may describe things that changed over time.\n\
-        - Answer in the same language as the question.\n\
-        - Be direct and concise; no preamble.";
+) -> Result<async_openai::types::chat::CreateChatCompletionRequest> {
     let user = format!("# Sources\n\n{context_block}\n# Question\n\n{question}");
-    let req = CreateChatCompletionRequestArgs::default()
-        .model(&config.summarizer_model)
+    Ok(CreateChatCompletionRequestArgs::default()
+        .model(config.ask_endpoint().model)
         .temperature(0.3)
         .max_tokens(1200u32)
         .messages([
             ChatCompletionRequestSystemMessageArgs::default()
-                .content(system)
+                .content(SYNTH_SYSTEM)
                 .build()?
                 .into(),
             ChatCompletionRequestUserMessageArgs::default()
@@ -275,7 +360,16 @@ async fn synthesize(
                 .build()?
                 .into(),
         ])
-        .build()?;
+        .build()?)
+}
+
+async fn synthesize(
+    cli: &OpenAIClient,
+    config: &Config,
+    question: &str,
+    context_block: &str,
+) -> Result<String> {
+    let req = synthesize_request(config, question, context_block)?;
     let resp = cli.chat().create(req).await?;
     let text = resp
         .choices
@@ -284,6 +378,35 @@ async fn synthesize(
         .and_then(|c| c.message.content)
         .context("no choices in chat completion")?;
     Ok(text.trim().to_string())
+}
+
+/// Streaming synthesize: forwards each OpenAI token chunk as an `AskStreamEvent::Delta`.
+/// Stops early (Ok) if the receiver is dropped — that means the client disconnected.
+async fn synthesize_stream(
+    cli: &OpenAIClient,
+    config: &Config,
+    question: &str,
+    context_block: &str,
+    tx: &mpsc::UnboundedSender<AskStreamEvent>,
+) -> Result<()> {
+    let req = synthesize_request(config, question, context_block)?;
+    let mut stream = cli.chat().create_stream(req).await?;
+    while let Some(item) = stream.next().await {
+        let resp = item?;
+        let Some(choice) = resp.choices.into_iter().next() else {
+            continue;
+        };
+        if let Some(content) = choice.delta.content {
+            if content.is_empty() {
+                continue;
+            }
+            // Receiver gone (client disconnected) → stop synthesizing.
+            if tx.send(AskStreamEvent::Delta(content)).is_err() {
+                break;
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

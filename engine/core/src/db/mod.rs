@@ -20,13 +20,13 @@ const SCHEMA_VERSION: &str = "3";
 /// Open or create the live database, run migrations, ensure vec0 tables
 /// exist at the configured dimension, and verify model coherence.
 ///
-/// `embedding_model` / `embedding_dim` are checked against any previously
-/// stored values; a mismatch returns an error so the user can decide
-/// whether to `rebuild --force`.
+/// The `[embedding]` endpoint's provider / model / dim are checked against
+/// any previously stored values; a mismatch returns an error so the user can
+/// decide whether to `rebuild --force` (switching provider or model changes
+/// the vector space, exactly like a model change always did).
 pub fn open_live(
     path: &Path,
-    embedding_model: &str,
-    embedding_dim: usize,
+    embedding: &crate::config::EmbeddingEndpoint,
     summarizer_model: &str,
 ) -> Result<Connection> {
     vec_ext::ensure_registered();
@@ -57,10 +57,10 @@ pub fn open_live(
         CREATE VIRTUAL TABLE IF NOT EXISTS vec_docs   USING vec0(embedding FLOAT[{dim}]);
         CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(embedding FLOAT[{dim}]);
         "#,
-        dim = embedding_dim,
+        dim = embedding.dim,
     ))?;
 
-    verify_or_seed_meta(&conn, embedding_model, embedding_dim, summarizer_model)?;
+    verify_or_seed_meta(&conn, embedding, summarizer_model)?;
 
     // Indexes that reference columns added by migrations live here,
     // not in schema.sql, so they only run after migration guarantees
@@ -112,12 +112,20 @@ pub fn open_snapshot(path: &Path) -> Result<Connection> {
 /// Metadata a search needs from the snapshot before embedding the query.
 #[derive(Debug, Clone)]
 pub struct SnapshotMeta {
+    /// Provider that produced the index vectors ("openai" when the snapshot
+    /// predates provider support).
+    pub embedding_provider: String,
+    /// Base URL recorded at compile time (None on pre-provider snapshots).
+    pub embedding_base_url: Option<String>,
     pub embedding_model: String,
     pub embedding_dim: usize,
     pub generation: i64,
 }
 
 pub fn read_snapshot_meta(conn: &Connection) -> Result<SnapshotMeta> {
+    let embedding_provider =
+        read_meta(conn, "embedding_provider")?.unwrap_or_else(|| "openai".into());
+    let embedding_base_url = read_meta(conn, "embedding_base_url")?;
     let embedding_model = read_meta(conn, "embedding_model")?
         .context("snapshot missing embedding_model metadata")?;
     let embedding_dim: usize = read_meta(conn, "embedding_dim")?
@@ -128,6 +136,8 @@ pub fn read_snapshot_meta(conn: &Connection) -> Result<SnapshotMeta> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
     Ok(SnapshotMeta {
+        embedding_provider,
+        embedding_base_url,
         embedding_model,
         embedding_dim,
         generation,
@@ -136,10 +146,11 @@ pub fn read_snapshot_meta(conn: &Connection) -> Result<SnapshotMeta> {
 
 fn verify_or_seed_meta(
     conn: &Connection,
-    embedding_model: &str,
-    embedding_dim: usize,
+    embedding: &crate::config::EmbeddingEndpoint,
     summarizer_model: &str,
 ) -> Result<()> {
+    let embedding_model = &embedding.model;
+    let embedding_dim = embedding.dim;
     let stored_version = read_meta(conn, "schema_version")?;
     match stored_version.as_deref() {
         None => write_meta(conn, "schema_version", SCHEMA_VERSION)?,
@@ -163,8 +174,22 @@ fn verify_or_seed_meta(
         ),
     }
 
+    // Provider participates in vector-space identity exactly like the model:
+    // a pre-provider db (no key stored) is treated as "openai".
+    let prev_provider = read_meta(conn, "embedding_provider")?.unwrap_or_else(|| "openai".into());
+    if read_meta(conn, "embedding_model")?.is_some() && prev_provider != embedding.provider {
+        bail!(
+            "embedding provider changed (db: {prev_provider}, config: {}). \
+             Run `homekb rebuild --force` to reindex with the new provider.",
+            embedding.provider
+        );
+    }
+    write_meta(conn, "embedding_provider", &embedding.provider)?;
+    // Base URL is informational (needed at query time for custom providers).
+    write_meta(conn, "embedding_base_url", &embedding.base_url)?;
+
     if let Some(prev) = read_meta(conn, "embedding_model")? {
-        if prev != embedding_model {
+        if &prev != embedding_model {
             bail!(
                 "embedding_model changed (db: {prev}, config: {embedding_model}). \
                  Run `homekb rebuild --force` to reindex with the new model."

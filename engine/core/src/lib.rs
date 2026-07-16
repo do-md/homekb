@@ -29,7 +29,10 @@ pub use api::{
     list_types, rebuild, reindex, search, status,
 };
 pub use ask::{AskOutput, AskStreamEvent, Citation, ask, ask_stream};
-pub use config::{Config, ConfigOverrides, RelayConfig, ServeConfig, config_path};
+pub use config::{
+    ChatEndpoint, Config, ConfigOverrides, EmbeddingEndpoint, RelayConfig, ServeConfig,
+    config_path,
+};
 pub use drafts::{DraftMeta, SavedDraft, delete_draft, list_drafts, save_draft};
 pub use notes::{
     CreatedNote, DocMeta, NoteContent, create_note, list_notes, read_note, write_note,

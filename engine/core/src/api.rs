@@ -120,6 +120,7 @@ pub struct StatusReport {
     pub last_compile_at: i64,
     pub last_compile_host: String,
     pub embedding_model: String,
+    pub embedding_provider: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -166,12 +167,7 @@ pub async fn reindex(cfg: &Config, quiet: bool) -> Result<ReindexReport> {
         tracing::info!("adopted newer snapshot from {}", cfg.snapshot_path.display());
     }
 
-    let mut conn = db::open_live(
-        &cfg.live_db,
-        &cfg.embedding_model,
-        cfg.embedding_dim,
-        &cfg.summarizer_model,
-    )?;
+    let mut conn = db::open_live(&cfg.live_db, &cfg.embedding, &cfg.summary.model)?;
 
     let fs_entries = scanner::scan(&cfg.notes_dir);
     if !quiet {
@@ -227,16 +223,18 @@ pub async fn reindex(cfg: &Config, quiet: bool) -> Result<ReindexReport> {
         reconciler::apply_rename(&conn, &cfg.notes_dir, old, new)?;
     }
 
-    let api_key = cfg.openai_api_key()?;
+    let embed_key = cfg.embedding.resolve_key()?;
     let embedder = Embedder::new(
-        &api_key,
-        cfg.embedding_model.clone(),
-        cfg.embedding_dim,
+        &embed_key,
+        &cfg.embedding.base_url,
+        cfg.embedding.model.clone(),
+        cfg.embedding.dim,
         cfg.embed_concurrency,
         cfg.embed_batch_size,
     );
-    let summarizer = Summarizer::new(&api_key, cfg.summarizer_model.clone());
-    let categorizer = Categorizer::new(&api_key, cfg.summarizer_model.clone());
+    let summary_key = cfg.summary.resolve_key()?;
+    let summarizer = Summarizer::new(&summary_key, &cfg.summary.base_url, cfg.summary.model.clone());
+    let categorizer = Categorizer::new(&summary_key, &cfg.summary.base_url, cfg.summary.model.clone());
 
     // Backfill any docs that still miss doc_type (v1→v2 migration) or
     // suggested_question (v2→v3 migration) but are otherwise up to date.
@@ -296,12 +294,7 @@ pub async fn reindex(cfg: &Config, quiet: bool) -> Result<ReindexReport> {
 /// and reset generation. The next `reindex` starts from scratch.
 pub fn rebuild(cfg: &Config) -> Result<()> {
     let _lock = acquire_lock(&cfg.lock_path())?;
-    let conn = db::open_live(
-        &cfg.live_db,
-        &cfg.embedding_model,
-        cfg.embedding_dim,
-        &cfg.summarizer_model,
-    )?;
+    let conn = db::open_live(&cfg.live_db, &cfg.embedding, &cfg.summary.model)?;
     db::truncate_all(&conn)?;
     Ok(())
 }
@@ -335,8 +328,44 @@ pub async fn embed_search_query(cfg: &Config, query: &str) -> Result<Vec<f32>> {
         meta.embedding_model,
         meta.embedding_dim,
     );
-    let api_key = cfg.openai_api_key()?;
-    embedder::embed_query(&api_key, &meta.embedding_model, query, meta.embedding_dim).await
+    // The snapshot's vector space is authoritative: embed the query with the
+    // provider/model recorded at compile time, not whatever the config says
+    // now (a config switch without rebuild must not silently cross spaces).
+    let (base_url, api_key) = query_embedding_endpoint(cfg, &meta)?;
+    embedder::embed_query(&api_key, &base_url, &meta.embedding_model, query, meta.embedding_dim)
+        .await
+}
+
+/// Resolve base URL + key for embedding a query against a snapshot compiled
+/// by `meta.embedding_provider`. When the current `[embedding]` config still
+/// points at the same provider, its key (and any base_url override) applies;
+/// otherwise fall back to the snapshot's recorded base URL / provider preset
+/// + env key, and warn about the mismatch.
+fn query_embedding_endpoint(
+    cfg: &Config,
+    meta: &db::SnapshotMeta,
+) -> Result<(String, String)> {
+    if cfg.embedding.provider == meta.embedding_provider {
+        return Ok((cfg.embedding.base_url.clone(), cfg.embedding.resolve_key()?));
+    }
+    tracing::warn!(
+        "config [embedding] provider is \"{}\" but the snapshot was compiled with \"{}\"; \
+         querying with the snapshot's provider (run `homekb rebuild --force` + `reindex` to switch)",
+        cfg.embedding.provider,
+        meta.embedding_provider
+    );
+    let base_url = meta
+        .embedding_base_url
+        .clone()
+        .or_else(|| crate::config::preset_base_url(&meta.embedding_provider).map(String::from))
+        .with_context(|| {
+            format!(
+                "snapshot provider \"{}\" has no recorded base URL",
+                meta.embedding_provider
+            )
+        })?;
+    let key = crate::config::resolve_provider_key(&meta.embedding_provider, None, "embedding")?;
+    Ok((base_url, key))
 }
 
 /// Two-pool KNN + RRF with a precomputed query vector. Purely local.
@@ -525,6 +554,8 @@ pub fn status(cfg: &Config) -> Result<StatusReport> {
             .unwrap_or(0),
         last_compile_host: db::read_meta(&conn, "last_compile_host")?.unwrap_or_default(),
         embedding_model: db::read_meta(&conn, "embedding_model")?.unwrap_or_default(),
+        embedding_provider: db::read_meta(&conn, "embedding_provider")?
+            .unwrap_or_else(|| "openai".into()),
     })
 }
 
@@ -576,12 +607,13 @@ pub fn suggestions(cfg: &Config, limit: usize) -> Result<Vec<Suggestion>> {
 // ---------------------------------------------------------------------------
 
 /// Create the user-side directory tree:
-/// notes/, assets/images/, assets/attachments/, index/ (snapshot parent).
+/// notes/, drafts/, assets/images/, assets/attachments/, index/ (snapshot parent).
 pub fn ensure_dirs(cfg: &Config) -> Result<()> {
     let mk = |p: &Path| -> Result<()> {
         std::fs::create_dir_all(p).with_context(|| format!("create {}", p.display()))
     };
     mk(&cfg.notes_dir)?;
+    mk(&cfg.drafts_dir)?;
     mk(&cfg.root.join("assets").join("images"))?;
     mk(&cfg.root.join("assets").join("attachments"))?;
     if let Some(parent) = cfg.snapshot_path.parent() {

@@ -1,30 +1,56 @@
-//! OpenAI embeddings client with batching, concurrency limiting, and retry,
-//! plus a lightweight single-query embedder used by search (from kb-query).
+//! OpenAI-protocol embeddings client with batching, concurrency limiting,
+//! and retry, plus a lightweight single-query embedder used by search.
+//!
+//! Provider-agnostic: every built-in provider (openai / gemini / voyage /
+//! cohere) and any `custom` endpoint speaks the OpenAI wire shape, so one
+//! client type serves them all — only `base_url` + `api_key` differ
+//! (docs/ARCHITECTURE.md "AI provider presets").
 
 use anyhow::{Context, Result, bail};
 use async_openai::{
     Client,
     types::embeddings::{CreateEmbeddingRequestArgs, EmbeddingInput},
 };
-use std::sync::{Arc, OnceLock};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock};
 use tokio::sync::Semaphore;
 
 type OpenAIClient = Client<async_openai::config::OpenAIConfig>;
 
-static SHARED_CLIENT: OnceLock<OpenAIClient> = OnceLock::new();
+/// Lenient embeddings response for the BYOT path: some OpenAI-compatible
+/// providers (e.g. Gemini's compat layer) omit per-datum fields like `index`
+/// that the strict typed response requires. Data order is positional on
+/// every known provider, which is all the callers rely on.
+#[derive(Debug, serde::Deserialize)]
+struct LenientEmbeddingResponse {
+    data: Vec<LenientEmbedding>,
+}
 
-/// Process-wide OpenAI client for one-off calls (query embedding, ask's
-/// route/synthesize). Sharing it keeps the underlying reqwest connection
-/// pool alive across requests in long-lived processes (serve / tunnel),
-/// saving a DNS + TLS handshake per call. The API key is captured on first
-/// use; a changed key requires a process restart.
-pub fn shared_client(api_key: &str) -> OpenAIClient {
-    SHARED_CLIENT
-        .get_or_init(|| {
-            let cfg = async_openai::config::OpenAIConfig::default().with_api_key(api_key);
-            Client::with_config(cfg)
-        })
+#[derive(Debug, serde::Deserialize)]
+struct LenientEmbedding {
+    embedding: Vec<f32>,
+}
+
+static SHARED_CLIENTS: OnceLock<Mutex<HashMap<(String, String), OpenAIClient>>> = OnceLock::new();
+
+/// Process-wide client cache for one-off calls (query embedding, ask's
+/// route/synthesize). Keyed by (base_url, api_key) since different config
+/// sections may point at different providers. Sharing keeps the underlying
+/// reqwest connection pool alive across requests in long-lived processes
+/// (serve / tunnel), saving a DNS + TLS handshake per call.
+pub fn shared_client(base_url: &str, api_key: &str) -> OpenAIClient {
+    let map = SHARED_CLIENTS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut m = map.lock().expect("client cache poisoned");
+    m.entry((base_url.to_string(), api_key.to_string()))
+        .or_insert_with(|| build_client(base_url, api_key))
         .clone()
+}
+
+fn build_client(base_url: &str, api_key: &str) -> OpenAIClient {
+    let cfg = async_openai::config::OpenAIConfig::default()
+        .with_api_base(base_url)
+        .with_api_key(api_key);
+    Client::with_config(cfg)
 }
 
 pub struct Embedder {
@@ -38,14 +64,14 @@ pub struct Embedder {
 impl Embedder {
     pub fn new(
         api_key: &str,
+        base_url: &str,
         model: impl Into<String>,
         expected_dim: usize,
         concurrency: usize,
         batch_size: usize,
     ) -> Self {
-        let cfg = async_openai::config::OpenAIConfig::default().with_api_key(api_key);
         Self {
-            client: Client::with_config(cfg),
+            client: build_client(base_url, api_key),
             model: model.into(),
             expected_dim,
             batch_size,
@@ -101,15 +127,17 @@ impl Embedder {
 }
 
 /// Embed a single query string. No batching, no semaphore — search embeds
-/// exactly one string per invocation. `model` / `expected_dim` come from the
-/// snapshot metadata so the query vector always matches the index.
+/// exactly one string per invocation. `model` / `expected_dim` / `base_url`
+/// come from the snapshot metadata so the query vector always matches the
+/// index's vector space.
 pub async fn embed_query(
     api_key: &str,
+    base_url: &str,
     model: &str,
     query: &str,
     expected_dim: usize,
 ) -> Result<Vec<f32>> {
-    let client = shared_client(api_key);
+    let client = shared_client(base_url, api_key);
 
     let mut attempt = 0u32;
     loop {
@@ -117,7 +145,9 @@ pub async fn embed_query(
             .model(model)
             .input(EmbeddingInput::String(query.to_string()))
             .build()?;
-        match client.embeddings().create(req).await {
+        let attempt_resp: Result<LenientEmbeddingResponse, _> =
+            client.embeddings().create_byot(req).await;
+        match attempt_resp {
             Ok(resp) => {
                 let vec = resp
                     .data
@@ -161,7 +191,9 @@ async fn embed_one_batch(
             .input(EmbeddingInput::StringArray(texts.clone()))
             .build()?;
 
-        match client.embeddings().create(req).await {
+        let attempt_resp: Result<LenientEmbeddingResponse, _> =
+            client.embeddings().create_byot(req).await;
+        match attempt_resp {
             Ok(resp) => {
                 let mut out = Vec::with_capacity(resp.data.len());
                 for d in resp.data {

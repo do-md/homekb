@@ -59,8 +59,10 @@ pub struct Summarizer {
 }
 
 impl Summarizer {
-    pub fn new(api_key: &str, model: impl Into<String>) -> Self {
-        let cfg = async_openai::config::OpenAIConfig::default().with_api_key(api_key);
+    pub fn new(api_key: &str, base_url: &str, model: impl Into<String>) -> Self {
+        let cfg = async_openai::config::OpenAIConfig::default()
+            .with_api_base(base_url)
+            .with_api_key(api_key);
         Self {
             client: Client::with_config(cfg),
             model: model.into(),

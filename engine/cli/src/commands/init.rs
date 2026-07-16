@@ -23,9 +23,10 @@ pub fn run(root: Option<PathBuf>, notes: Option<PathBuf>, openai_key: Option<Str
     println!();
     println!("next steps:");
     println!("  1. drop .md notes into {}", cfg.notes_dir.display());
-    if cfg.openai_api_key.is_none() && std::env::var("OPENAI_API_KEY").is_err() {
-        println!("  2. provide an OpenAI key: $OPENAI_API_KEY, `openai_api_key` in config.toml,");
-        println!("     or ~/.config/openai/api_key");
+    if cfg.embedding.resolve_key().is_err() || cfg.summary.resolve_key().is_err() {
+        println!("  2. configure AI providers in {}:", config_file.display());
+        println!("     [embedding] + [summary] (both required; provider openai|gemini|voyage|cohere|custom)");
+        println!("     [ask] is optional and falls back to [summary]");
         println!("  3. run `homekb reindex` to build the index");
         println!("  4. try `homekb query \"...\"`");
     } else {

@@ -8,7 +8,7 @@
 
 - Power users: install only the engine (single binary `homekb`) and get the full feature set — compile, retrieval, integration with various Agents (`homekb mcp`), and mobile pairing (`homekb register/pair/tunnel`). No client required.
 - Regular users: download the desktop client (Tauri). The client is a **pure renderer**: on startup it detects the local engine; if not installed → auto-install (the engine binary is bundled inside the app and installed to `~/.local/bin`); if already installed → connect directly (spawn `homekb serve` over local HTTP RPC).
-- Because the client shares the engine's environment, it handles what remote clients cannot: installing the engine, assisting in establishing connections (generating pairing codes / QR codes), editing configuration (OpenAI key), and managing the tunnel daemon.
+- Because the client shares the engine's environment, it handles what remote clients cannot: installing the engine, assisting in establishing connections (generating pairing codes / QR codes), editing configuration (AI provider keys), and managing the tunnel daemon.
 - **The same RPC protocol is reused everywhere**: local HTTP (`homekb serve`) and connection-service tunnel forwarding. The UI is written once; only the base URL and authentication method change.
 
 ## Overview
@@ -73,7 +73,7 @@ The client pairing screen never mentions "relay": the user scans a QR or types a
 | `~/.homekb/assets/attachments/` | Other attachments |
 | `~/.homekb/index/index.db` | Index snapshot (sqlite-vec, single-file export, safe for cloud-drive sync) |
 | `~/Library/Application Support/homekb/live.db` | Compile working DB (WAL, **kept out of the data root**) |
-| `~/.config/homekb/config.toml` | Configuration (OpenAI key, path overrides, relay credentials) |
+| `~/.homekb/config.toml` | Configuration (AI provider keys, path overrides, relay credentials). **Fixed anchor**: the file always lives at `~/.homekb/config.toml` even when `root`/`notes_dir` redirect the data elsewhere (the config defines those paths, so it cannot move with them). ⚠️ Because the config holds API keys, syncing the *whole* `~/.homekb/` folder to a cloud drive uploads the keys too — documented trade-off of the self-contained layout; exclude `config.toml` from sync if that matters. Legacy location `~/.config/homekb/config.toml` is still **read** when the new path does not exist; any config write migrates to the new path (the legacy file is renamed to `config.toml.migrated`). `$HOMEKB_CONFIG` overrides everything (test isolation) |
 
 ### Image references in notes (rendering contract)
 
@@ -92,21 +92,41 @@ The rule is defined against the virtual root, so it keeps resolving correctly ev
 
 ## config.toml
 
+Location: `$HOMEKB_CONFIG` > `~/.homekb/config.toml` (new-home anchor) > `~/.config/homekb/config.toml` (legacy, read-only fallback; migrated on first write).
+
 ```toml
-# Everything is optional; the commented values are the defaults.
+# Path fields are optional; the commented values are the defaults.
 # root = "~/.homekb"
 # notes_dir = "<root>/notes"     # Can point to any existing md directory
 # drafts_dir = "<root>/drafts"   # Unpublished drafts; stays under root even if notes_dir is overridden
 # snapshot_path = "<root>/index/index.db"
 # live_db = "<platform data dir>/homekb/live.db"
-# openai_api_key = ""            # Resolution order: env OPENAI_API_KEY > this field > ~/.config/openai/api_key
-# embedding_model = "text-embedding-3-small"   # 1536 dimensions
-# summarizer_model = "gpt-4o-mini"
 # chunk_target_tokens = 800
 # chunk_hard_max = 2000
 # summary_diff_threshold = 0.15
 # embed_concurrency = 8
 # embed_batch_size = 100
+
+[embedding]                      # REQUIRED for compile & retrieval (product-side: "Embedding" setting)
+provider = "openai"              # openai | gemini | voyage | cohere | custom — see provider preset table
+api_key = ""                     # Resolution: this field > provider env var (see table). provider=openai keeps
+                                 # the legacy last-resort fallback ~/.config/openai/api_key for existing installs.
+# model = ""                     # Defaults per provider (see table)
+# dim = 0                        # Expected vector dimension; defaults per provider's default model.
+                                 # Validation only — the request never sends a dimensions param (change model → rebuild).
+# base_url = ""                  # Required only for provider = "custom": any OpenAI-compatible /v1/embeddings endpoint
+
+[summary]                        # REQUIRED for compile (doc summaries + doc_type + suggested question).
+provider = "openai"              # openai | gemini | custom — OpenAI-compatible /v1/chat/completions
+api_key = ""
+# model = ""                     # Defaults per provider (see table)
+# base_url = ""                  # provider = "custom" only
+
+[ask]                            # OPTIONAL — the ask pipeline's LLM (route + synthesize). When the whole
+# provider = ""                  # section is absent, ask falls back to the [summary] endpoint, so `homekb ask`
+# api_key = ""                   # works out of the box. Product rationale: retrieval-only integrations (other
+# model = ""                     # Agents via MCP/RPC bring their own LLM) never need to fill this in; power
+# base_url = ""                  # users set it to answer with a stronger model than the summarizer.
 
 [relay]                          # Written by homekb register
 url = "https://relay.homekb.app" # The relay this home is registered to (official or self-hosted)
@@ -119,6 +139,22 @@ name = "MacBook"
 # port = 8765
 # token = "hkd_xxx"              # serveToken; auto-generated + persisted on first public bind
 ```
+
+**Legacy keys** (still parsed, deprecated): top-level `openai_api_key`, `embedding_model`, `summarizer_model` map onto `[embedding]`/`[summary]` with `provider = "openai"` when those sections are absent, so pre-provider configs keep working unchanged.
+
+### AI provider presets
+
+One OpenAI-protocol client serves every built-in provider — a preset is just a base URL + defaults + an env-var fallback for the key. Vendors with OpenAI-compatible APIs need no dedicated SDK; anything else compatible plugs in via `provider = "custom"` + `base_url`.
+
+| Provider | Base URL | Default embedding model (dim) | Default chat model | Key env fallback |
+|---|---|---|---|---|
+| `openai` | `https://api.openai.com/v1` | `text-embedding-3-small` (1536) | `gpt-4o-mini` | `OPENAI_API_KEY` |
+| `gemini` | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-embedding-001` (3072) | `gemini-flash-latest` | `GEMINI_API_KEY` |
+| `voyage` | `https://api.voyageai.com/v1` | `voyage-4` (1024) | — (embedding only) | `VOYAGE_API_KEY` |
+| `cohere` | `https://api.cohere.ai/compatibility/v1` | `embed-v4.0` (1536) | — (embedding only) | `COHERE_API_KEY` |
+| `custom` | from `base_url` | `model` + `dim` required | `model` required | — |
+
+The index snapshot records `embedding_provider` (+ `embedding_base_url` for `custom`) alongside `embedding_model`/`embedding_dim` in `index_meta`, so the query side always embeds in the same vector space regardless of the current config — switching `[embedding]` provider/model requires `rebuild --force` + `reindex`, exactly like a model change. Old snapshots without the key are treated as `openai`.
 
 ## CLI (homekb) — a complete product in itself
 
@@ -147,7 +183,7 @@ homekb tunnel --install [--interval N] / --uninstall / --status [--json]  # Mana
 
 Integrate the local MCP into Claude Code: `claude mcp add homekb -- homekb mcp`.
 
-**The ask pipeline (core::answer, completed end-to-end inside the engine)**: LLM routing (infer the doc_type filter + whether the full document is needed) is **dispatched in parallel with query vectorization** (the vector depends only on the question string, not on the routing result) → dual-pool retrieval (local KNN, using the ready-made vectors) → assemble the context block (**numbered per source document** — one `[n]` per doc with its snippets listed under it) → LLM-synthesized answer (based solely on the retrieved snippets, citing sources, following the question's language). The user-facing `hits`/`citations` are source-level (see the `kb.ask` row in the RPC table). Three external requests total: route(chat) ∥ embed(embeddings) → synthesize(chat), reusing the same OpenAI client in-process (connection-pool keep-alive). Ported from claude-os kb.service's kbInferRoute/kbSynthesize. The engine exposes both a one-shot `ask()` (blocking synthesize) and an `ask_stream()` (synthesize via OpenAI `create_stream`, emitting `AskStreamEvent::Delta` chunks then a terminal `AskStreamEvent::Done{citations,hits}`) — both share the identical route/embed/retrieve path; only the synthesize call differs.
+**The ask pipeline (core::answer, completed end-to-end inside the engine)**: LLM routing (infer the doc_type filter + whether the full document is needed) is **dispatched in parallel with query vectorization** (the vector depends only on the question string, not on the routing result) → dual-pool retrieval (local KNN, using the ready-made vectors) → assemble the context block (**numbered per source document** — one `[n]` per doc with its snippets listed under it) → LLM-synthesized answer (based solely on the retrieved snippets, citing sources, following the question's language). The user-facing `hits`/`citations` are source-level (see the `kb.ask` row in the RPC table). Three external requests total: route(chat) ∥ embed(embeddings) → synthesize(chat), reusing shared per-endpoint OpenAI-protocol clients in-process (connection-pool keep-alive). Route + synthesize use the `[ask]` endpoint (falling back to `[summary]`); embed uses the `[embedding]` endpoint pinned by the snapshot meta. Ported from claude-os kb.service's kbInferRoute/kbSynthesize. The engine exposes both a one-shot `ask()` (blocking synthesize) and an `ask_stream()` (synthesize via OpenAI `create_stream`, emitting `AskStreamEvent::Delta` chunks then a terminal `AskStreamEvent::Done{citations,hits}`) — both share the identical route/embed/retrieve path; only the synthesize call differs.
 
 ### HTTP RPC (homekb serve)
 
@@ -205,7 +241,7 @@ The desktop Remote tab renders a QR code next to the pairing code so a phone can
 - **tunnel lifecycle**: kept resident by the `com.homekb.tunnel` LaunchAgent (**single source of truth**); the desktop **does not self-spawn and does not pkill**. `tunnel_start/tunnel_stop/tunnel_status` are thin wrappers around `homekb tunnel --install/--uninstall/--status --json`. The desktop installs the tunnel with `--interval 0` (compilation is owned by the compile agent). On app exit only serve is reclaimed; the compile and tunnel agents are kept alive by launchd.
 - **Tauri command surface** (invoke, used only by the desktop UI, not part of the RPC protocol):
   `engine_status` (install/version/serve liveness/config summary), `engine_install`, `engine_init`, `serve_ensure`, `config_set_openai_key` (writes config.toml directly, a same-machine responsibility), `relay_register` (wraps `homekb register`), `relay_clear` (wipe `[relay]` from config.toml — disconnect from the current service, back to the picker; the store also stops the tunnel since it cannot run without a service), `pair_new` (wraps `homekb pair --json`), `relay_credentials` (returns `{url, homeSecret}` from config.toml `[relay]` so the desktop UI can call the homeSecret-authenticated relay endpoints — grants list/revoke; the secret never leaves the machine except toward its own relay), `compile_start` / `compile_stop` / `compile_status` (wrap `homekb watch --install` / `--uninstall` / `--status --json`), `tunnel_start` / `tunnel_stop` / `tunnel_status` (wrap `homekb tunnel --install --interval 0` / `--uninstall` / `--status --json`), `local_relay_status` / `local_relay_start` / `local_relay_stop` (the this-machine connection service, port 8787 — see "Desktop service picker"; start spawns `node ~/.homekb-relay/server.mjs` detached with the pid recorded in `~/.homekb-relay/relay.pid`, stop kills only a pid the app recorded, status = TCP probe), `open_notes_dir` (reveal the notes directory in the OS file manager — an allowed desktop affordance; still no system *dialogs*). All daemons launchd-managed, not self-spawned.
-- The desktop has one extra "Settings" view: engine/directory info, the auto-compile (engine) toggle, OpenAI key, relay registration, pairing-code generation, and the tunnel toggle. The Web version does not render this view.
+- The desktop has one extra "Settings" view: engine/directory info, the auto-compile (engine) toggle, AI provider keys (embedding / summary / optional ask), relay registration, pairing-code generation, and the tunnel toggle. The Web version does not render this view.
 
 ## Token formats
 
@@ -268,7 +304,7 @@ Clients never put tokens in asset URLs: the Web UI fetches with an `Authorizatio
 
 1. Client → relay: `POST /api/relay/rpc/stream {method:"kb.ask", params:{query}}` (Bearer clientToken); the relay holds this response open as `text/event-stream`.
 2. Relay → home (SSE): `event: rpc` `{id, method, params, stream:true}`; the relay registers a pending stream (60s to first byte → 504, home offline → 502).
-3. Home → relay: runs the ask pipeline (route ∥ embed → retrieve → **synthesize with OpenAI streaming**) and immediately opens `POST /api/relay/tunnel/ask/<id>`, writing SSE frames into the request body as tokens arrive: `event: delta {"text"}`* → `event: done {"citations","hits"}` (or a single `event: error {"code","message"}`).
+3. Home → relay: runs the ask pipeline (route ∥ embed → retrieve → **synthesize with chat-completions streaming**) and immediately opens `POST /api/relay/tunnel/ask/<id>`, writing SSE frames into the request body as tokens arrive: `event: delta {"text"}`* → `event: done {"citations","hits"}` (or a single `event: error {"code","message"}`).
 4. Relay pipes the home's request body straight into the client's open response. Client went away → the relay aborts the home upload; home fully piped → 204 to the home.
 
 Desktop mode skips the relay entirely: the webview hits `POST http://127.0.0.1:8765/rpc/stream` and consumes the same frame protocol directly from serve.
@@ -288,14 +324,14 @@ The answer's `[n]` markers and `citations` follow the same source-numbering cont
 | `kb.draftSave` | `{id?, text}` | `{id, editedAt}` — upsert a draft. `id` omitted → the home generates one and returns it; `id` present → overwrite that draft (`id` charset `[A-Za-z0-9_-]{1,64}`). Empty/whitespace `text` is rejected |
 | `kb.draftDelete` | `{id}` | `{id}` — delete a draft (idempotent; deleting a missing id still returns ok). Used both for the drafts list's delete action and after a draft is published to `notes/` |
 | `kb.list` | `{limit?}` | `{docs: [{path,title,docType,mtime,sizeBytes}]}` mtime descending |
-| `kb.status` | `{}` | `{generation, docs, chunks, chunksWithVectors, pending, failures, lastCompileAt, lastCompileHost, embeddingModel}` |
+| `kb.status` | `{}` | `{generation, docs, chunks, chunksWithVectors, pending, failures, lastCompileAt, lastCompileHost, embeddingModel, embeddingProvider}` |
 | `kb.listTypes` | `{}` | `{types: [{docType, count}]}` |
 | `kb.suggestions` | `{limit?}` | `{suggestions: [{question, path, title, mtime}]}` — one auto-generated question per recently updated document, newest first; docs without a generated question yet are skipped. Feeds the home-screen "Try asking" list |
 | `kb.reindex` | `{}` | `{started: true}` (executed asynchronously inside the tunnel process) |
 
 `Hit = {kind: "chunk"|"doc"|"doc_full", path, title, headingPath?, content, score, mtime, docType?, matches?}`
 
-The `kb.ask` row above is the **one-shot** form (single JSON response), used by the local MCP, `homekb ask`, power-user tooling, and any non-streaming caller. The **UI's Answer mode uses real token streaming** instead — a separate transport (`/rpc/stream` on serve, `/api/relay/rpc/stream` through the relay) that emits `delta`* → `done` SSE frames; see "HTTP RPC", "Streaming answer channel", and the engine's OpenAI-streaming synthesize. Both share the same retrieval + source-numbering; only the delivery differs. The Web UI feeds `delta` chunks straight into the DOMD editor via `insertText` (no client-side typewriter simulation).
+The `kb.ask` row above is the **one-shot** form (single JSON response), used by the local MCP, `homekb ask`, power-user tooling, and any non-streaming caller. The **UI's Answer mode uses real token streaming** instead — a separate transport (`/rpc/stream` on serve, `/api/relay/rpc/stream` through the relay) that emits `delta`* → `done` SSE frames; see "HTTP RPC", "Streaming answer channel", and the engine's streaming synthesize. Both share the same retrieval + source-numbering; only the delivery differs. The Web UI feeds `delta` chunks straight into the DOMD editor via `insertText` (no client-side typewriter simulation).
 
 `group: true` = source-aggregation mode (used by the UI "hit list"): internally amplifies retrieval (the fusion pool takes `limit*5`), and after narrowing by `maxDistance` **merges the same path into a single entry** (kind is always `doc`; content/headingPath take that document's top-ranked hit; `matches` = the number of merged hit segments). The source order = the position of each document's first hit in the fusion ranking, and `limit` applies to the merged document count. When both `full` and `group` are given, `full` takes precedence. There is still only one embedding request and zero LLM calls.
 
@@ -337,11 +373,11 @@ oauth_codes(code TEXT PK, client_id TEXT, home_id TEXT, code_challenge TEXT, red
 
 ## Engine core (forked from kb-compile / kb-query)
 
-- Compile: scan → mtime/size + SHA256 change detection → H2/H3/paragraph chunking → OpenAI embedding (batching + retries + concurrency limit) → sqlite-vec write → atomic snapshot export. Summarization (gpt-4o-mini) + automatic doc_type classification + one **suggested question** per document (`docs.suggested_question`, schema v3): generated in the *same* summarizer chat call (JSON `{summary, question}`, zero extra LLM requests), written atomically with the summary so `summary_src_hash` governs both; docs where it is still NULL (pre-v3 index, or a parse fallback) are backfilled incrementally like the doc_type backfill. Served by `kb.suggestions`.
+- Compile: scan → mtime/size + SHA256 change detection → H2/H3/paragraph chunking → embedding via the configured provider (OpenAI-protocol client; batching + retries + concurrency limit) → sqlite-vec write → atomic snapshot export. Summarization (the `[summary]` LLM) + automatic doc_type classification + one **suggested question** per document (`docs.suggested_question`, schema v3): generated in the *same* summarizer chat call (JSON `{summary, question}`, zero extra LLM requests), written atomically with the summary so `summary_src_hash` governs both; docs where it is still NULL (pre-v3 index, or a parse fallback) are backfilled incrementally like the doc_type backfill. Served by `kb.suggestions`.
 - Retrieval: query embedding → dual-pool KNN (vec_docs summary pool + vec_chunks content pool) → RRF(k=60) fusion + parent-document boost.
 - Compile scheduling: **launchd is not used to schedule compilation** (the old kb-compile pattern of running reindex via `StartInterval` is deprecated); scheduled reindex is built into the in-process loop of `homekb watch` (and, when a non-zero interval is given, `homekb tunnel --interval`).
 - Process residency — **two independent LaunchAgents with cleanly separated responsibilities** (so the desktop can pause compilation without touching remote access, and the two never contend on `live.db`'s `compile.lock`):
   - **`com.homekb.compile`** (`homekb watch --interval N`) — the **sole scheduled-compile source**; managed by the Settings engine/auto-compile toggle. Turning it off pauses background compilation while leaving serve (the data plane) and the tunnel (remote access) untouched.
   - **`com.homekb.tunnel`** (`homekb tunnel --interval 0`) — the **pure relay tunnel** (remote access only); it does **not** compile (`--interval 0`). (A pure-CLI power user who does not run the compile agent may still install the tunnel with a non-zero interval to get built-in compilation.)
   - Both agents: `KeepAlive`-only (not `StartInterval`), `RunAtLoad`, `ProcessType=Background`; ProgramArguments hardcodes `~/.local/bin/homekb …` (after an update overwrites the binary, a KeepAlive restart adopts it automatically); logs at `~/Library/Logs/HomeKB/{compile,tunnel}.log`; status via `launchctl print gui/$UID/<label>` (exit code 0 = loaded; output containing `pid`/`state = running` = running); management always uses the modern `launchctl bootstrap/bootout/enable/kickstart`, not the deprecated `load/unload`. Installed/removed/queried via `homekb watch|tunnel --install/--uninstall/--status [--json]`. **Single source of truth**: the desktop only invokes these CLI commands, never self-spawns.
-- The OpenAI key is used only on the home device; remote Agents do not need to bring their own key when retrieving via MCP/RPC.
+- AI provider keys are used only on the home device; remote Agents do not need to bring their own key when retrieving via MCP/RPC.
