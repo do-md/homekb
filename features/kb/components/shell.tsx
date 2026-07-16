@@ -137,26 +137,36 @@ function Header() {
   return (
     <header className="bg-hk-bg pt-safe-top border-b border-hk-hairline">
       <div className="mx-auto flex h-12 max-w-3xl items-center gap-1 px-3">
-        <nav className="flex items-center gap-0.5" aria-label="Main">
+        <nav className="flex items-center gap-1.5" aria-label="Main">
           {items.map(({ href, label, icon: Icon }) => {
             const isActive = active === href;
             return (
+              // Notion-style tabs: inactive ones keep a faint circular backdrop
+              // (visibly tappable), the active one widens into a labeled pill.
+              // The label is always mounted and collapses via max-width/opacity
+              // so the width change animates instead of jumping.
               <button
                 key={href}
                 onClick={() => goTab(href)}
                 aria-current={isActive ? "page" : undefined}
-                className={
+                className={`flex items-center rounded-full py-2 text-[13px] font-semibold transition-all duration-300 ${
                   isActive
-                    ? "flex items-center gap-1.5 rounded-[20px] bg-hk-pill px-3 py-1.5 text-[13px] font-semibold text-hk-heading"
-                    : "flex items-center rounded-[20px] p-2 text-hk-weak transition-colors hover:text-hk-text-2"
-                }
+                    ? "bg-hk-pill px-3 text-hk-heading"
+                    : "bg-hk-card px-2 text-hk-weak hover:bg-hk-card-strong hover:text-hk-text-2"
+                }`}
                 title={label}
               >
                 <span className="relative flex">
                   <Icon size={16} strokeWidth={1.7} />
                   {href === "/remote" && <ConnBadge />}
                 </span>
-                {isActive && <span>{label}</span>}
+                <span
+                  className={`overflow-hidden leading-4 whitespace-nowrap transition-all duration-300 ${
+                    isActive ? "ml-1.5 max-w-[72px] opacity-100" : "ml-0 max-w-0 opacity-0"
+                  }`}
+                >
+                  {label}
+                </span>
               </button>
             );
           })}
