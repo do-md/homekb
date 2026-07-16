@@ -52,8 +52,27 @@ fn read_generation(path: &Path) -> Result<i64> {
         .unwrap_or(-1))
 }
 
+/// The embedding identity (provider/model/dim) that defines a db's vector
+/// space. Two dbs are cross-space if any of the three differ.
+fn embedding_identity(path: &Path) -> Result<(Option<String>, Option<String>, Option<String>)> {
+    Ok((
+        read_meta(path, "embedding_provider")?,
+        read_meta(path, "embedding_model")?,
+        read_meta(path, "embedding_dim")?,
+    ))
+}
+
 /// If the snapshot at `snapshot_path` has a strictly higher `generation`
-/// than the local `live_path`, atomically replace the local copy.
+/// than the local `live_path` **and shares its vector space**, atomically
+/// replace the local copy.
+///
+/// The vector-space guard matters after `rebuild --force` switches the
+/// embedding model: the local db is reset to the new model at generation 0,
+/// while the old snapshot still sits at a higher generation. Without the guard
+/// the compile would re-adopt the stale (wrong-model) snapshot and silently
+/// undo the rebuild. A local db with no embedding identity yet (a fresh
+/// machine) still adopts the snapshot — that is the intended multi-machine
+/// bootstrap.
 ///
 /// Returns true if a sync happened.
 pub fn import_if_newer(live_path: &Path, snapshot_path: &Path) -> Result<bool> {
@@ -67,6 +86,22 @@ pub fn import_if_newer(live_path: &Path, snapshot_path: &Path) -> Result<bool> {
     if snap_gen <= local_gen {
         // Local is at least as fresh.
         return Ok(false);
+    }
+
+    // Cross-vector-space guard: only skip when the *local* db already has an
+    // embedding identity that disagrees with the snapshot (a rebuild to a new
+    // model). A fresh local db (no model meta) adopts the snapshot as usual.
+    let (l_provider, l_model, l_dim) = embedding_identity(live_path)?;
+    if l_model.is_some() || l_dim.is_some() {
+        let (s_provider, s_model, s_dim) = embedding_identity(snapshot_path)?;
+        if (l_provider, l_model, l_dim) != (s_provider, s_model, s_dim) {
+            tracing::warn!(
+                "snapshot (gen {}) is from a different embedding model than the local db; \
+                 not adopting it (a `rebuild --force` model switch is in progress)",
+                snap_gen
+            );
+            return Ok(false);
+        }
     }
 
     tracing::info!(
@@ -129,4 +164,54 @@ pub fn export(live: &Connection, snapshot_path: &Path) -> Result<()> {
     std::fs::rename(&tmp, snapshot_path)
         .with_context(|| format!("rename {} → {}", tmp.display(), snapshot_path.display()))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn seed(path: &Path, generation: i64, provider: &str, model: &str, dim: usize) {
+        vec_ext::ensure_registered();
+        let conn = Connection::open(path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS index_meta(key TEXT PRIMARY KEY, value TEXT);",
+        )
+        .unwrap();
+        for (k, v) in [
+            ("generation", generation.to_string()),
+            ("embedding_provider", provider.into()),
+            ("embedding_model", model.into()),
+            ("embedding_dim", dim.to_string()),
+        ] {
+            conn.execute(
+                "INSERT OR REPLACE INTO index_meta(key,value) VALUES(?,?)",
+                rusqlite::params![k, v],
+            )
+            .unwrap();
+        }
+    }
+
+    // Regression: after a rebuild switches the model, a higher-generation
+    // snapshot from the *old* model must NOT be re-adopted — otherwise the
+    // rebuild is silently undone.
+    #[test]
+    fn import_skips_cross_model_snapshot() {
+        let dir = std::env::temp_dir().join(format!("homekb-import-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let live = dir.join("live.db");
+        let snap = dir.join("index.db");
+
+        // Live db just rebuilt to gemini/3072 at gen 0; old snapshot is
+        // openai/1536 at a much higher generation.
+        seed(&live, 0, "gemini", "gemini-embedding-001", 3072);
+        seed(&snap, 37, "openai", "text-embedding-3-small", 1536);
+        assert!(!import_if_newer(&live, &snap).unwrap(), "must not adopt cross-model snapshot");
+
+        // Same model, higher generation (normal multi-machine sync) → adopt.
+        seed(&snap, 5, "gemini", "gemini-embedding-001", 3072);
+        assert!(import_if_newer(&live, &snap).unwrap(), "same-model newer snapshot should sync");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

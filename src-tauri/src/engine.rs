@@ -250,6 +250,15 @@ pub fn set_ai_endpoint(
         .and_then(|raw| toml::from_str(&raw).ok())
         .unwrap_or_default();
 
+    // Drop the legacy top-level model keys — they are superseded by the
+    // `[embedding]`/`[summary]` sections and, if left behind, an openai-shaped
+    // `embedding_model`/`summarizer_model` can bleed into a gemini/… section
+    // (wrong model name → provider 404). Once the user edits any section via
+    // the UI, retire them for good.
+    tbl.remove("embedding_model");
+    tbl.remove("embedding_dim");
+    tbl.remove("summarizer_model");
+
     let provider = provider.trim();
     if section == "ask" && provider.is_empty() {
         tbl.remove("ask");

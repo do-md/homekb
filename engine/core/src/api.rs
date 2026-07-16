@@ -272,19 +272,35 @@ pub async fn reindex(cfg: &Config, quiet: bool) -> Result<ReindexReport> {
     }
     report.failed = errors;
 
-    let next_gen = db::bump_generation(&conn)?;
-    if !quiet {
-        tracing::info!("bumped generation → {}", next_gen);
-    }
-    report.generation = next_gen;
+    // Safety net: never overwrite a healthy snapshot with an empty one. If
+    // every document failed to embed (a bad key / disabled billing / wrong
+    // model name), the run produced zero vectors — exporting would replace the
+    // last good snapshot with an unusable one ("empty knowledge base"). Keep
+    // the previous snapshot so the user can still search while they fix it.
+    // Genuinely-empty corpora (no errors, no vectors) still export normally.
+    let vectors: i64 = conn.query_row("SELECT COUNT(*) FROM vec_chunks", [], |r| r.get(0))?;
+    let would_regress = errors > 0 && vectors == 0 && cfg.snapshot_path.exists();
+    if would_regress {
+        tracing::warn!(
+            "all {} documents failed to embed — keeping the previous snapshot \
+             (check the [embedding] key / provider). Nothing was exported.",
+            errors
+        );
+        report.generation = db::current_generation(&conn)?;
+    } else {
+        let next_gen = db::bump_generation(&conn)?;
+        if !quiet {
+            tracing::info!("bumped generation → {}", next_gen);
+        }
+        report.generation = next_gen;
 
-    db::snapshot::export(&conn, &cfg.snapshot_path)?;
-    if !quiet {
-        tracing::info!("exported snapshot → {}", cfg.snapshot_path.display());
-    }
-
-    if errors > 0 {
-        tracing::warn!("{} documents failed; see `failures` table", errors);
+        db::snapshot::export(&conn, &cfg.snapshot_path)?;
+        if !quiet {
+            tracing::info!("exported snapshot → {}", cfg.snapshot_path.display());
+        }
+        if errors > 0 {
+            tracing::warn!("{} documents failed; see `failures` table", errors);
+        }
     }
     report.duration_ms = started.elapsed().as_millis() as u64;
     Ok(report)
@@ -296,27 +312,16 @@ pub async fn reindex(cfg: &Config, quiet: bool) -> Result<ReindexReport> {
 /// rebuilds the vec0 tables at the new dimension, and re-seeds the meta, so the
 /// coherence check in the next `open_live` passes.
 ///
-/// It also **removes the exported snapshot** (and its WAL/SHM siblings): the
-/// snapshot holds old-model vectors at gen ≥ 1, and `reindex` starts by
-/// importing any newer snapshot — leaving it in place would re-adopt the stale
-/// vectors and silently undo the rebuild. `reindex` re-exports a fresh one.
+/// It **deliberately leaves the exported snapshot in place**. The snapshot holds
+/// old-model vectors; the safety comes from two sides instead of deleting it:
+/// `import_if_newer` refuses to re-adopt a snapshot whose vector space differs
+/// from the live db, and `reindex` skips the export when a run produced zero
+/// vectors — so an embedding switch that fails (bad key, no billing) keeps the
+/// last good snapshot queryable instead of leaving an empty knowledge base.
 pub fn rebuild(cfg: &Config) -> Result<()> {
     let _lock = acquire_lock(&cfg.lock_path())?;
     db::rebuild_reset(&cfg.live_db, &cfg.embedding, &cfg.summary.model)?;
-    remove_snapshot(&cfg.snapshot_path);
     Ok(())
-}
-
-/// Delete the snapshot file plus its `-wal`/`-shm` siblings (best-effort).
-fn remove_snapshot(snapshot: &std::path::Path) {
-    let _ = std::fs::remove_file(snapshot);
-    if let Some(name) = snapshot.file_name().map(|n| n.to_string_lossy().into_owned()) {
-        for suffix in ["-wal", "-shm"] {
-            let mut p = snapshot.to_path_buf();
-            p.set_file_name(format!("{name}{suffix}"));
-            let _ = std::fs::remove_file(p);
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------

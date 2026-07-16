@@ -491,6 +491,13 @@ fn resolve_embedding_section(
             .with_context(|| bad_provider_msg("embedding", &provider, true))?
             .to_string(),
     };
+    // Legacy top-level keys (`embedding_model`/`embedding_dim`/`openai_api_key`)
+    // describe an *openai* index. They must only seed an openai section — never
+    // leak into a gemini/voyage/... section, or the wrong model name is sent to
+    // the wrong provider (e.g. `text-embedding-3-small` → Gemini → 404).
+    let is_openai = provider == "openai";
+    let legacy_model = legacy_model.filter(|_| is_openai);
+    let legacy_dim = legacy_dim.filter(|_| is_openai);
     let (preset_model, preset_dim) = preset_embedding_model(&provider).unzip();
     let model = sec
         .model
@@ -508,7 +515,7 @@ fn resolve_embedding_section(
     let api_key = sec
         .api_key
         .clone()
-        .or_else(|| (provider == "openai").then(|| legacy_key.map(str::to_string)).flatten());
+        .or_else(|| is_openai.then(|| legacy_key.map(str::to_string)).flatten());
 
     Ok(EmbeddingEndpoint {
         provider,
@@ -535,6 +542,10 @@ fn resolve_chat_section(
             .with_context(|| bad_provider_msg(section, &provider, false))?
             .to_string(),
     };
+    // Same rule as embedding: legacy `summarizer_model`/`openai_api_key` are
+    // openai-shaped and must not seed a non-openai section.
+    let is_openai = provider == "openai";
+    let legacy_model = legacy_model.filter(|_| is_openai);
     let model = sec
         .model
         .clone()
@@ -546,7 +557,7 @@ fn resolve_chat_section(
     let api_key = sec
         .api_key
         .clone()
-        .or_else(|| (provider == "openai").then(|| legacy_key.map(str::to_string)).flatten());
+        .or_else(|| is_openai.then(|| legacy_key.map(str::to_string)).flatten());
 
     Ok(Some(ChatEndpoint {
         provider,
@@ -639,4 +650,47 @@ pub fn relative_path(notes_root: &Path, full: &Path) -> String {
         .unwrap_or(full)
         .to_string_lossy()
         .replace('\\', "/")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Regression: a non-openai section must NOT inherit the legacy top-level
+    // openai model name (that leak sent `text-embedding-3-small` to Gemini → 404).
+    #[test]
+    fn gemini_section_ignores_legacy_openai_model() {
+        let sec = AiSectionFile {
+            provider: Some("gemini".into()),
+            api_key: Some("k".into()),
+            ..Default::default()
+        };
+        let ep = resolve_embedding_section(
+            Some(&sec),
+            Some("legacy-openai-key"),         // legacy openai_api_key
+            Some("text-embedding-3-small"),    // legacy embedding_model
+            Some(1536),                        // legacy embedding_dim
+        )
+        .unwrap();
+        assert_eq!(ep.provider, "gemini");
+        assert_eq!(ep.model, "gemini-embedding-001"); // preset default, not the legacy
+        assert_eq!(ep.dim, 3072); // gemini preset dim, not the legacy 1536
+        assert_eq!(ep.api_key.as_deref(), Some("k")); // its own key, not the openai legacy
+    }
+
+    // An openai section with no explicit model still honors the legacy keys.
+    #[test]
+    fn openai_section_keeps_legacy_fallback() {
+        let ep = resolve_embedding_section(
+            None,
+            Some("legacy-openai-key"),
+            Some("text-embedding-3-large"),
+            Some(3072),
+        )
+        .unwrap();
+        assert_eq!(ep.provider, "openai");
+        assert_eq!(ep.model, "text-embedding-3-large");
+        assert_eq!(ep.dim, 3072);
+        assert_eq!(ep.api_key.as_deref(), Some("legacy-openai-key"));
+    }
 }
