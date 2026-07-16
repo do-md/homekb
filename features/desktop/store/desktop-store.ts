@@ -1,6 +1,7 @@
 "use client";
 import { createMemo, createReactStore, ZenithStore } from "@do-md/zenith";
 import {
+  type AiSection,
   type DaemonStatus,
   type EngineStatus,
   invoke,
@@ -25,6 +26,17 @@ import { normalizeBaseUrl } from "@/lib/client/connection";
 /** Boot phase: detect engine → (if missing) install/init → launch serve → ready. */
 export type BootPhase = "checking" | "installing" | "starting" | "ready" | "error";
 
+/** Draft edits for one AI endpoint section; empty string = keep/derive. */
+export interface AiDraft {
+  provider: string;
+  apiKey: string;
+  model: string;
+  baseUrl: string;
+  dim: string;
+}
+
+const emptyAiDraft = (): AiDraft => ({ provider: "", apiKey: "", model: "", baseUrl: "", dim: "" });
+
 const memo = createMemo<DesktopStore>();
 
 interface DesktopState {
@@ -33,9 +45,9 @@ interface DesktopState {
 
   engine: EngineStatus | null;
 
-  // Settings: OpenAI key
-  keyDraft: string;
-  keyBusy: boolean;
+  // Settings: AI endpoints ([embedding]/[summary]/[ask], docs "AI provider presets")
+  aiDrafts: Record<AiSection, AiDraft>;
+  aiBusy: AiSection | null;
 
   // Remote: service picker (docs "Desktop service picker")
   userServices: ServiceEntry[];
@@ -80,8 +92,8 @@ export class DesktopStore extends ZenithStore<DesktopState> {
       phase: "checking",
       bootError: null,
       engine: null,
-      keyDraft: "",
-      keyBusy: false,
+      aiDrafts: { embedding: emptyAiDraft(), summary: emptyAiDraft(), ask: emptyAiDraft() },
+      aiBusy: null,
       userServices: loadUserServices(),
       serviceProbes: {},
       probing: false,
@@ -167,32 +179,74 @@ export class DesktopStore extends ZenithStore<DesktopState> {
     }
   }
 
-  // ---------- OpenAI key ----------
-  public setKeyDraft(v: string) {
+  // ---------- AI endpoints (Settings) ----------
+  public setAiDraft(section: AiSection, patch: Partial<AiDraft>) {
     this.produce((d) => {
-      d.keyDraft = v;
+      d.aiDrafts[section] = { ...d.aiDrafts[section], ...patch };
     });
   }
 
-  public async saveOpenaiKey() {
-    const key = this.state.keyDraft.trim();
-    if (!key) return;
+  /**
+   * Persist one config section via `config_set_ai_endpoint`. Empty draft
+   * fields are omitted so the shell keeps the stored key / provider default
+   * model (switching provider clears the old section's fields shell-side).
+   */
+  public async saveAiEndpoint(section: AiSection) {
+    const draft = this.state.aiDrafts[section];
+    const current = this.state.engine?.ai?.[section];
+    const provider = (draft.provider || current?.provider || "openai").trim();
+    const dim = draft.dim.trim() ? Number.parseInt(draft.dim, 10) : null;
     this.produce((d) => {
-      d.keyBusy = true;
+      d.aiBusy = section;
     });
     try {
-      await invoke("config_set_openai_key", { key });
-      this.produce((d) => {
-        d.keyBusy = false;
-        d.keyDraft = "";
+      await invoke("config_set_ai_endpoint", {
+        section,
+        provider,
+        apiKey: draft.apiKey.trim() || null,
+        model: draft.model.trim() || null,
+        baseUrl: draft.baseUrl.trim() || null,
+        dim: dim && Number.isFinite(dim) ? dim : null,
       });
-      this.flash("OpenAI key saved to config.toml");
+      this.produce((d) => {
+        d.aiBusy = null;
+        d.aiDrafts[section] = emptyAiDraft();
+      });
+      this.flash(`[${section}] saved to config.toml`);
       void this.refreshEngine();
     } catch (e) {
       this.produce((d) => {
-        d.keyBusy = false;
+        d.aiBusy = null;
       });
       this.flash(invokeErrorMessage(e, "Save failed"));
+    }
+  }
+
+  /** Delete [ask] — back to answering with the [summary] endpoint. */
+  public async resetAsk() {
+    this.produce((d) => {
+      d.aiBusy = "ask";
+    });
+    try {
+      await invoke("config_set_ai_endpoint", {
+        section: "ask",
+        provider: "",
+        apiKey: null,
+        model: null,
+        baseUrl: null,
+        dim: null,
+      });
+      this.produce((d) => {
+        d.aiBusy = null;
+        d.aiDrafts.ask = emptyAiDraft();
+      });
+      this.flash("Ask now uses the Summary endpoint");
+      void this.refreshEngine();
+    } catch (e) {
+      this.produce((d) => {
+        d.aiBusy = null;
+      });
+      this.flash(invokeErrorMessage(e, "Reset failed"));
     }
   }
 

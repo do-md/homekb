@@ -23,8 +23,26 @@ export interface EngineStatus {
   configPath: string;
   root: string;
   notesDir: string;
-  openaiKeyPresent: boolean;
+  ai: AiStatus;
   relay: { url: string; homeId: string; name: string } | null;
+}
+
+/** Config sections of the engine's AI endpoints (docs "AI provider presets"). */
+export type AiSection = "embedding" | "summary" | "ask";
+
+/** One AI endpoint as summarized by `engine_status`. */
+export interface AiEndpointStatus {
+  provider: string;
+  model: string;
+  keyPresent: boolean;
+  /** Whether the section exists in config.toml ([ask]: false = summary fallback). */
+  configured: boolean;
+}
+
+export interface AiStatus {
+  embedding: AiEndpointStatus;
+  summary: AiEndpointStatus;
+  ask: AiEndpointStatus;
 }
 
 /** Return type of Tauri `pair_new` (parsed output of `homekb pair --json`). */

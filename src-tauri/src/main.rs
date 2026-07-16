@@ -41,8 +41,38 @@ struct EngineStatus {
     config_path: String,
     root: String,
     notes_dir: String,
-    openai_key_present: bool,
+    ai: AiStatus,
     relay: Option<RelayStatus>,
+}
+
+/// Per-section AI endpoint summary for Settings (docs/ARCHITECTURE.md
+/// desktop command list, `engine_status`).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AiEndpointStatus {
+    provider: String,
+    model: String,
+    key_present: bool,
+    configured: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AiStatus {
+    embedding: AiEndpointStatus,
+    summary: AiEndpointStatus,
+    ask: AiEndpointStatus,
+}
+
+impl From<engine::AiEndpointInfo> for AiEndpointStatus {
+    fn from(i: engine::AiEndpointInfo) -> Self {
+        Self {
+            provider: i.provider,
+            model: i.model,
+            key_present: i.key_present,
+            configured: i.configured,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -100,7 +130,11 @@ fn build_status(app: &tauri::AppHandle) -> EngineStatus {
         config_path: config_path.display().to_string(),
         root: cfg.root.display().to_string(),
         notes_dir: cfg.notes_dir.display().to_string(),
-        openai_key_present: cfg.openai_key_present,
+        ai: AiStatus {
+            embedding: cfg.embedding.into(),
+            summary: cfg.summary.into(),
+            ask: cfg.ask.into(),
+        },
         relay: cfg.relay.map(|r| RelayStatus { url: r.url, home_id: r.home_id, name: r.name }),
     }
 }
@@ -198,8 +232,25 @@ async fn serve_ensure() -> Result<String, String> {
 // ---------- config ----------
 
 #[tauri::command]
-async fn config_set_openai_key(key: String) -> Result<(), String> {
-    blocking(move || engine::set_openai_key(key.trim())).await
+async fn config_set_ai_endpoint(
+    section: String,
+    provider: String,
+    api_key: Option<String>,
+    model: Option<String>,
+    base_url: Option<String>,
+    dim: Option<u32>,
+) -> Result<(), String> {
+    blocking(move || {
+        engine::set_ai_endpoint(
+            &section,
+            &provider,
+            api_key.as_deref(),
+            model.as_deref(),
+            base_url.as_deref(),
+            dim,
+        )
+    })
+    .await
 }
 
 // ---------- relay ----------
@@ -461,7 +512,7 @@ fn main() {
             engine_install,
             engine_init,
             serve_ensure,
-            config_set_openai_key,
+            config_set_ai_endpoint,
             relay_register,
             relay_clear,
             relay_credentials,

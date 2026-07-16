@@ -89,14 +89,43 @@ pub struct RelayInfo {
     pub name: String,
 }
 
+/// One AI endpoint section as rendered by Settings (docs/ARCHITECTURE.md
+/// "AI provider presets"): resolved provider/model for display, whether a
+/// key is reachable, and whether the section exists in config.toml at all
+/// (for [ask], absent = summary fallback).
+#[derive(Clone)]
+pub struct AiEndpointInfo {
+    pub provider: String,
+    pub model: String,
+    pub key_present: bool,
+    pub configured: bool,
+}
+
 pub struct ConfigSummary {
     pub root: PathBuf,
     pub notes_dir: PathBuf,
-    pub openai_key_present: bool,
+    pub embedding: AiEndpointInfo,
+    pub summary: AiEndpointInfo,
+    pub ask: AiEndpointInfo,
     pub relay: Option<RelayInfo>,
 }
 
-/// Read-only summary (for rendering); writes go only through [`set_openai_key`] or the engine CLI.
+/// Display default model per provider (mirrors the engine's preset table —
+/// the shell renders config, it does not implement engine logic).
+fn preset_default_model(provider: &str, chat: bool) -> &'static str {
+    match (provider, chat) {
+        ("openai", false) => "text-embedding-3-small",
+        ("gemini", false) => "gemini-embedding-001",
+        ("voyage", false) => "voyage-4",
+        ("cohere", false) => "embed-v4.0",
+        ("openai", true) => "gpt-4o-mini",
+        ("gemini", true) => "gemini-flash-latest",
+        _ => "",
+    }
+}
+
+/// Read-only summary (for rendering); writes go only through
+/// [`set_ai_endpoint`] or the engine CLI.
 pub fn read_config() -> ConfigSummary {
     let tbl: toml::Table = fs::read_to_string(config_path())
         .ok()
@@ -112,20 +141,12 @@ pub fn read_config() -> ConfigSummary {
         .map(expand_tilde)
         .unwrap_or_else(|| root.join("notes"));
 
-    // Whether a key is reachable by the engine: [embedding]/[summary] api_key,
-    // the legacy top-level openai_api_key, or the ~/.config/openai/api_key
-    // fallback. (Env vars are typically absent in GUI processes; not counted.)
-    let section_key = |name: &str| {
-        tbl.get(name)
-            .and_then(|v| v.as_table())
-            .and_then(|t| t.get("api_key"))
-            .and_then(|v| v.as_str())
-            .map(|s| !s.trim().is_empty())
-            .unwrap_or(false)
-    };
-    let key_in_config =
-        str_of("openai_api_key").is_some() || section_key("embedding") || section_key("summary");
-    let key_in_fallback = {
+    // Per-section endpoint summaries. A key counts as reachable when the
+    // section has one, when the provider is openai and a legacy key exists
+    // (top-level openai_api_key or ~/.config/openai/api_key), or when the
+    // provider is custom (keyless gateways are legal). Env vars are
+    // typically absent in GUI processes and are not counted.
+    let legacy_openai_key = str_of("openai_api_key").is_some() || {
         let xdg = std::env::var("XDG_CONFIG_HOME")
             .ok()
             .filter(|s| !s.is_empty())
@@ -135,6 +156,32 @@ pub fn read_config() -> ConfigSummary {
             .map(|s| !s.trim().is_empty())
             .unwrap_or(false)
     };
+    let ai_section = |name: &str, chat: bool, legacy_model: Option<&str>| {
+        let sec = tbl.get(name).and_then(|v| v.as_table());
+        let sec_str = |k: &str| {
+            sec.and_then(|t| t.get(k))
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+        };
+        let provider = sec_str("provider").unwrap_or("openai").to_string();
+        let model = sec_str("model")
+            .map(str::to_string)
+            .or_else(|| legacy_model.map(str::to_string))
+            .unwrap_or_else(|| preset_default_model(&provider, chat).to_string());
+        let key_present = sec_str("api_key").is_some()
+            || provider == "custom"
+            || (provider == "openai" && legacy_openai_key);
+        AiEndpointInfo {
+            provider,
+            model,
+            key_present,
+            configured: sec.is_some(),
+        }
+    };
+    let embedding = ai_section("embedding", false, str_of("embedding_model"));
+    let summary = ai_section("summary", true, str_of("summarizer_model"));
+    let ask = ai_section("ask", true, None);
 
     let relay = tbl.get("relay").and_then(|v| v.as_table()).and_then(|r| {
         let url = r.get("url")?.as_str().filter(|s| !s.is_empty())?.to_string();
@@ -148,7 +195,9 @@ pub fn read_config() -> ConfigSummary {
     ConfigSummary {
         root,
         notes_dir,
-        openai_key_present: key_in_config || key_in_fallback,
+        embedding,
+        summary,
+        ask,
         relay,
     }
 }
@@ -170,21 +219,131 @@ pub fn relay_credentials() -> Option<(String, String)> {
     Some((url, secret))
 }
 
-/// Write openai_api_key: read-modify-write the whole table (toml::Table preserves
-/// unknown fields; comments are not preserved — config is machine-written by init/register).
-pub fn set_openai_key(key: &str) -> Result<(), String> {
-    let path = config_path();
-    let mut tbl: toml::Table = fs::read_to_string(&path)
+/// Write one `[embedding]`/`[summary]`/`[ask]` section (docs/ARCHITECTURE.md
+/// desktop command list, `config_set_ai_endpoint`). Read-modify-write the
+/// whole table (unknown fields preserved; comments are not — config is
+/// machine-written by init/register).
+///
+/// Semantics: an omitted/empty `api_key` keeps the stored key when the
+/// provider is unchanged (switching provider clears section fields first);
+/// an omitted/empty `model` resets to the provider default; an empty
+/// `provider` on `ask` deletes the section (back to the summary fallback).
+/// Writes land at the `~/.homekb/config.toml` anchor and migrate a legacy
+/// `~/.config/homekb/config.toml` (renamed to `config.toml.migrated`),
+/// mirroring the engine's own save semantics.
+pub fn set_ai_endpoint(
+    section: &str,
+    provider: &str,
+    api_key: Option<&str>,
+    model: Option<&str>,
+    base_url: Option<&str>,
+    dim: Option<u32>,
+) -> Result<(), String> {
+    let chat = match section {
+        "embedding" => false,
+        "summary" | "ask" => true,
+        other => return Err(format!("unknown config section \"{other}\"")),
+    };
+    let read_path = config_path();
+    let mut tbl: toml::Table = fs::read_to_string(&read_path)
         .ok()
         .and_then(|raw| toml::from_str(&raw).ok())
         .unwrap_or_default();
-    tbl.insert("openai_api_key".into(), toml::Value::String(key.to_string()));
+
+    let provider = provider.trim();
+    if section == "ask" && provider.is_empty() {
+        tbl.remove("ask");
+        return write_config_migrating(&tbl);
+    }
+    let allowed: &[&str] = if chat {
+        &["openai", "gemini", "custom"]
+    } else {
+        &["openai", "gemini", "voyage", "cohere", "custom"]
+    };
+    if !allowed.contains(&provider) {
+        return Err(format!(
+            "unknown provider \"{provider}\" for [{section}] (known: {})",
+            allowed.join(" | ")
+        ));
+    }
+    let base_url = base_url.map(str::trim).filter(|s| !s.is_empty());
+    if provider == "custom" && base_url.is_none() {
+        return Err(format!("[{section}] provider \"custom\" requires a base URL"));
+    }
+
+    let mut sec = tbl
+        .get(section)
+        .and_then(|v| v.as_table())
+        .cloned()
+        .unwrap_or_default();
+    let prev_provider = sec
+        .get("provider")
+        .and_then(|v| v.as_str())
+        .unwrap_or("openai")
+        .to_string();
+    if prev_provider != provider {
+        // Provider switch: stored key/model/dim/base_url belong to the old one.
+        sec.remove("api_key");
+        sec.remove("model");
+        sec.remove("dim");
+        sec.remove("base_url");
+    }
+    sec.insert("provider".into(), toml::Value::String(provider.to_string()));
+    if let Some(k) = api_key.map(str::trim).filter(|s| !s.is_empty()) {
+        sec.insert("api_key".into(), toml::Value::String(k.to_string()));
+    }
+    match model.map(str::trim) {
+        Some("") => {
+            sec.remove("model");
+        }
+        Some(m) => {
+            sec.insert("model".into(), toml::Value::String(m.to_string()));
+        }
+        None => {}
+    }
+    if let Some(u) = base_url {
+        sec.insert("base_url".into(), toml::Value::String(u.to_string()));
+    }
+    if section == "embedding" {
+        if let Some(d) = dim {
+            if d > 0 {
+                sec.insert("dim".into(), toml::Value::Integer(d as i64));
+            } else {
+                sec.remove("dim");
+            }
+        }
+    }
+    tbl.insert(section.into(), toml::Value::Table(sec));
+    write_config_migrating(&tbl)
+}
+
+/// Persist a config table: `$HOMEKB_CONFIG` or the `~/.homekb/config.toml`
+/// anchor; a legacy `~/.config/homekb/config.toml` is renamed to
+/// `config.toml.migrated` after a successful write (engine save semantics).
+fn write_config_migrating(tbl: &toml::Table) -> Result<(), String> {
+    let env_override = std::env::var("HOMEKB_CONFIG").ok().filter(|p| !p.is_empty());
+    let path = env_override
+        .clone()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home_dir().join(".homekb").join("config.toml"));
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("create {}: {e}", parent.display()))?;
     }
-    let body = toml::to_string_pretty(&tbl).map_err(|e| format!("failed to serialize config: {e}"))?;
+    let body = toml::to_string_pretty(tbl).map_err(|e| format!("failed to serialize config: {e}"))?;
     fs::write(&path, format!("# homekb configuration — see docs/ARCHITECTURE.md\n{body}"))
-        .map_err(|e| format!("write {}: {e}", path.display()))
+        .map_err(|e| format!("write {}: {e}", path.display()))?;
+    if env_override.is_none() {
+        let xdg = std::env::var("XDG_CONFIG_HOME")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home_dir().join(".config"));
+        let legacy = xdg.join("homekb").join("config.toml");
+        if legacy.is_file() && legacy != path {
+            let _ = fs::rename(&legacy, legacy.with_extension("toml.migrated"));
+        }
+    }
+    Ok(())
 }
 
 /// Clear the `[relay]` registration (disconnect from the connection service).
