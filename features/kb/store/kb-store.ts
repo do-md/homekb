@@ -17,7 +17,6 @@ import type {
   KbHit,
   KbStatusData,
   KbSuggestion,
-  KbView,
   RecallMode,
   RecallPhase,
 } from "../type";
@@ -123,7 +122,8 @@ interface KbState {
   pairBusy: boolean;
   pairError: string | null;
 
-  view: KbView;
+  // Which surface is shown is owned by the URL (path routes + hash overlays,
+  // see lib/client/hash-route.ts) — the store keeps only data.
 
   // recall
   mode: RecallMode;
@@ -210,7 +210,6 @@ export class KbStore extends ZenithStore<KbState> {
       lastConnectedAt: loadLastConnectedAt(),
       pairBusy: false,
       pairError: null,
-      view: "recall",
       mode: "answer",
       query: "",
       submittedQuery: "",
@@ -323,7 +322,6 @@ export class KbStore extends ZenithStore<KbState> {
       d.suggestionsLoaded = false;
       d.typesLoaded = false;
       d.status = null;
-      d.view = "recall";
       // Drafts belong to the previous home; a future pairing may be a different one.
       d.drafts = [];
       d.draftsLoaded = false;
@@ -423,14 +421,6 @@ export class KbStore extends ZenithStore<KbState> {
     void this.refreshHealth();
   }
 
-  // ---------- Navigation ----------
-  public go(view: KbView) {
-    this.produce((d) => {
-      d.view = view;
-      if (view === "status") void this.loadStatus();
-    });
-  }
-
   public setQuery(q: string) {
     this.produce((d) => {
       d.query = q;
@@ -482,7 +472,6 @@ export class KbStore extends ZenithStore<KbState> {
       d.answer = null;
       d.answerMs = null;
       d.typeFilter = null;
-      d.view = "recall";
     });
     try {
       if (mode === "answer") {
@@ -665,9 +654,10 @@ export class KbStore extends ZenithStore<KbState> {
   }
 
   // ---------- Reader / Editor ----------
+  /** Load a document into the reader. Navigation happens via the URL
+   *  (`/search#doc=<path>`); the /search page calls this when the hash changes. */
   public async openDoc(path: string) {
     this.produce((d) => {
-      d.view = "reader";
       d.readerPath = path;
       d.readerContent = "";
       d.readerLoading = true;
@@ -753,7 +743,6 @@ export class KbStore extends ZenithStore<KbState> {
   /** Fresh editor (New note tab / "New note" from drafts). */
   public composeNew() {
     this.produce((d) => {
-      d.view = "new";
       d.editingDraftId = null;
       d.editorSeed = "";
       d.editorSession += 1;
@@ -766,17 +755,17 @@ export class KbStore extends ZenithStore<KbState> {
   /** Re-enter the compose tab keeping whatever session was in progress. */
   public composeResume() {
     this.produce((d) => {
-      d.view = "new";
       d.newSavedPath = null;
       d.newError = null;
     });
   }
 
-  public resumeDraft(id: string) {
+  /** Seed the composer with a home-side draft (`/new#draft=<id>`).
+   *  Returns false when the id isn't in the loaded drafts (stale link). */
+  public resumeDraft(id: string): boolean {
     const draft = this.state.drafts.find((x) => x.id === id);
-    if (!draft) return;
+    if (!draft) return false;
     this.produce((d) => {
-      d.view = "new";
       d.editingDraftId = draft.id;
       d.editorSeed = draft.text;
       d.editorSession += 1;
@@ -784,6 +773,7 @@ export class KbStore extends ZenithStore<KbState> {
       d.newError = null;
     });
     persistCompose({ text: draft.text, editingDraftId: draft.id });
+    return true;
   }
 
   /**

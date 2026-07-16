@@ -11,9 +11,11 @@
  */
 
 import { useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
+import { hashHref } from "@/lib/client/hash-route";
 import { useKbStore, useKbStoreApi } from "../../store/kb-store";
 import { KbEditor, type KbEditorHandle, titleFromMarkdown } from "../domd";
-import { ConnIndicator } from "../kb";
+import { ConnIndicator } from "../shell";
 import { IconChevronLeft, Spinner, StatusDot } from "../icons";
 
 function ActionButtons({ editorRef }: { editorRef: React.MutableRefObject<KbEditorHandle | null> }) {
@@ -52,6 +54,7 @@ function ActionButtons({ editorRef }: { editorRef: React.MutableRefObject<KbEdit
 
 export function NewNoteView() {
   const api = useKbStoreApi();
+  const router = useRouter();
   const seed = useKbStore((s) => s.state.editorSeed);
   const session = useKbStore((s) => s.state.editorSession);
   const draftCount = useKbStore((s) => s.state.drafts.length);
@@ -76,7 +79,7 @@ export function NewNoteView() {
         <div className="mx-auto flex h-12 max-w-3xl items-center gap-2 px-3">
           <button
             className="-ml-1 flex items-center rounded-lg p-1.5 text-hk-text-2 transition-colors hover:text-hk-text"
-            onClick={() => api.go("recall")}
+            onClick={() => router.push("/search")}
             aria-label="Back"
           >
             <IconChevronLeft size={18} />
@@ -84,7 +87,7 @@ export function NewNoteView() {
           <span className="text-[15px] font-semibold text-hk-heading">New note</span>
           <button
             className="ml-1 flex items-center gap-1.5 rounded-full border border-hk-hairline px-2.5 py-1 text-[12.5px] font-medium text-hk-text-2 transition-colors hover:bg-hk-card"
-            onClick={() => api.go("drafts")}
+            onClick={() => router.push("/new/drafts")}
           >
             Drafts
             {draftCount > 0 && (
@@ -112,7 +115,7 @@ export function NewNoteView() {
               Saved to your library
               <button
                 className="ml-auto font-semibold text-hk-coral-text hover:text-hk-coral-hover"
-                onClick={() => void api.openDoc(savedPath)}
+                onClick={() => router.push(`/search${hashHref("doc", savedPath)}`)}
               >
                 Open
               </button>

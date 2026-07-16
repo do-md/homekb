@@ -6,6 +6,7 @@
  */
 
 import { useRef } from "react";
+import { closeHashOverlay } from "@/lib/client/hash-route";
 import { useKbStore, useKbStoreApi } from "../../store/kb-store";
 import { KbEditor, type KbEditorHandle, KbMarkdown } from "../domd";
 import { IconChevronLeft, Spinner } from "../icons";
@@ -32,7 +33,7 @@ export function ReaderView() {
         <div className="flex items-center justify-between gap-2">
           <button
             className="-ml-2 flex items-center gap-0.5 rounded-lg p-1.5 pr-2.5 text-[13.5px] font-medium text-hk-text-2 transition-colors hover:text-hk-text"
-            onClick={() => api.go("recall")}
+            onClick={() => closeHashOverlay()}
           >
             <IconChevronLeft size={16} /> Back
           </button>

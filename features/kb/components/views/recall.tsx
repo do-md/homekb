@@ -7,7 +7,9 @@
  */
 
 import { useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { isDesktop } from "@/lib/client/desktop";
+import { pushHash } from "@/lib/client/hash-route";
 import {
   useDesktopStore,
   useDesktopStoreApi,
@@ -47,11 +49,10 @@ function DocGlyph() {
 
 /** Whole-note result card (design NoteItem): title-forward, document-level. */
 function NoteItem({ hit, maxScore }: { hit: KbHit; maxScore: number }) {
-  const api = useKbStoreApi();
   const pct = maxScore > 0 ? Math.round((hit.score / maxScore) * 100) : 0;
   return (
     <button
-      onClick={() => void api.openDoc(hit.path)}
+      onClick={() => pushHash("doc", hit.path)}
       className="flex w-full flex-col gap-2.5 rounded-2xl border border-hk-border bg-hk-card p-4 text-left transition-colors hover:bg-hk-card-strong"
     >
       <div className="flex items-start gap-3">
@@ -160,7 +161,6 @@ function decorateCitationRefs(root: HTMLElement, citationCount: number) {
  * On completion the inline `[n]` markers upgrade to clickable citation chips.
  */
 function AnswerResult() {
-  const api = useKbStoreApi();
   const phase = useKbStore((s) => s.state.phase);
   const answer = useKbStore((s) => s.state.answer);
   const answerMs = useKbStore((s) => s.state.answerMs);
@@ -234,7 +234,7 @@ function AnswerResult() {
               <button
                 key={c.path}
                 id={`answer-cite-${i + 1}`}
-                onClick={() => void api.openDoc(c.path)}
+                onClick={() => pushHash("doc", c.path)}
                 className={`flex items-center gap-3 rounded-lg px-1 py-2.5 text-left transition-colors hover:bg-hk-card-soft ${
                   i > 0 ? "border-t border-hk-hairline" : ""
                 }`}
@@ -350,6 +350,7 @@ function DesktopOpenFolder() {
 /** Empty knowledge base / new user (design 4a top). */
 function EmptyLibrary() {
   const api = useKbStoreApi();
+  const router = useRouter();
   const desktop = isDesktop();
   const paths: [string, React.ReactNode][] = [
     [
@@ -394,7 +395,10 @@ function EmptyLibrary() {
         </div>
       </div>
       <button
-        onClick={() => api.composeNew()}
+        onClick={() => {
+          api.composeNew();
+          router.push("/new");
+        }}
         className="mt-5 w-full rounded-xl bg-hk-coral px-4 py-3 text-[15px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover"
       >
         New note
@@ -491,7 +495,7 @@ function EntryBody() {
             ).map((doc, i) => (
               <button
                 key={doc.path}
-                onClick={() => void api.openDoc(doc.path)}
+                onClick={() => pushHash("doc", doc.path)}
                 className={`flex items-center gap-3 px-1 py-2.5 text-left transition-colors hover:bg-hk-card-soft ${
                   i > 0 ? "border-t border-hk-hairline" : ""
                 }`}

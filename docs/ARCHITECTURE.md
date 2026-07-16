@@ -219,6 +219,22 @@ The UI (`features/kb`) is written once; the transport layer (`lib/client`) route
 - Asset rendering: `relay` mode fetches `…/asset/<path>` with the `Authorization` header and renders via blob URLs; `desktop` embeds plain serve URLs. How image srcs inside note Markdown map to asset paths is defined once in "Image references in notes" (`lib/client/asset-ref.ts` implements it).
 - Answer streaming: Answer mode calls the streaming endpoint (`${base}/rpc/stream` on serve, `${relayUrl}/api/relay/rpc/stream` on relay — the `rpcUrl` sibling) and consumes the `delta`/`done`/`error` SSE frames, feeding each `delta` into the DOMD editor incrementally. List mode keeps using the one-shot `rpc()` (`kb.query`).
 
+### UI routes
+
+Each tab is a real Next.js route; dynamic overlays live in the URL hash (static-export friendly — no SSR of dynamic params — and a pushed hash entry makes the system back gesture close the overlay instead of leaving the app):
+
+| URL | Surface |
+|-----|---------|
+| `/` | Redirects to `/search`, carrying query + hash (keeps the pairing link below intact) |
+| `/search` | Search entry + results; `#doc=<encoded path>` overlays the reader |
+| `/new` | Composer (active compose buffer); `#draft=<id>` resumes a home-side draft |
+| `/new/drafts` | Drafts collection (focused mode, under the New note tab) |
+| `/status` | Knowledge-base health dashboard |
+| `/remote` | Device-connection hub |
+| `/settings` | Desktop-only engine/AI config; the web build redirects to `/search` |
+
+The providers/gates shell mounts once in a shared layout (`app/(app)/layout.tsx`, loaded `ssr:false`) so client state persists across tab navigation; the unpaired connect screen renders on any route until paired.
+
 ### Pairing link (QR payload)
 
 The desktop Remote tab renders a QR code next to the pairing code so a phone can connect without typing:

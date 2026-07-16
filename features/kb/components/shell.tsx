@@ -3,6 +3,11 @@
 /**
  * App shell (design: 5-tab top pill nav + connection indicator in every header).
  *
+ * Mounted once from app/(app)/layout.tsx and persists across tab navigation, so
+ * the zenith stores keep their state while Next.js swaps the page below. The URL
+ * is the single source of truth for *which surface* is shown: tabs are path
+ * routes, dynamic overlays are hash params (see lib/client/hash-route.ts).
+ *
  * PWA layout follows the known-good recipe (KB: iOS standalone pitfalls):
  * the shell is `fixed inset-0 overflow-hidden` (document never scrolls; scrolling
  * happens only inside views), each edge panel pads its own safe area with its own
@@ -10,15 +15,16 @@
  */
 
 import { useEffect } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { isDesktop } from "@/lib/client/desktop";
+import { closeHashOverlay, getHashParam } from "@/lib/client/hash-route";
 import { BootScreen } from "@/features/desktop/components/boot-screen";
-import { SettingsView } from "@/features/desktop/components/settings";
 import {
   DesktopStoreProvider,
   useDesktopStore,
   useDesktopStoreApi,
 } from "@/features/desktop/store/desktop-store";
-import type { ConnState, KbView } from "../type";
+import type { ConnState } from "../type";
 import { KbStoreProvider, useKbStore, useKbStoreApi } from "../store/kb-store";
 import {
   IconActivity,
@@ -30,12 +36,6 @@ import {
   StatusDot,
 } from "./icons";
 import { PairScreen } from "./pair-screen";
-import { DraftsView } from "./views/drafts";
-import { NewNoteView } from "./views/new-note";
-import { ReaderView } from "./views/reader";
-import { RecallView } from "./views/recall";
-import { RemoteView } from "./views/remote";
-import { StatusView } from "./views/status";
 
 /** Single connection indicator that rides in every header (product-defining). */
 export function ConnIndicator() {
@@ -67,45 +67,54 @@ export function ConnIndicator() {
   );
 }
 
-const NAV: { view: KbView; label: string; icon: typeof IconSearch }[] = [
-  { view: "recall", label: "Search", icon: IconSearch },
-  { view: "new", label: "New note", icon: IconPlus },
-  { view: "status", label: "Status", icon: IconActivity },
-  { view: "remote", label: "Remote", icon: IconPhoneSignal },
-  { view: "settings", label: "Settings", icon: IconSliders },
+const NAV: { href: string; label: string; icon: typeof IconSearch }[] = [
+  { href: "/search", label: "Search", icon: IconSearch },
+  { href: "/new", label: "New note", icon: IconPlus },
+  { href: "/status", label: "Status", icon: IconActivity },
+  { href: "/remote", label: "Remote", icon: IconPhoneSignal },
+  { href: "/settings", label: "Settings", icon: IconSliders },
 ];
 
-/** Which nav tab a view highlights (reader belongs to Search, drafts to New note). */
-function activeTab(view: KbView): KbView {
-  if (view === "reader") return "recall";
-  if (view === "drafts") return "new";
-  return view;
+/** Which nav tab a path highlights (/new/drafts belongs to New note, #doc to Search). */
+function activeTab(pathname: string): string {
+  const item = NAV.find((n) => pathname === n.href || pathname.startsWith(`${n.href}/`));
+  return item?.href ?? "/search";
 }
 
 function Header() {
   const api = useKbStoreApi();
-  const view = useKbStore((s) => s.state.view);
+  const router = useRouter();
+  const pathname = usePathname();
   const desktop = useKbStore((s) => s.state.desktop);
-  const active = activeTab(view);
+  const active = activeTab(pathname);
 
-  const items = NAV.filter((n) => (desktop ? true : n.view !== "settings"));
+  const items = NAV.filter((n) => (desktop ? true : n.href !== "/settings"));
 
-  const goTab = (v: KbView) => {
-    if (v === "new") api.composeResume();
-    else if (v === "recall" && view === "recall") api.clearSearch();
-    else api.go(v);
+  const goTab = (href: string) => {
+    if (href === active) {
+      // Re-tapping the active Search tab: close the reader overlay first,
+      // then reset to the entry screen (matches the old clearSearch behavior).
+      if (href === "/search") {
+        if (getHashParam("doc")) closeHashOverlay();
+        else api.clearSearch();
+      }
+      return;
+    }
+    // Entering the compose tab resumes the in-progress buffer (clears stale banners).
+    if (href === "/new") api.composeResume();
+    router.push(href);
   };
 
   return (
     <header className="bg-hk-bg pt-safe-top border-b border-hk-hairline">
       <div className="mx-auto flex h-12 max-w-3xl items-center gap-1 px-3">
         <nav className="flex items-center gap-0.5" aria-label="Main">
-          {items.map(({ view: v, label, icon: Icon }) => {
-            const isActive = active === v;
+          {items.map(({ href, label, icon: Icon }) => {
+            const isActive = active === href;
             return (
               <button
-                key={v}
-                onClick={() => goTab(v)}
+                key={href}
+                onClick={() => goTab(href)}
                 aria-current={isActive ? "page" : undefined}
                 className={
                   isActive
@@ -143,10 +152,10 @@ function Notice() {
   );
 }
 
-function Main() {
+function Chrome({ children }: { children: React.ReactNode }) {
   const api = useKbStoreApi();
+  const pathname = usePathname();
   const paired = useKbStore((s) => s.state.paired);
-  const view = useKbStore((s) => s.state.view);
 
   useEffect(() => {
     if (!paired) return;
@@ -158,20 +167,12 @@ function Main() {
   if (!paired) return <PairScreen />;
 
   // Focused modes render their own header (design 5a/5b: no pill nav while composing).
-  const focused = view === "new" || view === "drafts";
+  const focused = pathname === "/new" || pathname.startsWith("/new/");
 
   return (
     <div className="fixed inset-0 flex flex-col overflow-hidden">
       {!focused && <Header />}
-      <main className="flex min-h-0 flex-1 flex-col">
-        {view === "recall" && <RecallView />}
-        {view === "reader" && <ReaderView />}
-        {view === "new" && <NewNoteView />}
-        {view === "drafts" && <DraftsView />}
-        {view === "status" && <StatusView />}
-        {view === "remote" && <RemoteView />}
-        {view === "settings" && <SettingsView />}
-      </main>
+      <main className="flex min-h-0 flex-1 flex-col">{children}</main>
       <Notice />
     </div>
   );
@@ -190,14 +191,14 @@ function DesktopGate({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-export function Kb() {
-  // Runtime mode detection (page is ssr:false, client-only; constant within a session)
+export function Shell({ children }: { children: React.ReactNode }) {
+  // Runtime mode detection (the shell is loaded ssr:false, client-only; constant within a session)
   if (isDesktop()) {
     return (
       <DesktopStoreProvider>
         <KbStoreProvider>
           <DesktopGate>
-            <Main />
+            <Chrome>{children}</Chrome>
           </DesktopGate>
         </KbStoreProvider>
       </DesktopStoreProvider>
@@ -205,7 +206,7 @@ export function Kb() {
   }
   return (
     <KbStoreProvider>
-      <Main />
+      <Chrome>{children}</Chrome>
     </KbStoreProvider>
   );
 }

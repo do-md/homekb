@@ -2,7 +2,7 @@
     "name": "HomeKB",
     "short_name": "HomeKB",
     "description": "Your knowledge base lives on your own computer.",
-    "start_url": "/",
+    "start_url": "/search",
     "scope": "/",
     "display": "standalone",
     "background_color": "#0C0D10",

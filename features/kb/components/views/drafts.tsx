@@ -8,6 +8,8 @@
  */
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { hashHref } from "@/lib/client/hash-route";
 import type { Draft } from "../../type";
 import { useKbStore, useKbStoreApi } from "../../store/kb-store";
 import { titleFromMarkdown } from "../domd";
@@ -45,6 +47,7 @@ function previewText(text: string): string {
 
 function DraftItem({ draft }: { draft: Draft }) {
   const api = useKbStoreApi();
+  const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const title = titleFromMarkdown(draft.text) || "Untitled";
   const preview = previewText(draft.text);
@@ -56,7 +59,7 @@ function DraftItem({ draft }: { draft: Draft }) {
       </span>
       <button
         className="min-w-0 flex-1 text-left"
-        onClick={() => api.resumeDraft(draft.id)}
+        onClick={() => router.push(`/new${hashHref("draft", draft.id)}`)}
       >
         <span className="block truncate text-[15px] font-semibold tracking-tight text-hk-text">
           {title}
@@ -98,6 +101,7 @@ function DraftItem({ draft }: { draft: Draft }) {
 
 export function DraftsView() {
   const api = useKbStoreApi();
+  const router = useRouter();
   const drafts = useKbStore((s) => s.state.drafts);
 
   return (
@@ -106,7 +110,10 @@ export function DraftsView() {
         <div className="mx-auto flex h-12 max-w-3xl items-center gap-2 px-3">
           <button
             className="-ml-1 flex items-center rounded-lg p-1.5 text-hk-text-2 transition-colors hover:text-hk-text"
-            onClick={() => api.composeResume()}
+            onClick={() => {
+              api.composeResume();
+              router.push("/new");
+            }}
             aria-label="Back"
           >
             <IconChevronLeft size={18} />
@@ -119,7 +126,10 @@ export function DraftsView() {
           )}
           <button
             className="ml-auto flex items-center gap-1.5 rounded-xl bg-hk-coral px-3 py-1.5 text-[13px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover"
-            onClick={() => api.composeNew()}
+            onClick={() => {
+              api.composeNew();
+              router.push("/new");
+            }}
           >
             <IconPlus size={13} strokeWidth={2} /> New note
           </button>

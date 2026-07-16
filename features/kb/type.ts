@@ -57,19 +57,12 @@ export interface Draft {
   editedAt: number; // epoch ms
 }
 
-/**
- * Views. "settings" and the full "remote" pairing hub are desktop-mode surfaces;
- * the web build shows a reduced "remote" (current connection + disconnect) and no settings.
- * "new" and "drafts" are focused modes without the pill nav (design 5a/5b).
+/*
+ * Surfaces are URL-owned (no view enum): tabs are path routes (/search, /new,
+ * /new/drafts, /status, /remote, desktop-only /settings), dynamic overlays are
+ * hash params (`/search#doc=<path>`, `/new#draft=<id>`) so the system back
+ * gesture closes them. See lib/client/hash-route.ts and app/(app)/.
  */
-export type KbView =
-  | "recall"
-  | "reader"
-  | "new"
-  | "drafts"
-  | "status"
-  | "remote"
-  | "settings";
 
 export type RecallMode = "list" | "answer";
 /** "streaming" = answer tokens arriving (Answer mode only); "done" = complete. */
