@@ -1,7 +1,13 @@
 "use client";
 
 /**
- * App shell (design: 5-tab top pill nav + connection indicator in every header).
+ * App shell (top pill nav + a New-note action on the right edge).
+ *
+ * Header layout: Search / Status / Remote tabs on the left; "New note" sits alone
+ * on the far right because its surface is special (focused compose mode renders
+ * its own header, no pill nav). The connection state is not a standalone header
+ * widget anymore — it rides as a small dot badge on the Remote tab icon, and the
+ * Remote page itself shows the full connection details.
  *
  * Mounted once from app/(app)/layout.tsx and persists across tab navigation, so
  * the zenith stores keep their state while Next.js swaps the page below. The URL
@@ -37,7 +43,7 @@ import {
 } from "./icons";
 import { PairScreen } from "./pair-screen";
 
-/** Single connection indicator that rides in every header (product-defining). */
+/** Full connection indicator (dot + label) — used by focused surfaces that have no Remote tab (compose header). */
 export function ConnIndicator() {
   const connState = useKbStore((s) => s.connState);
   const desktop = useKbStore((s) => s.state.desktop);
@@ -67,15 +73,34 @@ export function ConnIndicator() {
   );
 }
 
+/**
+ * Tiny connection badge riding the Remote tab icon's top-right corner — the
+ * quiet replacement for the old always-on header indicator. Full details live
+ * on the Remote page itself.
+ */
+function ConnBadge() {
+  const connState = useKbStore((s) => s.connState);
+  const bg: Record<ConnState, string> = {
+    online: "bg-hk-green",
+    connecting: "bg-hk-amber animate-pulse",
+    offline: "bg-hk-orange",
+  };
+  return (
+    <span
+      className={`absolute -right-[3px] -top-[3px] h-[7px] w-[7px] rounded-full ring-2 ring-hk-bg ${bg[connState]}`}
+      aria-hidden
+    />
+  );
+}
+
 const NAV: { href: string; label: string; icon: typeof IconSearch }[] = [
   { href: "/search", label: "Search", icon: IconSearch },
-  { href: "/new", label: "New note", icon: IconPlus },
   { href: "/status", label: "Status", icon: IconActivity },
   { href: "/remote", label: "Remote", icon: IconPhoneSignal },
   { href: "/settings", label: "Settings", icon: IconSliders },
 ];
 
-/** Which nav tab a path highlights (/new/drafts belongs to New note, #doc to Search). */
+/** Which nav tab a path highlights (#doc belongs to Search; /new renders its own header). */
 function activeTab(pathname: string): string {
   const item = NAV.find((n) => pathname === n.href || pathname.startsWith(`${n.href}/`));
   return item?.href ?? "/search";
@@ -100,9 +125,13 @@ function Header() {
       }
       return;
     }
-    // Entering the compose tab resumes the in-progress buffer (clears stale banners).
-    if (href === "/new") api.composeResume();
     router.push(href);
+  };
+
+  const goCompose = () => {
+    // Entering compose resumes the in-progress buffer (clears stale banners).
+    api.composeResume();
+    router.push("/new");
   };
 
   return (
@@ -123,15 +152,24 @@ function Header() {
                 }
                 title={label}
               >
-                <Icon size={16} strokeWidth={1.7} />
+                <span className="relative flex">
+                  <Icon size={16} strokeWidth={1.7} />
+                  {href === "/remote" && <ConnBadge />}
+                </span>
                 {isActive && <span>{label}</span>}
               </button>
             );
           })}
         </nav>
-        <span className="ml-auto shrink-0">
-          <ConnIndicator />
-        </span>
+        {/* New note lives apart from the tabs: its surface is a focused mode with its own header. */}
+        <button
+          onClick={goCompose}
+          className="ml-auto flex shrink-0 items-center gap-1.5 rounded-full border border-hk-hairline px-2.5 py-1.5 text-[12.5px] font-medium text-hk-text-2 transition-colors hover:bg-hk-card"
+          title="New note"
+        >
+          <IconPlus size={15} strokeWidth={1.8} />
+          <span className="hidden min-[420px]:inline">New note</span>
+        </button>
       </div>
     </header>
   );
