@@ -25,6 +25,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { isDesktop } from "@/lib/client/desktop";
 import { closeHashOverlay, getHashParam } from "@/lib/client/hash-route";
 import { BootScreen } from "@/features/desktop/components/boot-screen";
+import { UpdateBanner } from "@/features/desktop/components/update-banner";
 import {
   DesktopStoreProvider,
   useDesktopStore,
@@ -57,6 +58,24 @@ function ConnBadge() {
   return (
     <span
       className={`absolute -right-[3px] -top-[3px] h-[7px] w-[7px] rounded-full ring-2 ring-hk-bg ${bg[connState]}`}
+      aria-hidden
+    />
+  );
+}
+
+/**
+ * Coral dot on the Settings tab while the engine still lacks a required AI key
+ * ([embedding] or [summary]) — the quiet nudge that pairs with the full
+ * "Add your AI keys" guide on the Search screen. Desktop only: it is rendered
+ * solely for the Settings tab, which itself only exists in desktop mode, so the
+ * DesktopStore provider is always mounted when this runs.
+ */
+function SettingsBadge() {
+  const needsSetup = useDesktopStore((s) => s.aiSetupNeeded);
+  if (!needsSetup) return null;
+  return (
+    <span
+      className="absolute -right-[3px] -top-[3px] h-[7px] w-[7px] rounded-full bg-hk-coral ring-2 ring-hk-bg"
       aria-hidden
     />
   );
@@ -129,6 +148,7 @@ function Header() {
                 <span className="relative flex">
                   <Icon size={16} strokeWidth={1.7} />
                   {href === "/remote" && <ConnBadge />}
+                  {href === "/settings" && <SettingsBadge />}
                 </span>
                 {/* No fade on the label: full-opacity text is revealed/clipped by the
                     animating width — a fade reads as sluggish color change here. */}
@@ -205,10 +225,21 @@ function DesktopGate({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     void api.bootstrap();
+    // App self-update: silent check on launch + window focus (store rate-limits
+    // to 1/h, production builds only). Readiness renders as the in-app banner.
+    void api.checkForUpdate();
+    const onFocus = () => void api.checkForUpdate();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, [api]);
 
   if (phase !== "ready") return <BootScreen />;
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+      <UpdateBanner />
+    </>
+  );
 }
 
 export function Shell({ children }: { children: React.ReactNode }) {

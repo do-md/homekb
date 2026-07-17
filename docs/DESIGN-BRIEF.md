@@ -42,17 +42,17 @@ One mental model you must understand: **"home" vs. "remote."**
 
 This is what the design truly needs to revolve around. The things users can do:
 
-| Feature | User intent | Information surfaced |
-|------|---------|-----------|
-| **Semantic search** | "Have I ever noted anything related to this?" | A set of hits ranked by relevance: title, parent document, snippet body, type label, relevance, time |
-| **AI Q&A** | "Just tell me the answer" | A single answer synthesized by the AI + which notes it cited (openable to the original text) |
-| **Reading notes** | View the full text of a note | Markdown body (currently plain text; ideally rich-text rendering) + document identifier |
-| **Editing notes** | Edit a note in place and save it back to the home computer | Editor + save/cancel + save-result feedback |
-| **Creating notes** | Jot down a note and file it | Title (optional) + body editing + file-in result feedback |
-| **Library health** | "What state is my library in right now?" | A set of stats (document count, indexing progress, pending items, last compile time, etc.) + connection state + manually trigger a compile |
-| **Pairing a new device** | Let a new device access home | Enter a one-time pairing code; or generate a pairing code on the home side to hand out |
-| **Configuration (desktop only)** | Manage the engine, keys, and remote access | Engine info, data directory, OpenAI Key, relay registration, tunnel toggle, generate pairing code |
-| **Connector authorization** | Let the Claude mobile app connect | A page where "entering a pairing code grants authorization" |
+| Feature                          | User intent                                                | Information surfaced                                                                                                                       |
+| -------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Semantic search**              | "Have I ever noted anything related to this?"              | A set of hits ranked by relevance: title, parent document, snippet body, type label, relevance, time                                       |
+| **AI Q&A**                       | "Just tell me the answer"                                  | A single answer synthesized by the AI + which notes it cited (openable to the original text)                                               |
+| **Reading notes**                | View the full text of a note                               | Markdown body (currently plain text; ideally rich-text rendering) + document identifier                                                    |
+| **Editing notes**                | Edit a note in place and save it back to the home computer | Editor + save/cancel + save-result feedback                                                                                                |
+| **Creating notes**               | Jot down a note and file it                                | Title (optional) + body editing + file-in result feedback                                                                                  |
+| **Library health**               | "What state is my library in right now?"                   | A set of stats (document count, indexing progress, pending items, last compile time, etc.) + connection state + manually trigger a compile |
+| **Pairing a new device**         | Let a new device access home                               | Enter a one-time pairing code; or generate a pairing code on the home side to hand out                                                     |
+| **Configuration (desktop only)** | Manage the engine, keys, and remote access                 | Engine info, data directory, OpenAI Key, relay registration, tunnel toggle, generate pairing code                                          |
+| **Connector authorization**      | Let the Claude mobile app connect                          | A page where "entering a pairing code grants authorization"                                                                                |
 
 **Search and Q&A are two modes under the same entry point** — the user types a sentence and can ask for either "a bunch of relevant snippets" or "one synthesized answer." How these two modes switch and how each is presented is the design point most worth polishing on the core page.
 

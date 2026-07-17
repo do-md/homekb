@@ -13,8 +13,10 @@ import type { AiSection } from "@/lib/client/desktop";
 import { useDesktopStore, useDesktopStoreApi } from "../store/desktop-store";
 import { DesktopNotice } from "./notice";
 
-const EMBEDDING_PROVIDERS = ["openai", "gemini", "voyage", "cohere", "custom"] as const;
-const CHAT_PROVIDERS = ["openai", "gemini", "custom"] as const;
+// Mirrors the engine preset table (docs "AI provider presets"). deepseek is
+// chat-only (no embeddings API); qwen = Alibaba DashScope compatible mode.
+const EMBEDDING_PROVIDERS = ["openai", "gemini", "voyage", "cohere", "qwen", "custom"] as const;
+const CHAT_PROVIDERS = ["openai", "gemini", "deepseek", "qwen", "custom"] as const;
 
 const inputCls =
   "min-w-0 flex-1 rounded-xl border border-hk-input-border bg-transparent px-3 py-2 font-mono text-[13px] text-hk-text outline-none placeholder:text-hk-weak focus:border-hk-input-focus";
@@ -157,6 +159,7 @@ const EMBEDDING_RATE_PER_M: Record<string, number> = {
   "voyage-4-lite": 0.02,
   "voyage-4-large": 0.12,
   "embed-v4.0": 0.1,
+  "text-embedding-v4": 0.07, // DashScope ~0.5 CNY per 1M tokens
 };
 
 /** Estimate the embedding cost of a full reindex from chunk/doc counts. */
@@ -229,6 +232,40 @@ function RebuildIndexCard() {
   );
 }
 
+/**
+ * App updates card (docs "App self-update"): shell version + manual check with
+ * inline status. The check downloads + installs in the background; once ready,
+ * the button flips to "Restart to update". Errors/up-to-date report via the
+ * notice pill — never a system dialog.
+ */
+function AppUpdatesCard() {
+  const api = useDesktopStoreApi();
+  const appVersion = useDesktopStore((s) => s.state.appVersion);
+  const updateReady = useDesktopStore((s) => s.state.updateReady);
+  const busy = useDesktopStore((s) => s.state.updateBusy);
+
+  return (
+    <Section title="App updates">
+      <Row label="Version" value={appVersion ?? "–"} />
+      {updateReady && <Row label="Ready" value={`${updateReady} — restart to apply`} />}
+      <p className="mt-1 text-xs leading-relaxed text-hk-faint">
+        Updates download and install in the background; HomeKB switches to the new
+        version the next time it starts.
+      </p>
+      <div className="mt-2 flex justify-end">
+        <button
+          className="flex items-center gap-1.5 rounded-xl bg-hk-coral px-4 py-2 text-[13.5px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover disabled:opacity-50"
+          disabled={busy}
+          onClick={() => void (updateReady ? api.restartToUpdate() : api.checkForUpdate(true))}
+        >
+          {busy && <Spinner size={13} />}
+          {updateReady ? "Restart to update" : busy ? "Checking…" : "Check for updates"}
+        </button>
+      </div>
+    </Section>
+  );
+}
+
 /** Desktop-only Settings view: engine + directories + AI providers + appearance. */
 export function SettingsView() {
   const api = useDesktopStoreApi();
@@ -262,6 +299,8 @@ export function SettingsView() {
             }
           />
         </Section>
+
+        <AppUpdatesCard />
 
         <Section title="Data directory — your data stays on this machine">
           <Row label="Notes" value={engine?.notesDir ?? "–"} />

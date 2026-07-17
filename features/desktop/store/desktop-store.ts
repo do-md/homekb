@@ -2,6 +2,7 @@
 import { createMemo, createReactStore, ZenithStore } from "@do-md/zenith";
 import {
   type AiSection,
+  appVersion,
   type DaemonStatus,
   type EngineStatus,
   type IndexStats,
@@ -10,6 +11,8 @@ import {
   type LocalRelayStatus,
   type PairInfo,
   type RelayCredentials,
+  tauriProcess,
+  tauriUpdater,
 } from "@/lib/client/desktop";
 import { listGrants, type RelayGrant, revokeGrant } from "@/lib/client/relay-admin";
 import {
@@ -37,6 +40,27 @@ export interface AiDraft {
 }
 
 const emptyAiDraft = (): AiDraft => ({ provider: "", apiKey: "", model: "", baseUrl: "", dim: "" });
+
+/** Silent auto-check rate limit (launch + window focus) — docs "App self-update". */
+const UPDATE_CHECK_KEY = "homekb:updater:last-check";
+const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
+
+function shouldAutoCheck(): boolean {
+  try {
+    const last = Number.parseInt(localStorage.getItem(UPDATE_CHECK_KEY) ?? "0", 10);
+    return Date.now() - last > UPDATE_CHECK_INTERVAL_MS;
+  } catch {
+    return true;
+  }
+}
+
+function markUpdateChecked(): void {
+  try {
+    localStorage.setItem(UPDATE_CHECK_KEY, String(Date.now()));
+  } catch {
+    // localStorage unavailable — we'll simply check again on the next focus.
+  }
+}
 
 const memo = createMemo<DesktopStore>();
 
@@ -85,6 +109,11 @@ interface DesktopState {
   grantsError: string | null;
   revokingGrantId: string | null;
 
+  // App self-update (docs "App self-update"): silent background flow, no dialogs
+  appVersion: string | null;
+  updateReady: string | null; // version already downloaded + installed, waiting for relaunch
+  updateBusy: boolean;
+
   notice: string | null;
 }
 
@@ -120,6 +149,9 @@ export class DesktopStore extends ZenithStore<DesktopState> {
       grantsLoaded: false,
       grantsError: null,
       revokingGrantId: null,
+      appVersion: null,
+      updateReady: null,
+      updateBusy: false,
       notice: null,
     });
   }
@@ -130,6 +162,14 @@ export class DesktopStore extends ZenithStore<DesktopState> {
       d.phase = "checking";
       d.bootError = null;
     });
+    // Shell version for the Settings "App updates" card — fire-and-forget.
+    void appVersion()
+      .then((v) => {
+        this.produce((d) => {
+          d.appVersion = v;
+        });
+      })
+      .catch(() => {});
     try {
       let engine = await invoke<EngineStatus>("engine_status");
       if (!engine.installed) {
@@ -293,6 +333,21 @@ export class DesktopStore extends ZenithStore<DesktopState> {
   @memo((s: DesktopStore) => [s.state.userServices])
   public get services(): ServiceEntry[] {
     return allServices(this.state.userServices);
+  }
+
+  /**
+   * First-run onboarding signal: the engine can neither compile nor retrieve
+   * until both REQUIRED AI endpoints ([embedding] + [summary]) carry a key (see
+   * docs "AI provider presets"). Drives the "Add your AI keys" guide on the
+   * Search empty state and the Settings-tab attention badge. Stays false while
+   * the engine status is still unknown (engine === null), so nothing flashes
+   * before boot resolves.
+   */
+  @memo((s: DesktopStore) => [s.state.engine])
+  public get aiSetupNeeded(): boolean {
+    const ai = this.state.engine?.ai;
+    if (!ai) return false;
+    return !ai.embedding.keyPresent || !ai.summary.keyPresent;
   }
 
   public addService(url: string, thisMachine = false) {
@@ -562,6 +617,56 @@ export class DesktopStore extends ZenithStore<DesktopState> {
         d.revokingGrantId = null;
       });
       this.flash(invokeErrorMessage(e, "Failed to unpair device"));
+    }
+  }
+
+  // ---------- App self-update (docs/ARCHITECTURE.md "App self-update") ----------
+  /**
+   * Check for a shell update and install it in the background. Honors the
+   * no-dialog rule: readiness surfaces only through `updateReady` (the in-app
+   * "Restart to update" banner + the Settings card). Auto mode (launch/window
+   * focus) is production-only and rate-limited to once per hour; manual mode
+   * (Settings button) always checks and reports inline via the notice pill.
+   */
+  public async checkForUpdate(manual = false) {
+    if (this.state.updateBusy || this.state.updateReady) return;
+    if (!manual) {
+      if (process.env.NODE_ENV !== "production") return;
+      if (!shouldAutoCheck()) return;
+    }
+    this.produce((d) => {
+      d.updateBusy = true;
+    });
+    try {
+      const { check } = await tauriUpdater();
+      const update = await check();
+      markUpdateChecked();
+      if (!update) {
+        if (manual) this.flash("You're on the latest version");
+        return;
+      }
+      if (manual) this.flash(`Downloading v${update.version}…`);
+      await update.downloadAndInstall();
+      this.produce((d) => {
+        d.updateReady = update.version;
+      });
+    } catch (e) {
+      if (manual) this.flash(invokeErrorMessage(e, "Update check failed"));
+      else console.warn("[updater] check/install failed", e);
+    } finally {
+      this.produce((d) => {
+        d.updateBusy = false;
+      });
+    }
+  }
+
+  /** Relaunch into the freshly installed version (banner / Settings button). */
+  public async restartToUpdate() {
+    try {
+      const { relaunch } = await tauriProcess();
+      await relaunch();
+    } catch (e) {
+      this.flash(invokeErrorMessage(e, "Restart failed — quit and reopen HomeKB"));
     }
   }
 

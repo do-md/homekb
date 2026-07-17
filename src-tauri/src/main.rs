@@ -586,6 +586,11 @@ async fn open_notes_dir() -> Result<(), String> {
 
 fn main() {
     tauri::Builder::default()
+        // App self-update (docs/ARCHITECTURE.md "App self-update"): manifest from GitHub
+        // Releases, minisign-verified; process plugin provides relaunch() after install.
+        // The UI stays dialog-free — update state surfaces via the in-app banner only.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
             engine_status,
             engine_install,

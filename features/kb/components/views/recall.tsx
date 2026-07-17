@@ -8,7 +8,7 @@
 
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { isDesktop } from "@/lib/client/desktop";
+import { type AiStatus, isDesktop } from "@/lib/client/desktop";
 import { pushHash } from "@/lib/client/hash-route";
 import {
   useDesktopStore,
@@ -20,13 +20,16 @@ import { Composer, ModeToggle } from "../composer";
 import { KbStreamingAnswer } from "../domd";
 import {
   IconArrowRight,
+  IconCheck,
   IconChevronRight,
   IconDoc,
   IconDocPlus,
   IconRefresh,
   IconSearch,
+  IconSliders,
   IconSpark,
   Spinner,
+  StatusDot,
 } from "../icons";
 import { OfflineScreen } from "../offline-screen";
 
@@ -408,6 +411,104 @@ function EmptyLibrary() {
   );
 }
 
+/**
+ * First-run AI setup guide (desktop only). HomeKB can neither compile nor
+ * retrieve until both REQUIRED endpoints — [embedding] and [summary] — carry a
+ * key, so this supersedes the empty-library guide: adding notes before the keys
+ * exist would only pile up un-indexable files. Keys are configured on this
+ * machine (Settings → config.toml), so the guide points straight there.
+ */
+function AiSetupGuide({ ai }: { ai: AiStatus }) {
+  const router = useRouter();
+  const items: { title: string; desc: string; ok: boolean }[] = [
+    {
+      title: "Embedding key",
+      desc: "Turns your notes into the search vectors every query runs against.",
+      ok: ai.embedding.keyPresent,
+    },
+    {
+      title: "Summary key",
+      desc: "Writes each note's summary and category when the index is built.",
+      ok: ai.summary.keyPresent,
+    },
+  ];
+  return (
+    <div className="mx-auto flex w-full max-w-md flex-col items-center px-2 py-10 text-center">
+      <span className="flex h-14 w-14 items-center justify-center rounded-2xl border border-hk-border bg-hk-card text-hk-coral-text">
+        <IconSpark size={24} strokeWidth={1.5} />
+      </span>
+      <h1 className="mt-5 text-[22px] font-bold tracking-tight text-hk-heading">
+        Add your AI keys to get started
+      </h1>
+      <p className="mt-2 text-[14.5px] text-hk-text-2">
+        HomeKB uses AI to make your notes searchable. It needs two keys before it can index
+        anything — both stay on this computer.
+      </p>
+      <div className="mt-5 w-full rounded-2xl border border-hk-border bg-hk-card p-4 text-left">
+        <div className="flex flex-col gap-3.5">
+          {items.map(({ title, desc, ok }) => (
+            <div key={title} className="flex items-start gap-3">
+              <span
+                className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
+                  ok ? "bg-hk-green/15 text-hk-green" : "bg-hk-coral-chip text-hk-coral-text"
+                }`}
+              >
+                {ok ? <IconCheck size={12} strokeWidth={2.5} /> : <StatusDot className="h-1.5! w-1.5!" />}
+              </span>
+              <span>
+                <span className="flex items-center gap-2 text-[14px] font-semibold text-hk-text">
+                  {title}
+                  <span
+                    className={`text-[11px] font-medium ${ok ? "text-hk-green" : "text-hk-weak"}`}
+                  >
+                    {ok ? "Configured" : "Required"}
+                  </span>
+                </span>
+                <span className="mt-0.5 block text-[13px] leading-relaxed text-hk-text-2">
+                  {desc}
+                </span>
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <p className="mt-4 text-[12.5px] leading-relaxed text-hk-faint">
+        Your keys live in <code className="font-mono text-[12px]">config.toml</code> on this
+        machine. Nothing — keys or notes — ever leaves your computer.
+      </p>
+      <button
+        onClick={() => router.push("/settings")}
+        className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-hk-coral px-4 py-3 text-[15px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover"
+      >
+        <IconSliders size={16} strokeWidth={1.8} /> Set up in Settings
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Empty-state router. On desktop the AI-setup guide takes priority over the
+ * empty-library guide (no keys → nothing can be indexed anyway); everywhere
+ * else, and once both keys exist, it falls back to the add-your-first-notes
+ * guide. The desktop branch is isolated in its own component so `useDesktopStore`
+ * is only ever called when the desktop provider is mounted.
+ */
+function EmptyState() {
+  return isDesktop() ? <DesktopEmptyState /> : <EmptyLibrary />;
+}
+
+function DesktopEmptyState() {
+  const api = useDesktopStoreApi();
+  const ai = useDesktopStore((s) => s.state.engine?.ai ?? null);
+  // Re-read the engine on mount so keys added via Settings/CLI while the app was
+  // open clear the guide the next time this screen is shown.
+  useEffect(() => {
+    void api.refreshEngine();
+  }, [api]);
+  if (ai && (!ai.embedding.keyPresent || !ai.summary.keyPresent)) return <AiSetupGuide ai={ai} />;
+  return <EmptyLibrary />;
+}
+
 /** Library-health strip on the entry screen (design 2a). */
 function HealthStrip() {
   const api = useKbStoreApi();
@@ -598,7 +699,7 @@ export function RecallView() {
               {noResults && <NoResults />}
             </div>
           ) : emptyLibrary ? (
-            <EmptyLibrary />
+            <EmptyState />
           ) : (
             <EntryBody />
           )}

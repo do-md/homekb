@@ -90,6 +90,24 @@ export async function invoke<T>(
   return core.invoke<T>(cmd, args);
 }
 
+// ---------- App self-update (docs/ARCHITECTURE.md "App self-update") ----------
+// Lazy plugin loaders: dynamic import keeps these chunks out of the Web bundle
+// entirely (same pattern as invoke above; import() caches per module natively).
+
+export async function tauriUpdater() {
+  return import("@tauri-apps/plugin-updater");
+}
+
+export async function tauriProcess() {
+  return import("@tauri-apps/plugin-process");
+}
+
+/** Current app (shell) version from the Tauri runtime, for the Settings card. */
+export async function appVersion(): Promise<string> {
+  const app = await import("@tauri-apps/api/app");
+  return app.getVersion();
+}
+
 /** Tauri command Err(String) arrives in JS as a bare string; normalise to a readable message. */
 export function invokeErrorMessage(e: unknown, fallback: string): string {
   if (typeof e === "string" && e.trim()) return e;

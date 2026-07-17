@@ -24,6 +24,14 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/do-md/homekb/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI0MDA1NjJGNkQ2OUE1RTkKUldUcHBXbHRMMVlBdE5vdWlXaExBbk1aRW9YL1hKaERTY3k2NVM0S2loNHhVRE1DVGMrSjRPTzIK"
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "app",
