@@ -40,6 +40,11 @@ jobs:
     defaults:
       run:
         working-directory: engine
+    env:
+      # sqlite-vec 0.1.9's C source typedefs uint*_t from BSD u_int*_t types,
+      # which musl only exposes behind _GNU_SOURCE + sys/types.h (glibc/macOS
+      # get them transitively). Target-scoped, inert for the other targets.
+      CFLAGS_x86_64_unknown_linux_musl: "-D_GNU_SOURCE -include sys/types.h"
     steps:
       - uses: actions/checkout@v4
 
