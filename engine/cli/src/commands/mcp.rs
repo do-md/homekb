@@ -129,6 +129,10 @@ fn map_tool(name: &str, a: &Value) -> Option<(&'static str, Value)> {
         "kb_update" => Some(("kb.write", json!({ "path": g("path"), "content": g("content") }))),
         "kb_list" => Some(("kb.list", json!({ "limit": g("limit") }))),
         "kb_status" => Some(("kb.status", json!({}))),
+        "kb_share" => Some((
+            "kb.shareCreate",
+            json!({ "path": g("path"), "password": g("password"), "expiresDays": g("expires_in_days") }),
+        )),
         _ => None,
     }
 }
@@ -195,6 +199,19 @@ fn tool_defs() -> Value {
             "name": "kb_status",
             "description": "Knowledge base index status: document/chunk counts, pending embeddings, last compile time.",
             "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "kb_share",
+            "description": "Create a PUBLIC share link for one note — anyone with the link (and the password, if set) can read it. The note is served live from this machine; requires an active relay registration. Confirm with the user before sharing sensitive content.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Relative path of the note to share" },
+                    "password": { "type": "string", "description": "Optional password protecting the link" },
+                    "expires_in_days": { "type": "number", "description": "Optional expiry in days (default: never)" }
+                },
+                "required": ["path"]
+            }
         }
     ])
 }

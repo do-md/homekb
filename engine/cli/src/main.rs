@@ -157,6 +157,30 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    /// Create / list / revoke public share links for single notes.
+    ///
+    /// The note is served live from this machine through the connection
+    /// service; password and expiry are enforced here, never on the relay.
+    Share {
+        /// Note path (relative to the notes dir) to share.
+        path: Option<String>,
+        /// Protect the link with a password (visible in shell history —
+        /// prefer letting a paired client or MCP set it when that matters).
+        #[arg(long)]
+        password: Option<String>,
+        /// Expire the link after N days (default: never).
+        #[arg(long = "expires-days")]
+        expires_days: Option<u32>,
+        /// List active shares instead of creating one.
+        #[arg(long, group = "share_mode")]
+        list: bool,
+        /// Revoke a share by its id (the link dies immediately).
+        #[arg(long, group = "share_mode", value_name = "SHARE_ID")]
+        revoke: Option<String>,
+        /// Emit machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+    },
     /// Resident tunnel to the relay + built-in periodic reindex.
     ///
     /// No flag = run in the foreground (this is the launchd target).
@@ -247,6 +271,20 @@ fn main() -> Result<()> {
         Cmd::Pair { json } => {
             init_tracing(true);
             commands::relay::run_pair(json)
+        }
+        Cmd::Share { path, password, expires_days, list, revoke, json } => {
+            init_tracing(true);
+            if list {
+                commands::share::run_list(json)
+            } else if let Some(id) = revoke {
+                commands::share::run_revoke(id)
+            } else if let Some(path) = path {
+                commands::share::run_create(path, password, expires_days, json)
+            } else {
+                anyhow::bail!(
+                    "usage: homekb share <PATH> [--password PW] [--expires-days N] | --list | --revoke <SHARE_ID>"
+                )
+            }
         }
         Cmd::Tunnel { interval, install, uninstall, status, json } => {
             let managing = install || uninstall || status;

@@ -10,6 +10,7 @@ use crate::ask::{ask, search_routed};
 use crate::config::Config;
 use crate::drafts::{delete_draft, list_drafts, save_draft};
 use crate::notes::{create_note, list_notes, read_note, write_note};
+use crate::shares::{ShareError, create_share, get_share, list_shares, revoke_share};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct RpcFailure {
@@ -40,7 +41,18 @@ pub const RPC_METHODS: &[&str] = &[
     "kb.listTypes",
     "kb.suggestions",
     "kb.reindex",
+    "kb.shareCreate",
+    "kb.shareGet",
+    "kb.shareList",
+    "kb.shareRevoke",
 ];
+
+fn share_failure(e: ShareError) -> RpcFailure {
+    RpcFailure {
+        code: e.code().to_string(),
+        message: e.message(),
+    }
+}
 
 fn s(v: &Value, key: &str) -> Option<String> {
     v.get(key).and_then(|x| x.as_str()).map(str::to_string)
@@ -176,6 +188,37 @@ pub async fn dispatch(config: &Config, method: &str, params: &Value) -> Result<V
                 }
             });
             Ok(json!({ "started": true }))
+        }
+        "kb.shareCreate" => {
+            let path = required(params, "path")?;
+            let password = s(params, "password");
+            let expires_days = params
+                .get("expiresDays")
+                .and_then(|v| v.as_u64())
+                .map(|v| v.min(3650) as u32);
+            let out = create_share(config, &path, password.as_deref(), expires_days)
+                .await
+                .map_err(|e| RpcFailure::new("share_create_failed", format!("{e:#}")))?;
+            to_value(&out)
+        }
+        "kb.shareGet" => {
+            let share_id = required(params, "shareId")?;
+            let password = s(params, "password");
+            let note =
+                get_share(config, &share_id, password.as_deref()).map_err(share_failure)?;
+            to_value(&note)
+        }
+        "kb.shareList" => {
+            let shares = list_shares(config)
+                .map_err(|e| RpcFailure::new("share_list_failed", format!("{e:#}")))?;
+            Ok(json!({ "shares": shares }))
+        }
+        "kb.shareRevoke" => {
+            let share_id = required(params, "shareId")?;
+            revoke_share(config, &share_id)
+                .await
+                .map_err(|e| RpcFailure::new("share_revoke_failed", format!("{e:#}")))?;
+            Ok(json!({ "shareId": share_id }))
         }
         _ => Err(RpcFailure::new(
             "unknown_method",

@@ -58,6 +58,7 @@
     "exclude": [
         "node_modules",
         "engine",
-        "src-tauri"
+        "src-tauri",
+        "relay-cf"
     ]
 }

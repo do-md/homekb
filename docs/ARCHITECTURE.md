@@ -71,6 +71,7 @@ The client pairing screen never mentions "relay": the user scans a QR or types a
 | `~/.homekb/drafts/` | Unpublished drafts (`<id>.md`, one file per draft; **not a scan target** — never indexed). Lives on the home device so every paired client shares the same drafts; publishing a draft moves it into `notes/` via `kb.create` and deletes the draft file. **Attachments are not separated**: drafts reference the *same* shared `assets/` (see below), so publishing never has to move or rewrite an asset |
 | `~/.homekb/assets/images/` | Image assets (processing pipeline reserved) |
 | `~/.homekb/assets/attachments/` | Other attachments |
+| `~/.homekb/shares.json` | Share records (public share links): id, note path, optional salted password hash, optional expiry. **Engine-owned truth** — the relay stores only a shareId → home routing record. Low write volume; written by atomic rename, re-read per request (serve and tunnel processes both answer share RPCs) |
 | `~/.homekb/index/index.db` | Index snapshot (sqlite-vec, single-file export, safe for cloud-drive sync) |
 | `~/Library/Application Support/homekb/live.db` | Compile working DB (WAL, **kept out of the data root**) |
 | `~/.homekb/config.toml` | Configuration (AI provider keys, path overrides, relay credentials). **Fixed anchor**: the file always lives at `~/.homekb/config.toml` even when `root`/`notes_dir` redirect the data elsewhere (the config defines those paths, so it cannot move with them). ⚠️ Because the config holds API keys, syncing the *whole* `~/.homekb/` folder to a cloud drive uploads the keys too — documented trade-off of the self-contained layout; exclude `config.toml` from sync if that matters. Legacy location `~/.config/homekb/config.toml` is still **read** when the new path does not exist; any config write migrates to the new path (the legacy file is renamed to `config.toml.migrated`). `$HOMEKB_CONFIG` overrides everything (test isolation) |
@@ -106,6 +107,8 @@ Location: `$HOMEKB_CONFIG` > `~/.homekb/config.toml` (new-home anchor) > `~/.con
 # summary_diff_threshold = 0.15
 # embed_concurrency = 8
 # embed_batch_size = 100
+# share_web_base = "http://localhost:3000"  # Web UI origin used to compose share URLs (<base>/s/<id>?r=<relay>);
+                                            # set to the official Web origin once deployed
 
 [embedding]                      # REQUIRED for compile & retrieval (product-side: "Embedding" setting)
 provider = "openai"              # openai | gemini | voyage | cohere | custom — see provider preset table
@@ -179,6 +182,8 @@ homekb serve [--host H] [--port 8765]  # HTTP RPC + /assets (loopback = desktop 
 homekb register --relay URL [--name NAME]                    # Register with a connection service → write [relay]; retires the previous registration (best-effort) and restarts an installed tunnel
 homekb unregister            # Retire the current registration at the service (best-effort), remove [relay], uninstall the launchd tunnel
 homekb pair [--json]         # Generate a pairing code (call the registered connection service); --json for the desktop client to parse
+homekb share PATH [--password PW] [--expires-days N] [--json]  # Create a public share link for one note (requires an active [relay] registration)
+homekb share --list [--json] / --revoke SHARE_ID               # List active shares / revoke one (revocation kills the link instantly)
 homekb tunnel [--interval SECS=300]                          # Foreground daemon: tunnel + built-in scheduled compile (launchd target)
 homekb tunnel --install [--interval N] / --uninstall / --status [--json]  # Manage the launchd background service (macOS only)
 ```
@@ -232,6 +237,7 @@ Each tab is a real Next.js route; dynamic overlays live in the URL hash (static-
 | `/status` | Knowledge-base health dashboard |
 | `/remote` | Device-connection hub |
 | `/settings` | Desktop-only engine/AI config; the web build redirects to `/search` |
+| `/s` | **Public share viewer** (`?id=<shareId>&r=<service url>`) — read-only render of a shared note via the relay's public share endpoints; requires no pairing and lives **outside** the app shell (no providers/gates, no connect screen). The Web deployment rewrites `/s/<id>` → `/s?id=<id>` (`next.config` rewrites, web build only) for pretty links; the static-export (desktop) build ships the page but nothing links to it |
 
 The providers/gates shell mounts once in a shared layout (`app/(app)/layout.tsx`, loaded `ssr:false`) so client state persists across tab navigation; the unpaired connect screen renders on any route until paired.
 
@@ -269,6 +275,7 @@ The desktop Remote tab renders a QR code next to the pairing code so a phone can
 | clientToken | `hkt_` + 48hex | Remote access credential for the relay path, obtained by claiming a pairing code, relay stores only the sha256 |
 | serveToken | `hkd_` + 48hex | Credential for an authenticated public `homekb serve` bind (power-user/API use); lives only in `config.toml [serve] token` on the home machine (never touches any relay) |
 | Pairing code | 8 chars A-Z/2-9 | TTL 10 minutes, single use |
+| shareId | 32 hex (128-bit random) | Public share link identifier — capability-style: unguessable, public by design once shared. Not a bearer token: it grants access to exactly one note, subject to password/expiry/revocation enforced by the home |
 
 All authentication uniformly uses `Authorization: Bearer <token>`.
 
@@ -322,12 +329,16 @@ Shared invariants (both targets):
 | `POST /api/relay/tunnel/ask/<id>` | homeSecret | Home device streams the answer back: request body is the SSE frame stream (`delta`/`done`/`error`); the relay pipes it straight into the pending client response → 204 once fully piped |
 | `GET  /api/relay/asset/<path>` | clientToken | Binary asset fetch through the tunnel (see below); streams the home's bytes to the client without buffering |
 | `GET  /api/relay/health` | clientToken | → `{online}` whether the home device is online |
-| `DELETE /api/relay/home` | homeSecret | Retire this home identity: deletes the home + all its grants / pair codes / OAuth codes. Every client paired to it stops authenticating (401) and **auto-unpairs on its next health poll**, landing back on the connect screen — no zombie "forever offline" pairings. Called best-effort by `homekb register` (retiring the identity it replaces) and by `homekb unregister` |
+| `DELETE /api/relay/home` | homeSecret | Retire this home identity: deletes the home + all its grants / pair codes / OAuth codes / share routing records. Every client paired to it stops authenticating (401) and **auto-unpairs on its next health poll**, landing back on the connect screen — no zombie "forever offline" pairings. Called best-effort by `homekb register` (retiring the identity it replaces) and by `homekb unregister` |
 | `GET  /api/relay/grants` | homeSecret | → `{grants: [{id, label, createdAt, lastUsedAt}]}` — every paired device / MCP grant of this home, newest first. Feeds the desktop "Paired devices" list. The relay knows only labels + hashes, so per-grant liveness is not reported (only the home itself has an online state); clients show `lastUsedAt` instead |
 | `DELETE /api/relay/grants/:id` | homeSecret | Revoke one grant (unpair a device): its clientToken stops authenticating immediately → `{ok:true}`; unknown id → 404. Only the owning home can revoke its grants |
+| `POST /api/relay/share` `{shareId}` | homeSecret | Register a share routing record (shareId → this home) → `{ok:true}`. Called by the engine when a share is created — registration must succeed before the engine persists the share locally |
+| `DELETE /api/relay/share/:shareId` | homeSecret | Drop the routing record (share revoked) → `{ok:true}` (idempotent). Best-effort from the engine; a stale record is harmless — the home answers `share_not_found` |
+| `POST /api/relay/share/:shareId` `{password?}` | None (public) | Public share view: look up the routing record, forward **`kb.shareGet`** over the tunnel (the relay constructs the method itself — the visitor controls nothing but the password) → `{ok:true, result}`. Engine errors map to HTTP: `share_not_found`→404, `share_password_required`→401, `share_password_wrong`→403, `share_expired`→410; home offline→502 |
+| `GET  /api/relay/share/:shareId/asset/<path>` | None (public; `X-Share-Password` header when the share is password-protected) | Share-scoped binary asset fetch: forwarded on the asset channel with share context; the home streams the bytes only if the share is valid **and the shared note references that asset** |
 
 SSE `rpc` event data: `{"id":"<reqId>","method":"kb.query","params":{...}}`. An optional `"stream":true` field (only for `kb.ask`, set when the client used `/api/relay/rpc/stream`) tells the home to stream the answer over the ask channel (`POST /api/relay/tunnel/ask/<id>`) instead of posting a single result to `/api/relay/tunnel/result`.
-SSE `asset` event data: `{"id":"<reqId>","path":"images/foo.png"}`.
+SSE `asset` event data: `{"id":"<reqId>","path":"images/foo.png"}`. Share-scoped asset requests add `"share":{"shareId":"...","password":"..."?}` — the home then validates the share (exists, unexpired, password matches, **asset referenced by the shared note**) before streaming; a failed validation returns the usual empty body + `X-Asset-Error` (`share_denied`).
 
 ### Binary asset channel
 
@@ -353,6 +364,17 @@ Desktop mode skips the relay entirely: the webview hits `POST http://127.0.0.1:8
 
 The answer's `[n]` markers and `citations` follow the same source-numbering contract as the one-shot `kb.ask` (see the RPC table). `citations`/`hits` arrive **twice**: early in the `sources` frame (render-first UX) and again in the terminal `done` frame (kept for backward compatibility — older clients that only read `done` keep working; the payloads are identical).
 
+## Note sharing (public share links)
+
+A single note can be shared with anyone via a link, without pairing. The share is served **live from the home machine** through the relay — nothing is cached or persisted anywhere else. If the home is offline, the share page honestly says so (this is the direct corollary of "data never leaves home"; there is deliberately **no relay-side caching** in v1 — an opt-in edge cache would be a contract change spec'd here first). Standard controls: optional password, optional expiry, revocation.
+
+- **The engine owns every policy decision.** Share records live in `~/.homekb/shares.json`. Password verification (per-share random 16-byte salt, sha256(salt‖password), throttled per share — 10 failures / 10 min lockout), expiry, and revocation are all enforced by the home when answering `kb.shareGet`. The relay stores exactly one routing fact per share (`shares` table: shareId → home_id) and cannot even tell whether a password guess was right — it merely forwards. Revoking deletes the engine record: the link dies instantly even if the relay row lingers (a stale routing row resolves to `share_not_found`).
+- **Capability-style id**: shareId = 128-bit random hex; possessing the link is the capability. The password (when set) travels in the POST body / `X-Share-Password` header — never in the URL.
+- **Share URL**: `<share_web_base>/s/<shareId>?r=<relay url>` — composed by the engine (`share_web_base` config, default `http://localhost:3000` until an official Web origin exists). The `?r=` parameter tells the viewer which relay to query (same precedent as the pairing QR's `relay=` param); the viewer falls back to `NEXT_PUBLIC_RELAY_URL` when absent.
+- **View flow**: visitor opens `<web>/s/<id>` (Next.js viewer, pure frontend, no pairing) → viewer POSTs `{password?}` to `<relay>/api/relay/share/<id>` → relay forwards `kb.shareGet` over the tunnel → engine validates and returns the note → viewer renders the Markdown read-only; images resolve through `GET /api/relay/share/<id>/asset/<path>` (share-scoped asset channel: the home streams an asset only if the shared note references it — resolved with the same virtual-root rule as every renderer).
+- **Creation surfaces**: `homekb share` (CLI), `kb_share` (MCP — share from inside any AI conversation), `kb.shareCreate` (RPC — paired clients/desktop). Creating a share requires an active `[relay]` registration; the routing record is registered at the relay **before** the share is persisted locally (no orphan shares).
+- **Trust boundary unchanged**: the relay still stores zero knowledge data at rest; shared content passes through relay memory in transit exactly like every other RPC. Anonymous view/password attempts are throttled at the engine (per-share); a relay-side anonymous rate limiter is a follow-up, noted here so it isn't mistaken for implemented.
+
 ## RPC methods (tunnel protocol, executed by the home device)
 
 | method | params | result |
@@ -370,6 +392,10 @@ The answer's `[n]` markers and `citations` follow the same source-numbering cont
 | `kb.listTypes` | `{}` | `{types: [{docType, count}]}` |
 | `kb.suggestions` | `{limit?}` | `{suggestions: [{question, path, title, mtime}]}` — one auto-generated question per recently updated document, newest first; docs without a generated question yet are skipped. Feeds the home-screen "Try asking" list |
 | `kb.reindex` | `{}` | `{started: true}` (executed asynchronously inside the tunnel process) |
+| `kb.shareCreate` | `{path, password?, expiresDays?}` | `{shareId, url, expiresAt?}` — create a share for one note (path must be an existing `.md` under notes). Registers the routing record at the relay first; on relay failure nothing is persisted. `url` = `<share_web_base>/s/<shareId>?r=<relay url>` |
+| `kb.shareGet` | `{shareId, password?}` | `{path, title, content, mtime, docType?}` — the public share read; the only method the relay forwards **unauthenticated**, and only from its own public share endpoint (method constructed server-side). Errors: `share_not_found` (unknown or revoked), `share_password_required`, `share_password_wrong` (throttled per share), `share_expired` |
+| `kb.shareList` | `{}` | `{shares: [{shareId, path, title, createdAt, expiresAt?, hasPassword}]}` newest first |
+| `kb.shareRevoke` | `{shareId}` | `{shareId}` — delete the share record (idempotent) + best-effort drop of the relay routing record |
 
 `Hit = {kind: "chunk"|"doc"|"doc_full", path, title, headingPath?, content, score, mtime, docType?, matches?}`
 
@@ -393,6 +419,7 @@ path is always relative to notes_dir. Error result: `{ok:false, error:{code, mes
 | `kb_update` | `{path, content}` | Overwrite an existing note |
 | `kb_list` | `{limit?}` | Recent document list |
 | `kb_status` | `{}` | Index status |
+| `kb_share` | `{path, password?, expires_in_days?}` | Create a **public share link** for one note (anyone with the link — and the password, if set — can read it). Returns `{url, shareId, expiresAt?}`. Requires the home to be registered with a relay |
 
 Local: `homekb mcp` calls the engine core directly. Remote: `/api/mcp` (served by the relay) is stateless Streamable HTTP (POST JSON-RPC → JSON response), where tool calls are translated into RPC and forwarded over the tunnel.
 
@@ -416,6 +443,8 @@ pair_codes(code TEXT PK, home_id TEXT, expires_at INTEGER, used INTEGER DEFAULT 
 oauth_clients(client_id TEXT PK, redirect_uris TEXT, name TEXT, created_at INTEGER);
 oauth_codes(code TEXT PK, client_id TEXT, home_id TEXT, code_challenge TEXT, redirect_uri TEXT, expires_at INTEGER, used INTEGER DEFAULT 0);
 -- The authorization code stores home_id (the result of claiming a pairing code); the grant/token is created only at token exchange, and the plaintext token is handled just once
+shares(id TEXT PK, home_id TEXT, created_at INTEGER);
+-- Share routing only: which home answers this shareId. Password hash / expiry / revocation all live on the home (shares.json) — the relay cannot evaluate share policy
 
 ```
 

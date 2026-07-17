@@ -107,6 +107,24 @@ export const MCP_TOOLS: McpToolDef[] = [
     inputSchema: { type: "object", properties: {} },
     rpc: () => ({ method: "kb.status", params: {} }),
   },
+  {
+    name: "kb_share",
+    description:
+      "Create a PUBLIC share link for one note — anyone with the link (and the password, if set) can read it. The note is served live from the user's home computer. Confirm with the user before sharing sensitive content. Returns {url, shareId, expiresAt?}.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: str("Relative path of the note to share"),
+        password: str("Optional password protecting the link"),
+        expires_in_days: num("Optional expiry in days (default: never)"),
+      },
+      required: ["path"],
+    },
+    rpc: (a) => ({
+      method: "kb.shareCreate",
+      params: { path: a.path, password: a.password, expiresDays: a.expires_in_days },
+    }),
+  },
 ];
 
 export const MCP_TOOL_MAP = new Map(MCP_TOOLS.map((t) => [t.name, t]));

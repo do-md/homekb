@@ -120,8 +120,103 @@ export async function relayHomeDelete(req: Request): Promise<Response> {
   db.prepare("DELETE FROM grants WHERE home_id = ?").run(home.id);
   db.prepare("DELETE FROM pair_codes WHERE home_id = ?").run(home.id);
   db.prepare("DELETE FROM oauth_codes WHERE home_id = ?").run(home.id);
+  db.prepare("DELETE FROM shares WHERE home_id = ?").run(home.id);
   db.prepare("DELETE FROM homes WHERE id = ?").run(home.id);
   return Response.json({ ok: true });
+}
+
+// ---- Note sharing (docs/ARCHITECTURE.md "Note sharing") ----
+
+/** shareId format: 128-bit random hex minted by the engine. */
+export const SHARE_ID_RE = /^[0-9a-f]{32}$/;
+
+/** Engine share errors → client-facing HTTP statuses. */
+export function shareErrorStatus(code: string): number {
+  switch (code) {
+    case "share_not_found":
+      return 404;
+    case "share_password_required":
+      return 401;
+    case "share_password_wrong":
+      return 403;
+    case "share_expired":
+      return 410;
+    default:
+      return 500;
+  }
+}
+
+/**
+ * Register a share routing record (home device authenticated). The engine calls
+ * this BEFORE persisting the share locally — a rejected registration must leave
+ * no working share anywhere.
+ */
+export async function relayShareRegister(req: Request): Promise<Response> {
+  const home = authHome(req);
+  if (!home) return jsonError(401, "unauthorized");
+  let body: { shareId?: unknown };
+  try {
+    body = await req.json();
+  } catch {
+    return jsonError(400, "invalid_json");
+  }
+  const shareId = typeof body.shareId === "string" ? body.shareId : "";
+  if (!SHARE_ID_RE.test(shareId)) return jsonError(400, "bad_share_id");
+  relayDb()
+    .prepare("INSERT OR REPLACE INTO shares (id, home_id, created_at) VALUES (?, ?, ?)")
+    .run(shareId, home.id, Date.now());
+  return Response.json({ ok: true });
+}
+
+/** Drop a share routing record (idempotent; scoped to the authenticated home). */
+export async function relayShareDelete(req: Request, shareId: string): Promise<Response> {
+  const home = authHome(req);
+  if (!home) return jsonError(401, "unauthorized");
+  relayDb().prepare("DELETE FROM shares WHERE id = ? AND home_id = ?").run(shareId, home.id);
+  return Response.json({ ok: true });
+}
+
+/**
+ * Public share view: look up the routing record and forward `kb.shareGet` over
+ * the tunnel. The relay constructs the method itself — the anonymous visitor
+ * controls nothing but the password; the home enforces every policy decision.
+ */
+export async function relaySharePublicView(req: Request, shareId: string): Promise<Response> {
+  if (!SHARE_ID_RE.test(shareId)) return jsonError(404, "share_not_found");
+  let password: string | undefined;
+  try {
+    const body = (await req.json()) as { password?: unknown };
+    if (typeof body?.password === "string" && body.password) password = body.password;
+  } catch {
+    // empty body = no password supplied
+  }
+  const row = relayDb()
+    .prepare("SELECT home_id FROM shares WHERE id = ?")
+    .get(shareId) as { home_id: string } | undefined;
+  if (!row) return jsonError(404, "share_not_found");
+
+  try {
+    const result = await hub().call(row.home_id, "kb.shareGet", {
+      shareId,
+      ...(password ? { password } : {}),
+    });
+    return Response.json({ ok: true, result });
+  } catch (e) {
+    const hubErr = asRpcHubError(e);
+    if (hubErr) {
+      // Engine-level share errors travel as rpc_error with a detail code.
+      if (hubErr.code === "rpc_error" && hubErr.detail?.code?.startsWith("share_")) {
+        return Response.json(
+          { ok: false, error: hubErr.detail.code, message: hubErr.detail.message },
+          { status: shareErrorStatus(hubErr.detail.code) },
+        );
+      }
+      const status =
+        hubErr.code === "home_offline" ? 502 : hubErr.code === "timeout" ? 504 : 500;
+      return Response.json({ ok: false, error: hubErr.code, message: hubErr.message }, { status });
+    }
+    return jsonError(500, "internal_error");
+  }
 }
 
 /** Client health check: whether the home device is online */

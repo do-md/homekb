@@ -11,6 +11,7 @@ import { CORS_HEADERS } from "../../lib/relay/origin";
 import { sendWebResponse, toWebRequest } from "./adapter";
 import { renderAuthorizePage } from "./pages";
 import {
+  SHARE_ID_RE,
   mcpPost,
   oauthAuthorizePost,
   oauthRegister,
@@ -23,10 +24,14 @@ import {
   relayPing,
   relayRegister,
   relayRpc,
+  relayShareDelete,
+  relaySharePublicView,
+  relayShareRegister,
   tunnelResult,
   wellKnownAuthServer,
   wellKnownProtectedResource,
 } from "./routes";
+import { relayDb } from "../../lib/relay/db";
 
 /**
  * HomeKB relay — standalone multi-tenant Node service (see docs/ARCHITECTURE.md "Relay service").
@@ -49,6 +54,7 @@ const ROUTES: Record<string, Handler> = {
   "GET /api/relay/grants": relayGrantsList,
   "POST /api/relay/rpc": relayRpc,
   "POST /api/relay/tunnel/result": tunnelResult,
+  "POST /api/relay/share": relayShareRegister,
   "POST /api/oauth/token": oauthToken,
   "POST /api/oauth/register": oauthRegister,
   "POST /api/oauth/authorize": oauthAuthorizePost,
@@ -158,37 +164,17 @@ function handleTunnelAssetPost(
   }
 }
 
-/** Client-side binary asset fetch: forwarded to the home device, streamed back without buffering. */
-async function handleRelayAssetGet(
-  nodeReq: IncomingMessage,
-  nodeRes: ServerResponse,
-  assetPath: string,
-): Promise<void> {
-  const grant = authGrant(toWebRequest(nodeReq));
-  if (!grant) return sendJson(nodeRes, 401, { ok: false, error: "unauthorized" });
-  if (!isSafeAssetPath(assetPath)) {
-    return sendJson(nodeRes, 400, { ok: false, error: "bad_path" });
-  }
-
-  let delivery: AssetDelivery;
-  try {
-    delivery = await hub().requestAsset(grant.home_id, assetPath);
-  } catch (e) {
-    const hubErr = asRpcHubError(e);
-    const status =
-      hubErr?.code === "home_offline" ? 502 : hubErr?.code === "timeout" ? 504 : 500;
-    return sendJson(nodeRes, status, {
-      ok: false,
-      error: hubErr?.code ?? "internal_error",
-      message: hubErr?.message ?? "asset fetch failed",
-    });
-  }
-
+/**
+ * Stream one asset delivery to the client (shared by the paired-client asset route
+ * and the public share-scoped asset route — they differ only in authorization).
+ */
+function pipeAssetDelivery(nodeRes: ServerResponse, delivery: AssetDelivery): void {
   const stream = delivery.stream as Readable;
   if (delivery.error) {
     stream?.resume(); // drain the (empty) body
     delivery.done?.();
-    const status = delivery.error === "not_found" ? 404 : 500;
+    const status =
+      delivery.error === "share_denied" ? 403 : delivery.error === "not_found" ? 404 : 500;
     return sendJson(nodeRes, status, { ok: false, error: delivery.error });
   }
 
@@ -208,6 +194,70 @@ async function handleRelayAssetGet(
   });
   // Client went away mid-transfer → abort the home upload too.
   nodeRes.on("close", () => stream.destroy());
+}
+
+function sendHubError(nodeRes: ServerResponse, e: unknown, fallback: string): void {
+  const hubErr = asRpcHubError(e);
+  const status = hubErr?.code === "home_offline" ? 502 : hubErr?.code === "timeout" ? 504 : 500;
+  sendJson(nodeRes, status, {
+    ok: false,
+    error: hubErr?.code ?? "internal_error",
+    message: hubErr?.message ?? fallback,
+  });
+}
+
+/** Client-side binary asset fetch: forwarded to the home device, streamed back without buffering. */
+async function handleRelayAssetGet(
+  nodeReq: IncomingMessage,
+  nodeRes: ServerResponse,
+  assetPath: string,
+): Promise<void> {
+  const grant = authGrant(toWebRequest(nodeReq));
+  if (!grant) return sendJson(nodeRes, 401, { ok: false, error: "unauthorized" });
+  if (!isSafeAssetPath(assetPath)) {
+    return sendJson(nodeRes, 400, { ok: false, error: "bad_path" });
+  }
+
+  let delivery: AssetDelivery;
+  try {
+    delivery = await hub().requestAsset(grant.home_id, assetPath);
+  } catch (e) {
+    return sendHubError(nodeRes, e, "asset fetch failed");
+  }
+  pipeAssetDelivery(nodeRes, delivery);
+}
+
+/**
+ * Public share-scoped asset fetch (docs/ARCHITECTURE.md "Note sharing"): no client
+ * token — the share context is forwarded to the home, which streams the bytes only
+ * if the share is valid and the shared note references the asset.
+ */
+async function handleShareAssetGet(
+  nodeReq: IncomingMessage,
+  nodeRes: ServerResponse,
+  shareId: string,
+  assetPath: string,
+): Promise<void> {
+  if (!SHARE_ID_RE.test(shareId)) {
+    return sendJson(nodeRes, 404, { ok: false, error: "share_not_found" });
+  }
+  if (!isSafeAssetPath(assetPath)) {
+    return sendJson(nodeRes, 400, { ok: false, error: "bad_path" });
+  }
+  const row = relayDb()
+    .prepare("SELECT home_id FROM shares WHERE id = ?")
+    .get(shareId) as { home_id: string } | undefined;
+  if (!row) return sendJson(nodeRes, 404, { ok: false, error: "share_not_found" });
+
+  const rawPw = nodeReq.headers["x-share-password"];
+  const password = typeof rawPw === "string" && rawPw ? rawPw : undefined;
+  let delivery: AssetDelivery;
+  try {
+    delivery = await hub().requestAsset(row.home_id, assetPath, { shareId, password });
+  } catch (e) {
+    return sendHubError(nodeRes, e, "asset fetch failed");
+  }
+  pipeAssetDelivery(nodeRes, delivery);
 }
 
 /**
@@ -342,6 +392,27 @@ async function handle(nodeReq: IncomingMessage, nodeRes: ServerResponse): Promis
       decodeURIComponent(path.slice(RELAY_GRANT.length)),
     );
     return sendWebResponse(webRes, nodeRes, CORS_HEADERS);
+  }
+  const RELAY_SHARE = "/api/relay/share/";
+  if (path.startsWith(RELAY_SHARE)) {
+    const rest = path.slice(RELAY_SHARE.length);
+    const assetIdx = rest.indexOf("/asset/");
+    if (method === "GET" && assetIdx > 0) {
+      return handleShareAssetGet(
+        nodeReq,
+        nodeRes,
+        rest.slice(0, assetIdx),
+        decodeURIComponent(rest.slice(assetIdx + "/asset/".length)),
+      );
+    }
+    if (method === "POST" && !rest.includes("/")) {
+      const webRes = await relaySharePublicView(toWebRequest(nodeReq), rest);
+      return sendWebResponse(webRes, nodeRes, CORS_HEADERS);
+    }
+    if (method === "DELETE" && !rest.includes("/")) {
+      const webRes = await relayShareDelete(toWebRequest(nodeReq), rest);
+      return sendWebResponse(webRes, nodeRes, CORS_HEADERS);
+    }
   }
 
   const handler = ROUTES[`${method} ${path}`];

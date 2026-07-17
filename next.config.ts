@@ -11,6 +11,16 @@ const nextConfig: NextConfig = {
   output: isTauriBuild ? "export" : undefined,
   distDir: isTauriBuild ? ".next-tauri" : undefined,
   serverExternalPackages: ["better-sqlite3"],
+  // Pretty share links (docs/ARCHITECTURE.md "Note sharing"): /s/<id> → /s?id=<id>.
+  // Web build only — static export does not support rewrites (and the desktop
+  // never links to the share viewer).
+  ...(isTauriBuild
+    ? {}
+    : {
+        async rewrites() {
+          return [{ source: "/s/:shareId", destination: "/s?id=:shareId" }];
+        },
+      }),
 };
 
 export default nextConfig;

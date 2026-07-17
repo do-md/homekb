@@ -222,7 +222,7 @@ fn file_mtime(p: &Path) -> Result<i64> {
         .unwrap_or(0))
 }
 
-fn extract_h1(content: &str) -> Option<String> {
+pub(crate) fn extract_h1(content: &str) -> Option<String> {
     content
         .lines()
         .find_map(|l| l.strip_prefix("# ").map(|s| s.trim().to_string()))
@@ -230,7 +230,7 @@ fn extract_h1(content: &str) -> Option<String> {
 }
 
 /// First non-empty line, markdown heading markers stripped, truncated.
-fn first_line_title(content: &str) -> Option<String> {
+pub(crate) fn first_line_title(content: &str) -> Option<String> {
     let line = content.lines().find(|l| !l.trim().is_empty())?;
     let line = line.trim().trim_start_matches('#').trim();
     if line.is_empty() {

@@ -46,6 +46,12 @@ CREATE TABLE IF NOT EXISTS oauth_codes (
   expires_at     INTEGER NOT NULL,
   used           INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS shares (
+  id         TEXT PRIMARY KEY,
+  home_id    TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_shares_home ON shares(home_id);
 `;
 
 function openDb(): Database.Database {

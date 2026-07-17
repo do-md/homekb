@@ -243,6 +243,9 @@ struct ConfigFile {
     embed_concurrency: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     embed_batch_size: Option<usize>,
+    /// Web UI origin used to compose share URLs (`<base>/s/<id>?r=<relay>`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    share_web_base: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     embedding: Option<AiSectionFile>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -278,6 +281,9 @@ pub struct Config {
     pub summary_diff_threshold: f32,
     pub embed_concurrency: usize,
     pub embed_batch_size: usize,
+    /// Web UI origin used to compose share URLs (`<base>/s/<id>?r=<relay>`).
+    /// Default stays on localhost until an official Web origin exists.
+    pub share_web_base: String,
 
     pub serve: Option<ServeConfig>,
     pub relay: Option<RelayConfig>,
@@ -387,6 +393,11 @@ impl Config {
             summary_diff_threshold: file.summary_diff_threshold.unwrap_or(0.15),
             embed_concurrency: file.embed_concurrency.unwrap_or(8),
             embed_batch_size: file.embed_batch_size.unwrap_or(100),
+            share_web_base: file
+                .share_web_base
+                .map(|s| s.trim_end_matches('/').to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "http://localhost:3000".to_string()),
             serve: file.serve,
             relay: file.relay,
         })
@@ -424,6 +435,7 @@ impl Config {
             summary_diff_threshold: Some(self.summary_diff_threshold),
             embed_concurrency: Some(self.embed_concurrency),
             embed_batch_size: Some(self.embed_batch_size),
+            share_web_base: Some(self.share_web_base.clone()),
             embedding: Some(AiSectionFile {
                 provider: Some(self.embedding.provider.clone()),
                 api_key: self.embedding.api_key.clone(),

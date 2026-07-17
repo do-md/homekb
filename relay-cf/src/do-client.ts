@@ -74,9 +74,20 @@ async function requestStream(env: Env, homeId: string, path: string, payload: un
   };
 }
 
+/** Share context attached to a share-scoped asset request (validated by the home). */
+export interface ShareContext {
+  shareId: string;
+  password?: string;
+}
+
 /** Binary asset channel (docs/ARCHITECTURE.md): streamed, never buffered. */
-export function requestAsset(env: Env, homeId: string, path: string): Promise<StreamDelivery> {
-  return requestStream(env, homeId, "/asset-request", { path });
+export function requestAsset(
+  env: Env,
+  homeId: string,
+  path: string,
+  share?: ShareContext,
+): Promise<StreamDelivery> {
+  return requestStream(env, homeId, "/asset-request", share ? { path, share } : { path });
 }
 
 /** Streaming answer channel: the home's SSE frames, piped verbatim. */

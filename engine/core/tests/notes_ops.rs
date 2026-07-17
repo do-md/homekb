@@ -43,6 +43,7 @@ fn test_cfg(root: &Path) -> Config {
         summary_diff_threshold: 0.15,
         embed_concurrency: 8,
         embed_batch_size: 100,
+        share_web_base: "http://localhost:3000".into(),
         serve: None,
         relay: None,
     }

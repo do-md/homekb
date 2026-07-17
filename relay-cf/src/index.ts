@@ -4,6 +4,7 @@ import { HubClientError, hubErrorStatus, requestAsset, requestAskStream, tunnelS
 import { CORS_HEADERS } from "./origin";
 import { renderAuthorizePage } from "./pages";
 import {
+  SHARE_ID_RE,
   mcpPost,
   oauthAuthorizePost,
   oauthRegister,
@@ -16,6 +17,9 @@ import {
   relayPing,
   relayRegister,
   relayRpc,
+  relayShareDelete,
+  relaySharePublicView,
+  relayShareRegister,
   tunnelResult,
   wellKnownAuthServer,
   wellKnownProtectedResource,
@@ -43,6 +47,7 @@ const ROUTES: Record<string, Handler> = {
   "GET /api/relay/grants": relayGrantsList,
   "POST /api/relay/rpc": relayRpc,
   "POST /api/relay/tunnel/result": tunnelResult,
+  "POST /api/relay/share": relayShareRegister,
   "POST /api/oauth/token": oauthToken,
   "POST /api/oauth/register": oauthRegister,
   "POST /api/oauth/authorize": oauthAuthorizePost,
@@ -139,6 +144,43 @@ async function handleRelayAssetGet(req: Request, env: Env, assetPath: string): P
 }
 
 /**
+ * Public share-scoped asset fetch (docs/ARCHITECTURE.md "Note sharing"): no client
+ * token — the share context is forwarded to the home, which streams the bytes only
+ * if the share is valid and the shared note references the asset.
+ */
+async function handleShareAssetGet(
+  req: Request,
+  env: Env,
+  shareId: string,
+  assetPath: string,
+): Promise<Response> {
+  if (!SHARE_ID_RE.test(shareId)) return jsonError(404, "share_not_found");
+  if (!isSafeAssetPath(assetPath)) return jsonError(400, "bad_path");
+  const row = await env.DB.prepare("SELECT home_id FROM shares WHERE id = ?")
+    .bind(shareId)
+    .first<{ home_id: string }>();
+  if (!row) return jsonError(404, "share_not_found");
+
+  const password = req.headers.get("x-share-password") ?? undefined;
+  try {
+    const d = await requestAsset(env, row.home_id, assetPath, { shareId, password });
+    if (d.error) {
+      const status = d.error === "share_denied" ? 403 : d.error === "not_found" ? 404 : 500;
+      return jsonError(status, d.error);
+    }
+    const headers: Record<string, string> = {
+      "Content-Type": d.contentType || "application/octet-stream",
+      "Cache-Control": "private, max-age=3600",
+    };
+    if (d.contentLength) headers["Content-Length"] = d.contentLength;
+    return new Response(d.body, { status: 200, headers });
+  } catch (e) {
+    if (e instanceof HubClientError) return hubClientErrorResponse(e, "asset fetch failed");
+    return jsonError(500, "internal_error");
+  }
+}
+
+/**
  * Client-side streaming ask: forwarded to the home over the tunnel, its SSE frames
  * piped back verbatim (kb.ask only — the relay never inspects the frames).
  */
@@ -197,6 +239,22 @@ async function handle(req: Request, env: Env): Promise<Response> {
   const RELAY_GRANT = "/api/relay/grants/";
   if (method === "DELETE" && path.startsWith(RELAY_GRANT)) {
     return relayGrantRevoke(req, env, decodeURIComponent(path.slice(RELAY_GRANT.length)));
+  }
+  const RELAY_SHARE = "/api/relay/share/";
+  if (path.startsWith(RELAY_SHARE)) {
+    const rest = path.slice(RELAY_SHARE.length);
+    const assetIdx = rest.indexOf("/asset/");
+    if (method === "GET" && assetIdx > 0) {
+      const shareId = rest.slice(0, assetIdx);
+      const assetPath = decodeURIComponent(rest.slice(assetIdx + "/asset/".length));
+      return handleShareAssetGet(req, env, shareId, assetPath);
+    }
+    if (method === "POST" && !rest.includes("/")) {
+      return relaySharePublicView(req, env, rest);
+    }
+    if (method === "DELETE" && !rest.includes("/")) {
+      return relayShareDelete(req, env, rest);
+    }
   }
 
   const handler = ROUTES[`${method} ${path}`];

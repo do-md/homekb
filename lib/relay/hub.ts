@@ -60,6 +60,12 @@ export interface AssetDelivery {
   done?: () => void;
 }
 
+/** Share context attached to a share-scoped asset request (validated by the home). */
+export interface ShareContext {
+  shareId: string;
+  password?: string;
+}
+
 const DEFAULT_TIMEOUT = 30_000;
 /** Streaming ask: the home connects back near-instantly, but retrieval + first token can lag. */
 const ASK_STREAM_TIMEOUT = 60_000;
@@ -102,11 +108,18 @@ export class TunnelHub {
    * stream the bytes back via POST /api/relay/tunnel/asset/<id>. The delivery object is
    * produced by that route (hub itself stays transport-agnostic).
    */
-  requestAsset(homeId: string, path: string, timeoutMs = DEFAULT_TIMEOUT): Promise<AssetDelivery> {
+  requestAsset(
+    homeId: string,
+    path: string,
+    share?: ShareContext,
+    timeoutMs = DEFAULT_TIMEOUT,
+  ): Promise<AssetDelivery> {
     return this.request(
       homeId,
       "asset",
-      (id) => JSON.stringify({ id, path }),
+      // Share-scoped requests carry the share context; the home validates it
+      // (valid share + asset referenced by the shared note) before streaming.
+      (id) => JSON.stringify({ id, path, ...(share ? { share } : {}) }),
       `asset ${path}`,
       timeoutMs,
     ) as Promise<AssetDelivery>;
@@ -204,4 +217,8 @@ export const RPC_METHODS = new Set([
   "kb.listTypes",
   "kb.suggestions",
   "kb.reindex",
+  "kb.shareCreate",
+  "kb.shareGet",
+  "kb.shareList",
+  "kb.shareRevoke",
 ]);

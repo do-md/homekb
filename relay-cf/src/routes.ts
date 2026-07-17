@@ -30,7 +30,30 @@ export const RPC_METHODS = new Set([
   "kb.listTypes",
   "kb.suggestions",
   "kb.reindex",
+  "kb.shareCreate",
+  "kb.shareGet",
+  "kb.shareList",
+  "kb.shareRevoke",
 ]);
+
+/** shareId format: 128-bit random hex minted by the engine. */
+export const SHARE_ID_RE = /^[0-9a-f]{32}$/;
+
+/** Engine share errors → client-facing HTTP statuses (docs/ARCHITECTURE.md "Note sharing"). */
+export function shareErrorStatus(code: string): number {
+  switch (code) {
+    case "share_not_found":
+      return 404;
+    case "share_password_required":
+      return 401;
+    case "share_password_wrong":
+      return 403;
+    case "share_expired":
+      return 410;
+    default:
+      return 500;
+  }
+}
 
 // ---- /api/relay/* ----
 
@@ -130,9 +153,94 @@ export async function relayHomeDelete(req: Request, env: Env): Promise<Response>
     env.DB.prepare("DELETE FROM grants WHERE home_id = ?").bind(home.id),
     env.DB.prepare("DELETE FROM pair_codes WHERE home_id = ?").bind(home.id),
     env.DB.prepare("DELETE FROM oauth_codes WHERE home_id = ?").bind(home.id),
+    env.DB.prepare("DELETE FROM shares WHERE home_id = ?").bind(home.id),
     env.DB.prepare("DELETE FROM homes WHERE id = ?").bind(home.id),
   ]);
   return Response.json({ ok: true });
+}
+
+// ---- Note sharing (docs/ARCHITECTURE.md "Note sharing") ----
+
+/**
+ * Register a share routing record (home device authenticated). The engine calls
+ * this BEFORE persisting the share locally — a rejected registration must leave
+ * no working share anywhere.
+ */
+export async function relayShareRegister(req: Request, env: Env): Promise<Response> {
+  const home = await authHome(req, env);
+  if (!home) return jsonError(401, "unauthorized");
+  let body: { shareId?: unknown };
+  try {
+    body = (await req.json()) as typeof body;
+  } catch {
+    return jsonError(400, "invalid_json");
+  }
+  const shareId = typeof body.shareId === "string" ? body.shareId : "";
+  if (!SHARE_ID_RE.test(shareId)) return jsonError(400, "bad_share_id");
+  await env.DB.prepare(
+    "INSERT OR REPLACE INTO shares (id, home_id, created_at) VALUES (?, ?, ?)",
+  )
+    .bind(shareId, home.id, Date.now())
+    .run();
+  return Response.json({ ok: true });
+}
+
+/** Drop a share routing record (idempotent; scoped to the authenticated home). */
+export async function relayShareDelete(req: Request, env: Env, shareId: string): Promise<Response> {
+  const home = await authHome(req, env);
+  if (!home) return jsonError(401, "unauthorized");
+  await env.DB.prepare("DELETE FROM shares WHERE id = ? AND home_id = ?")
+    .bind(shareId, home.id)
+    .run();
+  return Response.json({ ok: true });
+}
+
+/**
+ * Public share view: look up the routing record and forward `kb.shareGet` over
+ * the tunnel. The relay constructs the method itself — the anonymous visitor
+ * controls nothing but the password, and the home enforces every policy
+ * decision (the relay cannot even tell whether the password was right).
+ */
+export async function relaySharePublicView(
+  req: Request,
+  env: Env,
+  shareId: string,
+): Promise<Response> {
+  if (!SHARE_ID_RE.test(shareId)) return jsonError(404, "share_not_found");
+  let password: string | undefined;
+  try {
+    const body = (await req.json()) as { password?: unknown };
+    if (typeof body?.password === "string" && body.password) password = body.password;
+  } catch {
+    // empty body = no password supplied
+  }
+  const row = await env.DB.prepare("SELECT home_id FROM shares WHERE id = ?")
+    .bind(shareId)
+    .first<{ home_id: string }>();
+  if (!row) return jsonError(404, "share_not_found");
+
+  try {
+    const result = await callHome(env, row.home_id, "kb.shareGet", {
+      shareId,
+      ...(password ? { password } : {}),
+    });
+    return Response.json({ ok: true, result });
+  } catch (e) {
+    if (e instanceof HubClientError) {
+      // Engine-level share errors travel as rpc_error with a detail code.
+      if (e.code === "rpc_error" && e.detail?.code?.startsWith("share_")) {
+        return Response.json(
+          { ok: false, error: e.detail.code, message: e.detail.message },
+          { status: shareErrorStatus(e.detail.code) },
+        );
+      }
+      return Response.json(
+        { ok: false, error: e.code, message: e.message },
+        { status: hubErrorStatus(e.code) },
+      );
+    }
+    return jsonError(500, "internal_error");
+  }
 }
 
 /** Client health check: whether the home device is online */

@@ -219,11 +219,16 @@ export class HomeTunnelDO {
   // ---- body-piped channels (asset + streaming ask) ----
 
   private async handleAssetRequest(request: Request): Promise<Response> {
-    const body = (await request.json()) as { path?: string };
+    const body = (await request.json()) as {
+      path?: string;
+      share?: { shareId: string; password?: string };
+    };
     try {
       const d = (await this.request(
         "asset",
-        (id) => JSON.stringify({ id, path: body.path }),
+        // Share-scoped requests carry the share context; the home validates it
+        // (valid share + asset referenced by the shared note) before streaming.
+        (id) => JSON.stringify({ id, path: body.path, ...(body.share ? { share: body.share } : {}) }),
         `asset ${body.path}`,
         DEFAULT_TIMEOUT,
       )) as Delivery;

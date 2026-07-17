@@ -22,6 +22,7 @@ mod reconciler;
 mod rpc;
 mod scanner;
 mod search;
+mod shares;
 mod types;
 
 pub use api::{
@@ -38,3 +39,7 @@ pub use notes::{
     CreatedNote, DocMeta, NoteContent, create_note, list_notes, read_note, write_note,
 };
 pub use rpc::{RPC_METHODS, RpcFailure, dispatch};
+pub use shares::{
+    CreatedShare, ShareError, ShareMeta, SharedNote, create_share, get_share, list_shares,
+    revoke_share, share_allows_asset,
+};

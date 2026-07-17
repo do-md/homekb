@@ -242,6 +242,10 @@ fn handle_asset(
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
+    // Share-scoped asset request (docs/ARCHITECTURE.md "Note sharing"): the
+    // relay adds a share context; the home validates the share (valid,
+    // unexpired, password matches, asset referenced by the shared note).
+    let share = msg.get("share").cloned();
     let client = client.clone();
     let config = config.clone();
     let upload_url = format!("{}/api/relay/tunnel/asset/{}", relay.url, id);
@@ -249,6 +253,22 @@ fn handle_asset(
 
     tokio::spawn(async move {
         tracing::info!("asset {path}");
+        if let Some(share) = share {
+            let share_id = share.get("shareId").and_then(|v| v.as_str()).unwrap_or("");
+            let password = share.get("password").and_then(|v| v.as_str());
+            if homekb_core::share_allows_asset(&config, share_id, password, &path).is_err() {
+                let res = client
+                    .post(&upload_url)
+                    .bearer_auth(&secret)
+                    .header("X-Asset-Error", "share_denied")
+                    .send()
+                    .await;
+                if let Err(e) = res {
+                    tracing::warn!("failed to post share-denied asset result: {e}");
+                }
+                return;
+            }
+        }
         let resolved = super::assets::resolve_asset_path(&config, &path);
         let req = match resolved {
             Some(full) => match tokio::fs::read(&full).await {

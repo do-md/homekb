@@ -44,3 +44,13 @@ CREATE TABLE IF NOT EXISTS oauth_codes (
   expires_at     INTEGER NOT NULL,
   used           INTEGER NOT NULL DEFAULT 0
 );
+
+-- Share routing only: which home answers this shareId. Password hash / expiry /
+-- revocation all live on the home (shares.json) — the relay cannot evaluate
+-- share policy (docs/ARCHITECTURE.md "Note sharing").
+CREATE TABLE IF NOT EXISTS shares (
+  id         TEXT PRIMARY KEY,
+  home_id    TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_shares_home ON shares(home_id);

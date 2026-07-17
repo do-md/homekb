@@ -12,6 +12,7 @@ pub mod new;
 pub mod query;
 pub mod relay;
 pub mod serve;
+pub mod share;
 pub mod tunnel;
 pub mod rebuild;
 pub mod reindex;
