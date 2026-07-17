@@ -31,7 +31,7 @@ jobs:
             target: x86_64-apple-darwin
             artifact: homekb-macos-x64.tar.gz
           - os: ubuntu-22.04
-            target: x86_64-unknown-linux-musl
+            target: x86_64-unknown-linux-gnu
             artifact: homekb-linux-x64.tar.gz
           - os: windows-latest
             target: x86_64-pc-windows-msvc
@@ -40,20 +40,8 @@ jobs:
     defaults:
       run:
         working-directory: engine
-    env:
-      # sqlite-vec 0.1.9's C source typedefs uint*_t from BSD u_int*_t types,
-      # which musl headers don't expose by default (glibc/macOS get them
-      # transitively). Map them to GCC's predefined single-token type macros —
-      # plain -D defines are inert for assembly files (a broad
-      # `-include sys/types.h` broke aws-lc-sys's .S compilation) and for the
-      # other targets (the env var is target-scoped).
-      CFLAGS_x86_64_unknown_linux_musl: "-Du_int8_t=__UINT8_TYPE__ -Du_int16_t=__UINT16_TYPE__ -Du_int64_t=__UINT64_TYPE__"
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install musl tools
-        if: contains(matrix.target, 'musl')
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
 
       - name: Add Rust target
         run: rustup target add ${{ matrix.target }}

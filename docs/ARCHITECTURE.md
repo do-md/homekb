@@ -204,8 +204,9 @@ The engine ships as a **self-contained single binary** — SQLite and sqlite-vec
 - **CI**: `.github/workflows/engine-release.yml` — tag push (or manual dispatch) builds + tests the matrix and attaches artifacts to the GitHub release. Artifact names are a **contract** (consumed by `install.sh`, the Homebrew formula, and the Scoop manifest) and carry no version — the tag does:
   - `homekb-macos-arm64.tar.gz` (aarch64-apple-darwin)
   - `homekb-macos-x64.tar.gz` (x86_64-apple-darwin)
-  - `homekb-linux-x64.tar.gz` (x86_64-unknown-linux-musl — fully static, runs on any distro)
+  - `homekb-linux-x64.tar.gz` (x86_64-unknown-linux-gnu, built on the oldest supported runner → glibc ≥ 2.35, covering every currently maintained distro; the alternative fully-static musl target is deferred — its aws-lc-sys crypto backend is a persistent build headache on musl)
   - `homekb-windows-x64.zip` (x86_64-pc-windows-msvc)
+
   Each archive contains exactly one file: the `homekb` binary (`homekb.exe` on Windows).
 - **Install channels**:
   - `install.sh` (repo root): `curl -fsSL https://raw.githubusercontent.com/do-md/homekb/main/install.sh | sh` — detects OS/arch, downloads the latest `engine-v*` release, installs to `~/.local/bin/homekb`. Always removes the old binary before copying (macOS kernel signature cache: in-place overwrite of the same inode gets the binary SIGKILLed).
