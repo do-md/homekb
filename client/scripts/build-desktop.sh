@@ -46,6 +46,14 @@ for var in APPLE_SIGNING_IDENTITY APPLE_CERTIFICATE_BASE64 APPLE_CERTIFICATE_PAS
   fi
 done
 
+# `tauri signer sign` reads the key CONTENT from TAURI_SIGNING_PRIVATE_KEY, not a
+# path (it base64-decodes the value directly). Tolerate .env.local pointing the
+# var at the key file: if it's an existing path, swap in the file's content.
+if [ -f "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+  TAURI_SIGNING_PRIVATE_KEY="$(cat "$TAURI_SIGNING_PRIVATE_KEY")"
+  export TAURI_SIGNING_PRIVATE_KEY
+fi
+
 # ── Build the engine (release) — bundled into the .app by tauri-build.mjs ─────
 # The engine crate lives at the repo root, one level above client/.
 echo "Building engine (release)..."
@@ -88,6 +96,28 @@ if [ ! -d "$APP_BUNDLE" ]; then
   echo "Error: expected .app at $APP_BUNDLE" >&2
   exit 1
 fi
+
+# ── Re-sign bottom-up: nested engine binary, then the outer app ──────────────
+# The bundled engine (Contents/Resources/engine/homekb) is a nested executable
+# built by plain `cargo build --release`. Tauri signs the app bundle and its
+# own main binary but does NOT deep-sign resource executables, so notarization
+# rejects the archive ("not signed with a valid Developer ID / no secure
+# timestamp / hardened runtime not enabled"). Sign it explicitly with the
+# hardened runtime + timestamp, then re-seal the outer app (touching a nested
+# binary invalidates the app's signature). Order matters — inner first.
+ENGINE_IN_APP="$APP_BUNDLE/Contents/Resources/engine/homekb"
+if [ -f "$ENGINE_IN_APP" ]; then
+  echo "Signing bundled engine binary..."
+  codesign --force --sign "$APPLE_SIGNING_IDENTITY" --options runtime --timestamp \
+    "$ENGINE_IN_APP"
+else
+  echo "Warning: bundled engine binary not found at $ENGINE_IN_APP" >&2
+fi
+
+echo "Re-sealing app bundle..."
+codesign --force --sign "$APPLE_SIGNING_IDENTITY" --options runtime --timestamp \
+  --preserve-metadata=entitlements \
+  "$APP_BUNDLE"
 
 codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
 
