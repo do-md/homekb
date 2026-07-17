@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="30%" r="85%">
+      <stop offset="0%" stop-color="#191b21"/>
+      <stop offset="60%" stop-color="#101116"/>
+      <stop offset="100%" stop-color="#0a0b0e"/>
+    </radialGradient>
+    <linearGradient id="coral" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f56b7c"/>
+      <stop offset="55%" stop-color="#ee5064"/>
+      <stop offset="100%" stop-color="#e23e54"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="1024" height="1024" rx="230" fill="url(#bg)"/>
+  <rect x="6" y="6" width="1012" height="1012" rx="224" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="2"/>
+  <g transform="translate(512 512) scale(1.12) translate(-512 -512)">
+    <path d="M482 340 L220 398 L228 650 L482 704 Z M542 340 L804 398 L796 650 L542 704 Z" fill-rule="evenodd"
+          fill="url(#coral)" stroke="url(#coral)" stroke-width="36"
+          stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="M576 452 L760 452" fill="none" stroke="#101015" stroke-width="22" stroke-linecap="round"/>
+    <path d="M576 520 L760 520" fill="none" stroke="#101015" stroke-width="22" stroke-linecap="round"/>
+    <path d="M576 588 L748 588" fill="none" stroke="#101015" stroke-width="22" stroke-linecap="round"/>
+    <path d="M448 452 L264 452" fill="none" stroke="#101015" stroke-width="22" stroke-linecap="round"/>
+    <path d="M448 520 L264 520" fill="none" stroke="#101015" stroke-width="22" stroke-linecap="round"/>
+    <path d="M448 588 L276 588" fill="none" stroke="#101015" stroke-width="22" stroke-linecap="round"/>
+  </g>
+</svg>
