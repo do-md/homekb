@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { nanoid } from "nanoid";
-import { relayDb } from "../../lib/relay/db";
+import { relayDb } from "./lib/relay/db";
 import {
   authGrant,
   authHome,
@@ -8,10 +8,10 @@ import {
   randomPairCode,
   randomToken,
   sha256hex,
-} from "../../lib/relay/auth";
-import { asRpcHubError, hub, RPC_METHODS, type RpcError } from "../../lib/relay/hub";
-import { CORS_HEADERS, requestOrigin } from "../../lib/relay/origin";
-import { handleMcpMessage } from "../../lib/mcp/handler";
+} from "./lib/relay/auth";
+import { asRpcHubError, hub, RPC_METHODS, type RpcError } from "./lib/relay/hub";
+import { CORS_HEADERS, requestOrigin } from "./lib/relay/origin";
+import { handleMcpMessage } from "./lib/mcp/handler";
 
 /**
  * Relay route handlers, written against the web fetch API (Request/Response).

@@ -2,7 +2,7 @@ import type { Env } from "./env";
 import { bearerToken, sha256hex } from "./util";
 
 /**
- * Bearer-token authentication against D1 — async port of lib/relay/auth.ts.
+ * Bearer-token authentication against D1 — async port of ../node/src/lib/relay/auth.ts.
  * Same row shapes as the Node target so the route code ports 1:1.
  */
 

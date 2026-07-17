@@ -5,9 +5,9 @@ import {
   asRpcHubError,
   hub,
   type AssetDelivery,
-} from "../../lib/relay/hub";
-import { authGrant, authHome } from "../../lib/relay/auth";
-import { CORS_HEADERS } from "../../lib/relay/origin";
+} from "./lib/relay/hub";
+import { authGrant, authHome } from "./lib/relay/auth";
+import { CORS_HEADERS } from "./lib/relay/origin";
 import { sendWebResponse, toWebRequest, toWebRequestHeaders } from "./adapter";
 import { renderAuthorizePage } from "./pages";
 import {
@@ -32,7 +32,7 @@ import {
   wellKnownAuthServer,
   wellKnownProtectedResource,
 } from "./routes";
-import { relayDb } from "../../lib/relay/db";
+import { relayDb } from "./lib/relay/db";
 
 /**
  * HomeKB relay — standalone multi-tenant Node service (see docs/ARCHITECTURE.md "Relay service").

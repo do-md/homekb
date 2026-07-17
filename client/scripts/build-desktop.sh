@@ -47,8 +47,9 @@ for var in APPLE_SIGNING_IDENTITY APPLE_CERTIFICATE_BASE64 APPLE_CERTIFICATE_PAS
 done
 
 # ── Build the engine (release) — bundled into the .app by tauri-build.mjs ─────
+# The engine crate lives at the repo root, one level above client/.
 echo "Building engine (release)..."
-(cd "$PROJECT_DIR/engine" && cargo build --release)
+(cd "$PROJECT_DIR/../engine" && cargo build --release)
 
 # ── Decode secrets to temp files ──────────────────────────────────────────────
 TMPDIR_BUILD=$(mktemp -d)

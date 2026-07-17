@@ -1,4 +1,4 @@
-import { relayDb } from "../../lib/relay/db";
+import { relayDb } from "./lib/relay/db";
 
 /**
  * OAuth authorization page — enter pairing code (no account system).

@@ -64,7 +64,8 @@ if ! git remote get-url origin >/dev/null 2>&1; then
 fi
 
 # Allow package.json to be dirty (the user just bumped it). Reject anything else.
-UNEXPECTED_DIRTY=$(git status --porcelain | awk '{print $NF}' | grep -v '^package\.json$' || true)
+# git status prints repo-relative paths; this script lives under client/.
+UNEXPECTED_DIRTY=$(git status --porcelain | awk '{print $NF}' | grep -v '^client/package\.json$' || true)
 if [ -n "$UNEXPECTED_DIRTY" ]; then
   echo "Error: only package.json may have uncommitted changes. Also dirty:" >&2
   echo "$UNEXPECTED_DIRTY" >&2

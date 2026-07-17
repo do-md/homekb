@@ -14,10 +14,10 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-// 1) Copy engine binary into resources
-const engineBin = path.join(root, "engine/target/release/homekb");
+// 1) Copy engine binary into resources (the engine crate lives at the repo root, above client/)
+const engineBin = path.join(root, "../engine/target/release/homekb");
 if (!existsSync(engineBin)) {
-  console.error("Engine binary missing: run  cd engine && cargo build --release  first");
+  console.error("Engine binary missing: run  cd ../engine && cargo build --release  first");
   process.exit(1);
 }
 mkdirSync(path.join(root, "src-tauri/resources/engine"), { recursive: true });

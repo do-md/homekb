@@ -5,7 +5,7 @@ import type { Env } from "./env";
  * (Deploy-to-Cloudflare provisions an EMPTY database; nobody should have to run
  * `wrangler d1 execute` by hand). Statements mirror schema.sql (kept as the
  * human-readable reference); all idempotent (IF NOT EXISTS), executed once per
- * isolate. Same tables as the Node target's relay.db (lib/relay/db.ts).
+ * isolate. Same tables as the Node target's relay.db (../node/src/lib/relay/db.ts).
  */
 
 const SCHEMA_STATEMENTS = [

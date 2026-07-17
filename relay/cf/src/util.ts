@@ -1,5 +1,5 @@
 /**
- * Crypto + id utilities. Web-Crypto ports of lib/relay/auth.ts helpers —
+ * Crypto + id utilities. Web-Crypto ports of ../node/src/lib/relay/auth.ts helpers —
  * token/pair-code formats are part of the protocol contract (docs/ARCHITECTURE.md
  * "Token formats") and must stay identical to the Node target.
  */

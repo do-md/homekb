@@ -7,9 +7,9 @@
     "dev": "next dev -p 3000",
     "build": "next build",
     "start": "next start -p 3333",
-    "relay:build": "esbuild relay/src/server.ts --bundle --platform=node --format=esm --external:better-sqlite3 --outfile=relay/dist/server.mjs --log-level=warning",
-    "relay:dev": "npm run relay:build && node relay/dist/server.mjs --port 8787",
-    "relay:start": "node relay/dist/server.mjs",
+    "relay:build": "esbuild ../relay/node/src/server.ts --bundle --platform=node --format=esm --external:better-sqlite3 --outfile=../relay/node/dist/server.mjs --log-level=warning",
+    "relay:dev": "npm run relay:build && node ../relay/node/dist/server.mjs --port 8787",
+    "relay:start": "node ../relay/node/dist/server.mjs",
     "build:tauri": "node scripts/tauri-build.mjs",
     "tauri": "tauri",
     "test": "vitest run"

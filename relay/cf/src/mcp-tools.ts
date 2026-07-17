@@ -1,6 +1,6 @@
 /**
  * Remote MCP tool definitions (identical to the local `homekb mcp` tool set; see
- * docs/ARCHITECTURE.md). Verbatim port of lib/mcp/tools.ts — keep the two in sync.
+ * docs/ARCHITECTURE.md). Verbatim port of ../node/src/lib/mcp/tools.ts — keep the two in sync.
  * Each tool maps to a single tunnel RPC call.
  */
 

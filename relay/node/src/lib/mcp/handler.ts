@@ -1,10 +1,9 @@
-import type { Env } from "./env";
-import { callHome, HubClientError } from "./do-client";
-import { MCP_TOOL_MAP, MCP_TOOLS } from "./mcp-tools";
+import { asRpcHubError, hub } from "../relay/hub";
+import { MCP_TOOL_MAP, MCP_TOOLS } from "./tools";
 
 /**
  * Stateless Streamable HTTP MCP: single JSON-RPC message in, JSON response out.
- * Port of lib/mcp/handler.ts — hub().call replaced by the per-home DO call.
+ * No session ID, no SSE stream — the simplest form allowed by the spec; compatible with all Claude clients.
  */
 
 interface JsonRpcMessage {
@@ -14,7 +13,11 @@ interface JsonRpcMessage {
   params?: Record<string, unknown>;
 }
 
-const SUPPORTED_PROTOCOL_VERSIONS = new Set(["2025-06-18", "2025-03-26", "2024-11-05"]);
+const SUPPORTED_PROTOCOL_VERSIONS = new Set([
+  "2025-06-18",
+  "2025-03-26",
+  "2024-11-05",
+]);
 const DEFAULT_PROTOCOL_VERSION = "2025-03-26";
 
 const SERVER_INFO = { name: "homekb", version: "0.1.0" };
@@ -44,7 +47,6 @@ function toolText(payload: unknown, isError = false) {
 export async function handleMcpMessage(
   msg: JsonRpcMessage,
   homeId: string,
-  env: Env,
 ): Promise<Record<string, unknown> | null> {
   const { id, method, params } = msg;
   const isNotification = id === undefined || id === null;
@@ -79,15 +81,16 @@ export async function handleMcpMessage(
       const args = (params?.arguments ?? {}) as Record<string, unknown>;
       const { method: rpcMethod, params: rpcParams } = tool.rpc(args);
       try {
-        const result = await callHome(env, homeId, rpcMethod, rpcParams);
+        const result = await hub().call(homeId, rpcMethod, rpcParams);
         return rpcResult(id, toolText(result));
       } catch (e) {
-        if (e instanceof HubClientError) {
+        const hubErr = asRpcHubError(e);
+        if (hubErr) {
           const hint =
-            e.code === "home_offline"
+            hubErr.code === "home_offline"
               ? "The user's home computer is not connected to the relay right now (run `homekb tunnel` on it)."
-              : e.message;
-          return rpcResult(id, toolText(`HomeKB error (${e.code}): ${hint}`, true));
+              : hubErr.message;
+          return rpcResult(id, toolText(`HomeKB error (${hubErr.code}): ${hint}`, true));
         }
         return rpcResult(
           id,

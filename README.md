@@ -32,5 +32,6 @@ homekb pair                             # Generate a pairing code for your phone
 
 ## Development
 
-- Web/relay: `npm run dev` (3000); tests `npm test` + `scripts/smoke-relay.sh` + `scripts/smoke-mcp.sh`.
+- Web UI: `cd client && npm run dev` (3000); Node relay: `npm run relay:dev` (8787); tests `npm test` + `scripts/smoke-relay.sh` + `scripts/smoke-mcp.sh` (all from `client/`).
+- Workers relay: `cd relay/cf && npx wrangler deploy`.
 - Engine: `cd engine && cargo build && cargo test`; use `HOMEKB_CONFIG=/tmp/x.toml` to isolate the test environment.

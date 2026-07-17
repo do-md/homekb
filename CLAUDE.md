@@ -28,20 +28,20 @@ When continuing a session, don't reload if already loaded; expand a Task with `l
 ## What this is
 
 HomeKB — a consumer-facing personal knowledge base whose core selling point is: **your data always stays on your own computer**.
-Four pieces:
+Top-level layout: `engine/` + `client/` + `relay/` (+ `docs/`). Three pieces:
 
 1. **engine/** (Rust): the `homekb` CLI — knowledge compilation (md → chunking → OpenAI embedding → sqlite-vec index) + semantic retrieval (dual-pool KNN + RRF) + ask (Q&A) + local MCP (stdio, for Claude Code / Codex) + serve (HTTP RPC + `/assets`; loopback for the desktop, public bind = direct mode with Bearer auth) + tunnel (the home-side resident process that connects to a relay). Forked from kb-compile / kb-query and evolving independently.
+
    **Engine-first principle**: the CLI is a self-contained, complete product (Git-style subcommands, no REPL) and does not depend on any client; the desktop client is just a pure renderer (detect/install engine → connect to `homekb serve`) that handles machine-local duties such as installing the engine, assisting pairing, and editing config.
-2. **relay/**: a **standalone multi-tenant Node service** — the pipe between remote clients and home devices. Operated by the product as shared infrastructure (lowest user barrier; self-hosting the same file is possible). Stores only "pairing relationships + token hashes", **no knowledge-base data whatsoever**; the home side receives commands over an SSE tunnel, executes locally, and returns results; binary assets stream through a dedicated channel (never base64 in SSE). Includes remote MCP (Streamable HTTP + pairing-code OAuth, for the Claude mobile app).
-3. **Next.js (this directory)**: the Web UI — a **pure frontend deployed on Vercel**; no server routes, no data flows through it. Clients pick relay mode or direct mode on the pairing screen.
-4. **src-tauri/**: the desktop app, DoMD-style (static export + Rust invoke, pure renderer over local serve).
+2. **relay/**: a **standalone multi-tenant relay service** — the pipe between remote clients and home devices. Two deployment targets sharing one protocol contract: `relay/cf/` (Cloudflare Workers, the primary target) and `relay/node/` (self-host Node, one process + one SQLite file). Stores only "pairing relationships + token hashes", **no knowledge-base data whatsoever**; the home side receives commands over an SSE tunnel, executes locally, and returns results; binary assets stream through a dedicated channel (never base64 in SSE). Includes remote MCP (Streamable HTTP + pairing-code OAuth, for the Claude mobile app).
+3. **client/**: the clients — **one codebase, two surfaces**. The Next.js Web UI (a **pure frontend deployed on Vercel**; no server routes, no data flows through it; clients pick relay mode or direct mode on the pairing screen) and `client/src-tauri/`, the desktop app (DoMD-style: static export + Rust invoke, pure renderer over local serve).
 
 The protocol contract (RPC methods, API, directory layout, token format) lives in `docs/ARCHITECTURE.md` — **change the doc before changing the protocol**.
 
 ## Ports & running
 
-- Web UI dev: `npm run dev` (port **3000**); production build deploys to Vercel.
-- Relay: `npm run relay:dev` (port **8787**); production: `npm run relay:build` → `node relay/dist/server.mjs`.
+- Web UI dev: `cd client && npm run dev` (port **3000**); production build deploys to Vercel (project root = `client/`).
+- Node relay: `cd client && npm run relay:dev` (port **8787**); production: `npm run relay:build` → `node relay/node/dist/server.mjs`. Workers relay: `cd relay/cf && npx wrangler deploy`.
 - Engine build: `cd engine && cargo build --release`; binary at `engine/target/release/homekb`.
 - Relay server DB: `relay.db` (better-sqlite3), path via env `HOMEKB_RELAY_DB`, defaults to `~/.homekb-relay/relay.db`.
 
