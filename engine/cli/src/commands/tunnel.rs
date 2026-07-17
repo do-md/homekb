@@ -263,32 +263,39 @@ async fn verify_loop(
     let url = format!("{}/api/relay/tunnel/health", relay.url);
     tokio::time::sleep(VERIFY_FIRST_DELAY).await;
     loop {
+        // No connId (connection made against a relay that predates the hello
+        // connId) is NOT a reason to skip: `online:false` from the current
+        // instance is definitive evidence all by itself — a relay old enough
+        // to lack the endpoint answers 404, which stays inconclusive.
         let ours = conn_id.lock().unwrap_or_else(|p| p.into_inner()).clone();
-        if let Some(ours) = ours {
-            let res = client
-                .get(&url)
-                .bearer_auth(&relay.home_secret)
-                .timeout(Duration::from_secs(10))
-                .send()
-                .await;
-            if let Ok(res) = res {
-                if res.status().is_success() {
-                    if let Ok(v) = res.json::<Value>().await {
-                        let online = v.get("online").and_then(|x| x.as_bool()).unwrap_or(true);
-                        let current = v
-                            .get("connId")
-                            .and_then(|x| x.as_str())
-                            .map(str::to_string);
-                        if !online || current.as_deref() != Some(ours.as_str()) {
-                            let reason = format!(
-                                "relay reports online={online}, connId={current:?}, ours={ours}"
-                            );
-                            tracing::warn!("tunnel liveness check negative: {reason}");
-                            let _ = zombie_tx.send(reason);
-                            return;
-                        }
-                        tracing::debug!("tunnel liveness ok (connId {ours})");
+        let res = client
+            .get(&url)
+            .bearer_auth(&relay.home_secret)
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await;
+        if let Ok(res) = res {
+            if res.status().is_success() {
+                if let Ok(v) = res.json::<Value>().await {
+                    let online = v.get("online").and_then(|x| x.as_bool()).unwrap_or(true);
+                    let current = v
+                        .get("connId")
+                        .and_then(|x| x.as_str())
+                        .map(str::to_string);
+                    let id_mismatch = match (&ours, &current) {
+                        (Some(o), Some(c)) => o != c,
+                        // We never learned our id — only online:false is definitive.
+                        _ => false,
+                    };
+                    if !online || id_mismatch {
+                        let reason = format!(
+                            "relay reports online={online}, connId={current:?}, ours={ours:?}"
+                        );
+                        tracing::warn!("tunnel liveness check negative: {reason}");
+                        let _ = zombie_tx.send(reason);
+                        return;
                     }
+                    tracing::debug!("tunnel liveness ok (connId {ours:?})");
                 }
             }
         }
