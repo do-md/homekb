@@ -53,7 +53,7 @@ pub async fn process(
 
     let plan = phase1_db(cfg, conn, &rel, &content, &new_hash, mtime, size, title.as_deref())?;
 
-    if plan.inserted_ids.is_empty() && !plan.needs_summary && !plan.had_changes_in_phase1 {
+    if plan.pending.is_empty() && !plan.needs_summary && !plan.had_changes_in_phase1 {
         // Nothing to embed and no summary required.
         //
         // But: if doc_type is still NULL (post-migration backfill case),
@@ -94,9 +94,11 @@ pub async fn process(
         return Ok(());
     }
 
-    // Phase 2 — AI calls.
+    // Phase 2 — AI calls. `plan.pending` is every chunk of this doc still
+    // lacking a vector: freshly inserted this run plus any orphan a prior
+    // failed or crashed run left behind (embed_pending = 1).
     let chunk_texts: Vec<String> = plan
-        .inserted_chunks
+        .pending
         .iter()
         .map(|c| c.content.clone())
         .collect();
@@ -155,14 +157,14 @@ pub async fn process(
 
     // Phase 3 — write back.
     let tx = conn.transaction()?;
-    for (id, vec) in plan.inserted_ids.iter().zip(chunk_embeds.iter()) {
+    for (pc, vec) in plan.pending.iter().zip(chunk_embeds.iter()) {
         tx.execute(
             "INSERT INTO vec_chunks(rowid, embedding) VALUES (?, ?)",
-            params![id, encode(vec)],
+            params![pc.id, encode(vec)],
         )?;
         tx.execute(
             "UPDATE chunks SET embed_pending = 0 WHERE id = ?",
-            params![id],
+            params![pc.id],
         )?;
     }
     if let Some((digest, embed)) = digest_data {
@@ -207,12 +209,22 @@ pub async fn process(
     Ok(())
 }
 
+/// A chunk that still needs an embedding (embed_pending = 1): inserted this
+/// run, or a pre-existing orphan a prior failed/crashed run left without a
+/// vector. Carries the content so phase 2 can embed it.
+struct PendingChunk {
+    id: i64,
+    content: String,
+}
+
 struct Phase1Plan {
     doc_id: DocId,
-    /// Rowids of newly inserted chunks (same order as `inserted_chunks`).
-    inserted_ids: Vec<i64>,
-    /// The chunks themselves, used as embedding inputs.
-    inserted_chunks: Vec<NewChunk>,
+    /// Every chunk of this doc still lacking a vector — the ones inserted this
+    /// run *plus* any pre-existing orphan (embed_pending = 1), ordered by
+    /// chunk_index. This is what lets a plain `reindex` self-heal orphans: the
+    /// content-hash diff alone treats an orphan as "unchanged" and skips it,
+    /// so we drive embedding off embed_pending instead of the diff.
+    pending: Vec<PendingChunk>,
     needs_summary: bool,
     had_changes_in_phase1: bool,
     /// True when docs.doc_type was NULL prior to phase 1 (drives backfill
@@ -336,9 +348,8 @@ fn phase1_db(
         }
     }
 
-    // INSERT new chunks.
-    let mut inserted_ids = Vec::with_capacity(inserted.len());
-    let inserted_chunks: Vec<NewChunk> = inserted.iter().map(|(_, c)| c.clone()).collect();
+    // INSERT new chunks (embed_pending = 1; embedded in phase 2).
+    let inserted_count = inserted.len();
     for (idx, nc) in inserted {
         tx.execute(
             "INSERT INTO chunks(doc_id, chunk_index, heading_path, content, content_hash,
@@ -355,10 +366,9 @@ fn phase1_db(
                 nc.token_count as i64,
             ],
         )?;
-        inserted_ids.push(tx.last_insert_rowid());
     }
 
-    let had_changes_in_phase1 = !removed_ids.is_empty() || !inserted_chunks.is_empty();
+    let had_changes_in_phase1 = !removed_ids.is_empty() || inserted_count > 0;
 
     let (needs_summary, doc_type_is_null, question_is_null, existing_summary) = match &existing {
         None => (true, true, true, None),
@@ -369,12 +379,27 @@ fn phase1_db(
         }
     };
 
+    // Drive embedding off embed_pending, not the diff: this picks up the
+    // chunks inserted just above AND any orphan a prior failed/crashed run
+    // left behind (already present, content unchanged, so the diff reused
+    // them without re-embedding).
+    let mut pending_stmt = tx.prepare(
+        "SELECT id, content FROM chunks
+         WHERE doc_id = ? AND embed_pending = 1 ORDER BY chunk_index",
+    )?;
+    let pending: Vec<PendingChunk> = pending_stmt
+        .query_map(params![doc_id], |r| {
+            Ok(PendingChunk { id: r.get(0)?, content: r.get(1)? })
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+    drop(pending_stmt);
+
     tx.commit()?;
 
     Ok(Phase1Plan {
         doc_id,
-        inserted_ids,
-        inserted_chunks,
+        pending,
         needs_summary,
         had_changes_in_phase1,
         doc_type_is_null,

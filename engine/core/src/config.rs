@@ -41,6 +41,10 @@ pub fn preset_base_url(provider: &str) -> Option<&'static str> {
         "gemini" => Some("https://generativelanguage.googleapis.com/v1beta/openai"),
         "voyage" => Some("https://api.voyageai.com/v1"),
         "cohere" => Some("https://api.cohere.ai/compatibility/v1"),
+        "deepseek" => Some("https://api.deepseek.com/v1"),
+        // Alibaba Cloud DashScope, OpenAI-compatible mode (mainland endpoint;
+        // the Singapore region dashscope-intl.* plugs in via provider=custom).
+        "qwen" => Some("https://dashscope.aliyuncs.com/compatible-mode/v1"),
         _ => None,
     }
 }
@@ -52,17 +56,21 @@ pub fn preset_key_env(provider: &str) -> Option<&'static str> {
         "gemini" => Some("GEMINI_API_KEY"),
         "voyage" => Some("VOYAGE_API_KEY"),
         "cohere" => Some("COHERE_API_KEY"),
+        "deepseek" => Some("DEEPSEEK_API_KEY"),
+        "qwen" => Some("DASHSCOPE_API_KEY"),
         _ => None,
     }
 }
 
 /// Default embedding model + native output dimension per provider.
+/// DeepSeek has no embeddings API — chat-only preset.
 fn preset_embedding_model(provider: &str) -> Option<(&'static str, usize)> {
     match provider {
         "openai" => Some(("text-embedding-3-small", 1536)),
         "gemini" => Some(("gemini-embedding-001", 3072)),
         "voyage" => Some(("voyage-4", 1024)),
         "cohere" => Some(("embed-v4.0", 1536)),
+        "qwen" => Some(("text-embedding-v4", 1024)),
         _ => None,
     }
 }
@@ -72,6 +80,20 @@ fn preset_chat_model(provider: &str) -> Option<&'static str> {
     match provider {
         "openai" => Some("gpt-4o-mini"),
         "gemini" => Some("gemini-flash-lite-latest"),
+        "deepseek" => Some("deepseek-chat"),
+        "qwen" => Some("qwen-flash"),
+        _ => None,
+    }
+}
+
+/// Per-request input cap of a provider's `/v1/embeddings` endpoint (docs
+/// "AI provider presets"). Some providers hard-reject large batches — a 4xx
+/// on the whole request, not a throughput knob — so the engine clamps the
+/// effective batch to `min(embed_batch_size, cap)`. `None` = no known cap.
+pub fn preset_embedding_batch_cap(provider: &str) -> Option<usize> {
+    match provider {
+        "qwen" => Some(10),   // DashScope: max 10 inputs per request
+        "cohere" => Some(96), // Cohere compat layer: max 96 texts
         _ => None,
     }
 }
@@ -582,9 +604,9 @@ fn resolve_chat_section(
 
 fn bad_provider_msg(section: &str, provider: &str, embedding: bool) -> String {
     let known = if embedding {
-        "openai | gemini | voyage | cohere | custom"
+        "openai | gemini | voyage | cohere | qwen | custom"
     } else {
-        "openai | gemini | custom"
+        "openai | gemini | deepseek | qwen | custom"
     };
     if provider == "custom" {
         format!("[{section}] provider \"custom\" requires `base_url`")
@@ -704,5 +726,55 @@ mod tests {
         assert_eq!(ep.model, "text-embedding-3-large");
         assert_eq!(ep.dim, 3072);
         assert_eq!(ep.api_key.as_deref(), Some("legacy-openai-key"));
+    }
+
+    // qwen (DashScope compatible mode) is a full preset: embedding + chat.
+    #[test]
+    fn qwen_preset_resolves_both_sections() {
+        let sec = AiSectionFile {
+            provider: Some("qwen".into()),
+            api_key: Some("k".into()),
+            ..Default::default()
+        };
+        let ep = resolve_embedding_section(Some(&sec), None, None, None).unwrap();
+        assert_eq!(ep.model, "text-embedding-v4");
+        assert_eq!(ep.dim, 1024);
+        assert_eq!(ep.base_url, "https://dashscope.aliyuncs.com/compatible-mode/v1");
+
+        let chat = resolve_chat_section(Some(&sec), "summary", None, None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(chat.model, "qwen-flash");
+        assert_eq!(chat.base_url, "https://dashscope.aliyuncs.com/compatible-mode/v1");
+    }
+
+    // deepseek is chat-only: [summary]/[ask] resolve, [embedding] must error
+    // (no embeddings API) with the known-provider hint.
+    #[test]
+    fn deepseek_is_chat_only() {
+        let sec = AiSectionFile {
+            provider: Some("deepseek".into()),
+            api_key: Some("k".into()),
+            ..Default::default()
+        };
+        let chat = resolve_chat_section(Some(&sec), "summary", None, None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(chat.model, "deepseek-chat");
+        assert_eq!(chat.base_url, "https://api.deepseek.com/v1");
+
+        let err = resolve_embedding_section(Some(&sec), None, None, None)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("requires `model`"), "got: {err}");
+    }
+
+    // Providers with a hard per-request embeddings cap must clamp the
+    // configured batch size (oversizing is a 4xx, not a throughput knob).
+    #[test]
+    fn embedding_batch_caps() {
+        assert_eq!(preset_embedding_batch_cap("qwen"), Some(10));
+        assert_eq!(preset_embedding_batch_cap("cohere"), Some(96));
+        assert_eq!(preset_embedding_batch_cap("openai"), None);
     }
 }

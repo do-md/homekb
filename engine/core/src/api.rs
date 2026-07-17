@@ -243,7 +243,12 @@ pub async fn reindex_opts(cfg: &Config, quiet: bool, reclassify: bool) -> Result
     };
 
     let backfill_needed = metadata_backfill_count(&conn)? > 0;
-    if cs.is_empty() && !backfill_needed {
+    // Docs marked `ok` that nonetheless still hold un-embedded chunks
+    // (embed_pending = 1) — orphans a prior failed/crashed run stranded.
+    // A plain reconcile misses them (state is `ok`, file unchanged), so they
+    // must keep a compile from short-circuiting to "nothing to do".
+    let orphans_needed = orphan_embed_count(&conn)? > 0;
+    if cs.is_empty() && !backfill_needed && !orphans_needed {
         if !quiet {
             tracing::info!("nothing to do");
         }
@@ -266,13 +271,18 @@ pub async fn reindex_opts(cfg: &Config, quiet: bool, reclassify: bool) -> Result
     }
 
     let embed_key = cfg.embedding.resolve_key()?;
+    // Clamp to the provider's per-request input cap (docs "AI provider
+    // presets"): DashScope rejects >10 inputs, Cohere >96 — oversizing is a
+    // hard 4xx on the whole batch, not a tuning choice.
+    let embed_batch_size = crate::config::preset_embedding_batch_cap(&cfg.embedding.provider)
+        .map_or(cfg.embed_batch_size, |cap| cfg.embed_batch_size.min(cap));
     let embedder = Embedder::new(
         &embed_key,
         &cfg.embedding.base_url,
         cfg.embedding.model.clone(),
         cfg.embedding.dim,
         cfg.embed_concurrency,
-        cfg.embed_batch_size,
+        embed_batch_size,
     );
     let summary_key = cfg.summary.resolve_key()?;
     let summarizer = Summarizer::new(&summary_key, &cfg.summary.base_url, cfg.summary.model.clone());
@@ -295,6 +305,25 @@ pub async fn reindex_opts(cfg: &Config, quiet: bool, reclassify: bool) -> Result
     }
     report.backfilled = backfill_paths.len();
 
+    // Docs that are `ok` but still own un-embedded chunks (embed_pending = 1),
+    // left orphaned by an earlier failed/crashed run. The reconciler can't see
+    // them (state is `ok`, file unchanged), so drive them explicitly; the
+    // pipeline re-embeds off embed_pending, not the content-hash diff. Skip any
+    // already queued above to avoid processing a doc twice.
+    let mut orphan_paths = collect_orphan_embed_paths(&conn, &cfg.notes_dir)?;
+    orphan_paths.retain(|p| {
+        !cs.recovery.contains(p)
+            && !cs.updated.contains(p)
+            && !cs.created.contains(p)
+            && !backfill_paths.contains(p)
+    });
+    if !orphan_paths.is_empty() && !quiet {
+        tracing::info!(
+            "re-embedding stranded chunks for {} orphaned docs",
+            orphan_paths.len()
+        );
+    }
+
     let mut errors = 0usize;
     for path in cs
         .recovery
@@ -302,14 +331,17 @@ pub async fn reindex_opts(cfg: &Config, quiet: bool, reclassify: bool) -> Result
         .chain(cs.updated.iter())
         .chain(cs.created.iter())
         .chain(backfill_paths.iter())
+        .chain(orphan_paths.iter())
     {
-        if let Err(e) =
-            pipeline::process(cfg, &mut conn, &embedder, &summarizer, &categorizer, path, quiet)
-                .await
+        match pipeline::process(cfg, &mut conn, &embedder, &summarizer, &categorizer, path, quiet)
+            .await
         {
-            tracing::error!("failed {}: {:#}", path.display(), e);
-            record_failure(&conn, path, "process", &e)?;
-            errors += 1;
+            Ok(()) => clear_failure(&conn, path)?,
+            Err(e) => {
+                tracing::error!("failed {}: {:#}", path.display(), e);
+                record_failure(&conn, path, "process", &e)?;
+                errors += 1;
+            }
         }
     }
     report.failed = errors;
@@ -635,6 +667,72 @@ mod tests {
         assert_eq!(g[1].heading_path.as_deref(), Some("a-best heading"));
         assert_eq!(g[2].matches, Some(1));
     }
+
+    #[test]
+    fn orphan_chunks_detected_and_failures_upsert() {
+        use crate::config::EmbeddingEndpoint;
+
+        let dir = std::env::temp_dir()
+            .join("homekb-orphan-test")
+            .join(format!("{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let emb = EmbeddingEndpoint {
+            provider: "openai".into(),
+            base_url: "https://api.openai.com/v1".into(),
+            api_key: None,
+            model: "text-embedding-3-small".into(),
+            dim: 1536,
+        };
+        let conn = db::open_live(&dir.join("live.db"), &emb, "gpt-4o-mini").unwrap();
+
+        // A doc marked `ok` with one embedded chunk and one orphan.
+        conn.execute(
+            "INSERT INTO docs(id, path, content_hash, size_bytes, mtime, indexed_at, index_state)
+             VALUES (1, 'note.md', 'h', 1, 1, 1, 'ok')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO chunks(doc_id, chunk_index, content, content_hash, embed_pending)
+             VALUES (1, 0, 'embedded', 'a', 0), (1, 1, 'orphan', 'b', 1)",
+            [],
+        )
+        .unwrap();
+
+        // Detected once, and only until the orphan is embedded.
+        let notes_root = std::path::Path::new("/notes");
+        assert_eq!(orphan_embed_count(&conn).unwrap(), 1);
+        assert_eq!(
+            collect_orphan_embed_paths(&conn, notes_root).unwrap(),
+            vec![notes_root.join("note.md")],
+        );
+        conn.execute("UPDATE chunks SET embed_pending = 0 WHERE content = 'orphan'", [])
+            .unwrap();
+        assert_eq!(orphan_embed_count(&conn).unwrap(), 0);
+        assert!(collect_orphan_embed_paths(&conn, notes_root).unwrap().is_empty());
+
+        // record_failure upserts by (path, op); clear_failure removes the row.
+        let p = std::path::Path::new("/notes/note.md");
+        let err = anyhow::anyhow!("boom");
+        record_failure(&conn, p, "process", &err).unwrap();
+        record_failure(&conn, p, "process", &err).unwrap();
+        let (rows, retry): (i64, i64) = conn
+            .query_row("SELECT COUNT(*), MAX(retry_count) FROM failures", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(rows, 1, "repeat failure updates in place");
+        assert_eq!(retry, 1, "retry_count bumped on the second failure");
+        clear_failure(&conn, p).unwrap();
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM failures", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            0,
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -755,17 +853,65 @@ fn acquire_lock(path: &Path) -> Result<std::fs::File> {
     Ok(f)
 }
 
+/// Record (or update) a processing failure. Keyed on (path, op): a repeat
+/// failure bumps `retry_count` and refreshes the error instead of appending a
+/// new row, so the `failures` table counts distinct broken docs — not every
+/// attempt the resident compiler makes while a provider is down.
 fn record_failure(conn: &Connection, path: &Path, op: &str, e: &anyhow::Error) -> Result<()> {
+    let p = path.to_string_lossy();
+    let msg = format!("{e:#}");
+    let updated = conn.execute(
+        "UPDATE failures SET error = ?, attempted_at = ?, retry_count = retry_count + 1
+         WHERE path = ? AND op = ?",
+        rusqlite::params![msg, now_secs(), p, op],
+    )?;
+    if updated == 0 {
+        conn.execute(
+            "INSERT INTO failures(path, op, error, attempted_at) VALUES (?, ?, ?, ?)",
+            rusqlite::params![p, op, msg, now_secs()],
+        )?;
+    }
+    Ok(())
+}
+
+/// Clear any failure rows for a doc that just processed successfully, so the
+/// `failures` count reflects only docs currently broken (a healed orphan must
+/// not keep showing up as a failure forever).
+fn clear_failure(conn: &Connection, path: &Path) -> Result<()> {
     conn.execute(
-        "INSERT INTO failures(path, op, error, attempted_at) VALUES (?, ?, ?, ?)",
-        rusqlite::params![
-            path.to_string_lossy(),
-            op,
-            format!("{e:#}"),
-            now_secs(),
-        ],
+        "DELETE FROM failures WHERE path = ?",
+        rusqlite::params![path.to_string_lossy()],
     )?;
     Ok(())
+}
+
+/// Count of docs that are otherwise indexed but still hold at least one
+/// un-embedded chunk (embed_pending = 1) — orphans stranded by an earlier
+/// failed or crashed run.
+fn orphan_embed_count(conn: &Connection) -> Result<i64> {
+    Ok(conn.query_row(
+        "SELECT COUNT(DISTINCT doc_id) FROM chunks WHERE embed_pending = 1",
+        [],
+        |r| r.get(0),
+    )?)
+}
+
+/// Absolute paths of docs owning un-embedded chunks (embed_pending = 1).
+fn collect_orphan_embed_paths(
+    conn: &Connection,
+    notes_root: &Path,
+) -> Result<Vec<std::path::PathBuf>> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT d.path FROM docs d
+         JOIN chunks c ON c.doc_id = d.id
+         WHERE c.embed_pending = 1",
+    )?;
+    let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(notes_root.join(r?));
+    }
+    Ok(out)
 }
 
 fn now_secs() -> i64 {

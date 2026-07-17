@@ -118,8 +118,11 @@ fn preset_default_model(provider: &str, chat: bool) -> &'static str {
         ("gemini", false) => "gemini-embedding-001",
         ("voyage", false) => "voyage-4",
         ("cohere", false) => "embed-v4.0",
+        ("qwen", false) => "text-embedding-v4",
         ("openai", true) => "gpt-4o-mini",
         ("gemini", true) => "gemini-flash-lite-latest",
+        ("deepseek", true) => "deepseek-chat",
+        ("qwen", true) => "qwen-flash",
         _ => "",
     }
 }
@@ -265,9 +268,9 @@ pub fn set_ai_endpoint(
         return write_config_migrating(&tbl);
     }
     let allowed: &[&str] = if chat {
-        &["openai", "gemini", "custom"]
+        &["openai", "gemini", "deepseek", "qwen", "custom"]
     } else {
-        &["openai", "gemini", "voyage", "cohere", "custom"]
+        &["openai", "gemini", "voyage", "cohere", "qwen", "custom"]
     };
     if !allowed.contains(&provider) {
         return Err(format!(
