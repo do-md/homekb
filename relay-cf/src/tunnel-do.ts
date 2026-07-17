@@ -16,6 +16,8 @@ import { randomId } from "./util";
  *   POST /rpc                    {method, params} → {ok,result} | 555 {code,message,detail}
  *   POST /asset-request          {path} → 200 stream | 555 hub error | 556 {error}
  *   POST /ask-request            {params} → 200 SSE stream | 555 | 556
+ *   POST /upload-request         header x-upload-path, body = client bytes → {ok,result} | 555
+ *   GET  /upload-claim/<id>      home claims the pending upload body (one-shot) → 200 stream | 404
  *   POST /result                 {id, ok, result?, error?} → 204 (late results discarded)
  *   POST /upstream/<id>          home's asset/ask body → piped into the pending client stream → 204 | 409
  *   GET  /online                 → {online}
@@ -25,6 +27,8 @@ const PING_INTERVAL_MS = 25_000;
 const DEFAULT_TIMEOUT = 30_000;
 /** Streaming ask: the home connects back near-instantly, but retrieval + first token can lag. */
 const ASK_STREAM_TIMEOUT = 60_000;
+/** Uploads move client → home and can be several MB on a slow uplink: claim + write + result. */
+const UPLOAD_TIMEOUT = 120_000;
 
 export interface RpcError {
   code: string;
@@ -57,6 +61,14 @@ interface Pending {
   timer: number;
 }
 
+/** A client's pending upload body, waiting for the home to claim it (upload
+ *  direction of the binary asset channel). */
+interface UploadSource {
+  contentType?: string;
+  contentLength?: string;
+  readable: ReadableStream<Uint8Array>;
+}
+
 interface Conn {
   /** Random id minted at registration; sent in `hello`, reported by /online —
    *  the engine's out-of-band liveness verification compares against it
@@ -64,6 +76,8 @@ interface Conn {
   id: string;
   writer: WritableStreamDefaultWriter<Uint8Array>;
   pending: Map<string, Pending>;
+  /** Pending upload bodies, keyed by the same request id as `pending`. */
+  uploads: Map<string, UploadSource>;
   pingTimer: number;
 }
 
@@ -84,6 +98,10 @@ export class HomeTunnelDO {
     if (request.method === "POST" && path === "/rpc") return this.handleRpc(request);
     if (request.method === "POST" && path === "/asset-request") return this.handleAssetRequest(request);
     if (request.method === "POST" && path === "/ask-request") return this.handleAskRequest(request);
+    if (request.method === "POST" && path === "/upload-request") return this.handleUploadRequest(request);
+    if (request.method === "GET" && path.startsWith("/upload-claim/")) {
+      return this.handleUploadClaim(path.slice("/upload-claim/".length));
+    }
     if (request.method === "POST" && path === "/result") return this.handleResult(request);
     if (request.method === "POST" && path.startsWith("/upstream/")) {
       return this.handleUpstream(request, path.slice("/upstream/".length));
@@ -107,7 +125,7 @@ export class HomeTunnelDO {
 
     const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
     const writer = writable.getWriter();
-    const conn: Conn = { id: randomId(12), writer, pending: new Map(), pingTimer: 0 };
+    const conn: Conn = { id: randomId(12), writer, pending: new Map(), uploads: new Map(), pingTimer: 0 };
     this.conn = conn;
 
     // Ping keeps intermediaries from idling the stream out AND detects a dead home:
@@ -146,6 +164,8 @@ export class HomeTunnelDO {
       p.reject(err);
     }
     conn.pending.clear();
+    for (const [, u] of conn.uploads) u.readable.cancel().catch(() => {});
+    conn.uploads.clear();
     conn.writer.abort().catch(() => {});
     if (this.conn === conn) this.conn = null;
   }
@@ -257,6 +277,59 @@ export class HomeTunnelDO {
     } catch (e) {
       return this.hubErrorResponse(e);
     }
+  }
+
+  /**
+   * Binary asset channel, upload direction (docs/ARCHITECTURE.md): stash the
+   * client's body, push an `assetUpload` event, and wait for the home to
+   * (1) claim the body via GET /upload-claim/<id> and (2) report the final
+   * path via POST /result with the same id. Resolves with the home's result
+   * (`{path}`); the upload source is dropped however the request settles.
+   */
+  private async handleUploadRequest(request: Request): Promise<Response> {
+    const conn = this.conn;
+    const path = request.headers.get("x-upload-path") ?? "";
+    const contentType = request.headers.get("content-type") ?? undefined;
+    if (!conn || !request.body) {
+      await request.body?.cancel().catch(() => {});
+      return this.hubErrorResponse(new HubError("home_offline", "home device is not connected"));
+    }
+    let requestId = "";
+    try {
+      const result = await this.request(
+        "assetUpload",
+        (id) => {
+          requestId = id;
+          conn.uploads.set(id, {
+            contentType,
+            contentLength: request.headers.get("content-length") ?? undefined,
+            readable: request.body as ReadableStream<Uint8Array>,
+          });
+          return JSON.stringify({ id, path, ...(contentType ? { contentType } : {}) });
+        },
+        `asset upload ${path}`,
+        UPLOAD_TIMEOUT,
+      );
+      return Response.json({ ok: true, result });
+    } catch (e) {
+      return this.hubErrorResponse(e);
+    } finally {
+      if (requestId) conn.uploads.delete(requestId);
+    }
+  }
+
+  /** One-shot claim of a pending upload body (home side): stream it back. */
+  private handleUploadClaim(id: string): Response {
+    const conn = this.conn;
+    const source = conn?.uploads.get(id);
+    if (!conn || !source) {
+      return Response.json({ ok: false, error: "no_pending" }, { status: 404 });
+    }
+    conn.uploads.delete(id);
+    const headers = new Headers();
+    headers.set("Content-Type", source.contentType || "application/octet-stream");
+    if (source.contentLength) headers.set("Content-Length", source.contentLength);
+    return new Response(source.readable, { status: 200, headers });
   }
 
   private deliveryResponse(d: Delivery): Response {

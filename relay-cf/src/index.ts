@@ -1,6 +1,14 @@
 import type { Env } from "./env";
 import { authGrant, authHome } from "./auth";
-import { HubClientError, hubErrorStatus, requestAsset, requestAskStream, tunnelStub } from "./do-client";
+import {
+  HubClientError,
+  claimUpload,
+  hubErrorStatus,
+  requestAsset,
+  requestAssetUpload,
+  requestAskStream,
+  tunnelStub,
+} from "./do-client";
 import { CORS_HEADERS } from "./origin";
 import { renderAuthorizePage } from "./pages";
 import {
@@ -146,6 +154,46 @@ async function handleRelayAssetGet(req: Request, env: Env, assetPath: string): P
 }
 
 /**
+ * Client-side binary asset upload (docs/ARCHITECTURE.md "Binary asset channel",
+ * upload direction): the client's raw-bytes POST streams into the DO, the home
+ * claims the body (GET /api/relay/tunnel/upload/<id>) and reports the final
+ * asset path via POST /api/relay/tunnel/result. Node parity: relay/src/server.ts
+ * handleRelayAssetUpload.
+ */
+async function handleRelayAssetUpload(req: Request, env: Env, assetPath: string): Promise<Response> {
+  const grant = await authGrant(req, env);
+  if (!grant) return jsonError(401, "unauthorized");
+  if (!isSafeAssetPath(assetPath)) return jsonError(400, "bad_path");
+
+  try {
+    const result = await requestAssetUpload(env, grant.home_id, assetPath, {
+      contentType: req.headers.get("content-type") ?? undefined,
+      contentLength: req.headers.get("content-length") ?? undefined,
+      body: req.body ?? new ReadableStream<Uint8Array>({ start: (c) => c.close() }),
+    });
+    const path = (result as { path?: unknown } | null)?.path;
+    if (typeof path !== "string" || !path) return jsonError(500, "bad_home_result");
+    return Response.json({ ok: true, path });
+  } catch (e) {
+    if (e instanceof HubClientError) {
+      if (e.code === "rpc_error") {
+        // Engine-side failure (bad kind, disk error) — surface its code/message.
+        return jsonError(400, e.detail?.code ?? "asset_write_failed", e.detail?.message ?? e.message);
+      }
+      return hubClientErrorResponse(e, "asset upload failed");
+    }
+    return jsonError(500, "internal_error");
+  }
+}
+
+/** Home device claim of a pending upload body: DO response passed through verbatim. */
+async function handleTunnelUploadClaim(req: Request, env: Env, id: string): Promise<Response> {
+  const home = await authHome(req, env);
+  if (!home) return jsonError(401, "unauthorized");
+  return claimUpload(env, home.id, id);
+}
+
+/**
  * Public share-scoped asset fetch (docs/ARCHITECTURE.md "Note sharing"): no client
  * token — the share context is forwarded to the home, which streams the bytes only
  * if the share is valid and the shared note references the asset.
@@ -234,9 +282,16 @@ async function handle(req: Request, env: Env): Promise<Response> {
   if (method === "POST" && path.startsWith(TUNNEL_ASK)) {
     return handleTunnelUpstream(req, env, path.slice(TUNNEL_ASK.length));
   }
+  const TUNNEL_UPLOAD = "/api/relay/tunnel/upload/";
+  if (method === "GET" && path.startsWith(TUNNEL_UPLOAD)) {
+    return handleTunnelUploadClaim(req, env, path.slice(TUNNEL_UPLOAD.length));
+  }
   const RELAY_ASSET = "/api/relay/asset/";
   if (method === "GET" && path.startsWith(RELAY_ASSET)) {
     return handleRelayAssetGet(req, env, decodeURIComponent(path.slice(RELAY_ASSET.length)));
+  }
+  if (method === "POST" && path.startsWith(RELAY_ASSET)) {
+    return handleRelayAssetUpload(req, env, decodeURIComponent(path.slice(RELAY_ASSET.length)));
   }
   const RELAY_GRANT = "/api/relay/grants/";
   if (method === "DELETE" && path.startsWith(RELAY_GRANT)) {

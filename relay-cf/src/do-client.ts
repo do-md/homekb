@@ -95,6 +95,36 @@ export function requestAskStream(env: Env, homeId: string, params: unknown): Pro
   return requestStream(env, homeId, "/ask-request", { params });
 }
 
+/**
+ * Binary asset channel, upload direction: stream the client's raw bytes to the
+ * DO, which parks them until the home claims the body and reports the final
+ * asset path. Resolves with the home's result (`{path}`); throws HubClientError
+ * on hub-level failures (offline / timeout / engine rpc_error).
+ */
+export async function requestAssetUpload(
+  env: Env,
+  homeId: string,
+  path: string,
+  source: { contentType?: string; contentLength?: string; body: ReadableStream<Uint8Array> },
+): Promise<unknown> {
+  const headers = new Headers({ "x-upload-path": path });
+  if (source.contentType) headers.set("Content-Type", source.contentType);
+  if (source.contentLength) headers.set("Content-Length", source.contentLength);
+  const res = await tunnelStub(env, homeId).fetch("https://do/upload-request", {
+    method: "POST",
+    headers,
+    body: source.body,
+  });
+  if (res.status === DO_STATUS_HUB_ERROR) await throwHubError(res);
+  const body = (await res.json()) as { ok: boolean; result?: unknown };
+  return body.result;
+}
+
+/** Home-side claim of a pending upload body: passed through verbatim (200 stream | 404). */
+export function claimUpload(env: Env, homeId: string, id: string): Promise<Response> {
+  return tunnelStub(env, homeId).fetch(`https://do/upload-claim/${encodeURIComponent(id)}`);
+}
+
 /** The current DO instance's view of the home's tunnel. */
 export async function homeConnInfo(
   env: Env,
