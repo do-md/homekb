@@ -88,6 +88,12 @@ pub struct ShareMeta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<i64>,
     pub has_password: bool,
+    /// Composed against the **current** `[relay]` registration (see the
+    /// `kb.shareList` contract) — always the link that works right now, even
+    /// after the home moved to a different connection service. Absent when
+    /// the home has no active registration.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
 }
 
 /// Validation outcome of a public share read — maps 1:1 onto the RPC error
@@ -190,6 +196,18 @@ fn relay_of(cfg: &Config) -> Result<crate::config::RelayConfig> {
         .context("not registered with a connection service — run `homekb register --relay <url>` first (shares are served through the relay)")
 }
 
+/// `<share_web_base>/s/<shareId>?r=<relay url>` — the one canonical link shape
+/// (docs/ARCHITECTURE.md "Share URL"), always composed against the relay the
+/// home is registered with *now*.
+fn compose_url(cfg: &Config, relay_url: &str, share_id: &str) -> String {
+    format!(
+        "{}/s/{}?r={}",
+        cfg.share_web_base.trim_end_matches('/'),
+        share_id,
+        urlencode(relay_url)
+    )
+}
+
 // ---------------------------------------------------------------------------
 // Password throttle (in-memory, per process — both serve and tunnel keep
 // their own window; the engine-level guarantee is per-process, which is
@@ -275,12 +293,7 @@ pub async fn create_share(
     });
     store(cfg, shares)?;
 
-    let url = format!(
-        "{}/s/{}?r={}",
-        cfg.share_web_base.trim_end_matches('/'),
-        share_id,
-        urlencode(&relay.url)
-    );
+    let url = compose_url(cfg, &relay.url, &share_id);
     Ok(CreatedShare { share_id, url, expires_at })
 }
 
@@ -354,6 +367,7 @@ pub fn share_allows_asset(
 
 /// Active shares, newest first. Titles are best-effort (note may be gone).
 pub fn list_shares(cfg: &Config) -> Result<Vec<ShareMeta>> {
+    let relay = relay_of(cfg).ok();
     let mut shares = load(cfg)?;
     shares.sort_by(|a, b| b.created_at.cmp(&a.created_at));
     Ok(shares
@@ -362,6 +376,7 @@ pub fn list_shares(cfg: &Config) -> Result<Vec<ShareMeta>> {
             let title = read_note(cfg, &rec.path)
                 .ok()
                 .map(|n| title_of(&n.content, &rec.path));
+            let url = relay.as_ref().map(|r| compose_url(cfg, &r.url, &rec.id));
             ShareMeta {
                 share_id: rec.id,
                 path: rec.path,
@@ -369,9 +384,38 @@ pub fn list_shares(cfg: &Config) -> Result<Vec<ShareMeta>> {
                 created_at: rec.created_at,
                 expires_at: rec.expires_at,
                 has_password: rec.password_hash.is_some(),
+                url,
             }
         })
         .collect())
+}
+
+/// Re-register every active (non-expired) share's routing record at the
+/// currently configured relay (docs/ARCHITECTURE.md "Switching connection
+/// services"): shares live on this machine, but a freshly registered service
+/// has never heard of their shareIds — routing must follow the registration.
+/// Best-effort per share (the relay upsert is idempotent); returns
+/// `(registered, failed)`.
+pub async fn reregister_routes(cfg: &Config) -> Result<(usize, usize)> {
+    let relay = relay_of(cfg)?;
+    let now = now_ms();
+    let client = reqwest::Client::new();
+    let mut registered = 0usize;
+    let mut failed = 0usize;
+    for rec in load(cfg)?.iter().filter(|s| s.expires_at.map_or(true, |e| now <= e)) {
+        let res = client
+            .post(format!("{}/api/relay/share", relay.url))
+            .bearer_auth(&relay.home_secret)
+            .json(&serde_json::json!({ "shareId": rec.id }))
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await;
+        match res {
+            Ok(r) if r.status().is_success() => registered += 1,
+            _ => failed += 1,
+        }
+    }
+    Ok((registered, failed))
 }
 
 /// Delete a share record (idempotent) + best-effort removal of the relay

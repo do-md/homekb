@@ -160,6 +160,32 @@ for await (const chunk of res.body) {
         ],
       },
       "kb.reindex": { started: true },
+      // Share methods (docs/ARCHITECTURE.md "Note sharing") — static shapes
+      // matching the contract; policy (password/expiry) is engine-side and not
+      // simulated here. `url` mirrors the current-relay composition rule.
+      "kb.shareCreate": {
+        shareId: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        url: `http://localhost:3000/s/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?r=${encodeURIComponent(BASE)}`,
+      },
+      "kb.shareList": {
+        shares: [
+          {
+            shareId: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            path: "test-note.md",
+            title: "Test Note",
+            createdAt: 1770000000000,
+            hasPassword: false,
+            url: `http://localhost:3000/s/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?r=${encodeURIComponent(BASE)}`,
+          },
+        ],
+      },
+      "kb.shareRevoke": { shareId: params.shareId },
+      "kb.shareGet": {
+        path: "test-note.md",
+        title: "Test Note",
+        content: "# Test Note\n\nShared content from the fake home.",
+        mtime: 1770000000,
+      },
     };
     // Draft methods are stateful (dispatched here, not via the eager `canned`
     // literal, so they only run for their own method).

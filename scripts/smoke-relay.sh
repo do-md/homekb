@@ -95,6 +95,28 @@ test "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/relay/health" -H "Auth
 CODE2=$(curl -s -X POST "$BASE/api/relay/pair" -H "Authorization: Bearer $SECRET" -H 'Content-Type: application/json' -d '{"action":"new"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["code"])')
 TOKEN=$(curl -s -X POST "$BASE/api/relay/pair" -H 'Content-Type: application/json' -d "{\"action\":\"claim\",\"code\":\"$CODE2\",\"label\":\"smoke-phone-2\"}" | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])')
 
+echo "== 6.9 Share routing (register → re-register idempotent → public view → drop) =="
+SHARE_ID="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+curl -s -X POST "$BASE/api/relay/share" -H "Authorization: Bearer $SECRET" -H 'Content-Type: application/json' \
+  -d "{\"shareId\":\"$SHARE_ID\"}" | grep -q '"ok":true' && echo "share route registered OK"
+# Re-registering the same shareId must be an idempotent upsert (docs: routing
+# follows the registration — `homekb register` re-posts every active share).
+curl -s -X POST "$BASE/api/relay/share" -H "Authorization: Bearer $SECRET" -H 'Content-Type: application/json' \
+  -d "{\"shareId\":\"$SHARE_ID\"}" | grep -q '"ok":true' && echo "share route re-register (idempotent) OK"
+# Public view: no auth; the relay constructs kb.shareGet itself and forwards it.
+curl -s -X POST "$BASE/api/relay/share/$SHARE_ID" -H 'Content-Type: application/json' -d '{}' > "$TMP/share.out" &
+SHARE_PID=$!
+sleep 2
+grep -q '"method":"kb.shareGet"' "$TMP/sse.log" && echo "relay forwarded kb.shareGet OK" || { echo "kb.shareGet not forwarded"; exit 1; }
+SHARE_REQID=$(grep -o '"id":"[^"]*"' "$TMP/sse.log" | tail -1 | cut -d'"' -f4)
+curl -s -X POST "$BASE/api/relay/tunnel/result" -H "Authorization: Bearer $SECRET" -H 'Content-Type: application/json' \
+  -d "{\"id\":\"$SHARE_REQID\",\"ok\":true,\"result\":{\"path\":\"test-note.md\",\"title\":\"Test Note\",\"content\":\"# Test Note\",\"mtime\":1770000000}}" \
+  -o /dev/null -w "share result relay-back HTTP %{http_code}\n"
+wait $SHARE_PID
+grep -q '"title":"Test Note"' "$TMP/share.out" && echo "public share view OK" || { echo "share view failed: $(cat "$TMP/share.out")"; exit 1; }
+curl -s -X DELETE "$BASE/api/relay/share/$SHARE_ID" -H "Authorization: Bearer $SECRET" | grep -q '"ok":true' && echo "share route dropped OK"
+test "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/relay/share/$SHARE_ID" -H 'Content-Type: application/json' -d '{}')" = "404" && echo "dropped share 404 OK"
+
 echo "== 7. Unauthenticated access must return 401 =="
 test "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/relay/rpc" -d '{}')" = "401" && echo "401 OK"
 

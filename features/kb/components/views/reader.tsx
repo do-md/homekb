@@ -5,11 +5,12 @@
  * The read view remounts on (path, readerVersion) so saves re-render fresh markdown.
  */
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { closeHashOverlay } from "@/lib/client/hash-route";
 import { useKbStore, useKbStoreApi } from "../../store/kb-store";
 import { KbEditor, type KbEditorHandle, KbMarkdown } from "../domd";
-import { IconChevronLeft, Spinner } from "../icons";
+import { IconChevronLeft, IconShare, Spinner } from "../icons";
+import { SharePanel } from "../share-panel";
 
 export function ReaderView() {
   const api = useKbStoreApi();
@@ -21,6 +22,7 @@ export function ReaderView() {
   const editMode = useKbStore((s) => s.state.editMode);
   const saveBusy = useKbStore((s) => s.state.saveBusy);
   const editorRef = useRef<KbEditorHandle | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
 
   const save = () => {
     const md = editorRef.current?.getMarkdown();
@@ -38,13 +40,22 @@ export function ReaderView() {
             <IconChevronLeft size={16} /> Back
           </button>
           {!editMode ? (
-            <button
-              className="rounded-xl border border-hk-border px-3.5 py-1.5 text-[13px] font-semibold text-hk-text-2 transition-colors hover:bg-hk-card"
-              onClick={() => api.startEdit()}
-              disabled={loading || !!error}
-            >
-              Edit
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                className="flex items-center gap-1.5 rounded-xl border border-hk-border px-3.5 py-1.5 text-[13px] font-semibold text-hk-text-2 transition-colors hover:bg-hk-card"
+                onClick={() => setShareOpen(true)}
+                disabled={loading || !!error}
+              >
+                <IconShare size={13} /> Share
+              </button>
+              <button
+                className="rounded-xl border border-hk-border px-3.5 py-1.5 text-[13px] font-semibold text-hk-text-2 transition-colors hover:bg-hk-card"
+                onClick={() => api.startEdit()}
+                disabled={loading || !!error}
+              >
+                Edit
+              </button>
+            </div>
           ) : (
             <div className="flex items-center gap-2">
               <button
@@ -99,6 +110,8 @@ export function ReaderView() {
           </div>
         )}
       </div>
+
+      {shareOpen && path && <SharePanel path={path} onClose={() => setShareOpen(false)} />}
     </div>
   );
 }

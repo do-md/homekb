@@ -57,11 +57,35 @@ export interface Draft {
   editedAt: number; // epoch ms
 }
 
+/**
+ * One public share link (docs/ARCHITECTURE.md "Note sharing"). Records live on
+ * the home device (`~/.homekb/shares.json`) — password/expiry/revocation are
+ * all enforced there; the relay only routes. `url` is composed against the
+ * relay the home is registered with *now* (absent when unregistered), so it is
+ * always the link that works — even after the home switched services.
+ */
+export interface ShareMeta {
+  shareId: string;
+  path: string;
+  title?: string | null;
+  createdAt: number; // epoch ms
+  expiresAt?: number | null; // epoch ms; absent = never expires
+  hasPassword: boolean;
+  url?: string | null;
+}
+
+/** `kb.shareCreate` result. */
+export interface CreatedShare {
+  shareId: string;
+  url: string;
+  expiresAt?: number | null;
+}
+
 /*
  * Surfaces are URL-owned (no view enum): tabs are path routes (/search, /new,
- * /new/drafts, /status, /remote, desktop-only /settings), dynamic overlays are
- * hash params (`/search#doc=<path>`, `/new#draft=<id>`) so the system back
- * gesture closes them. See lib/client/hash-route.ts and app/(app)/.
+ * /new/drafts, /status, /remote, /shares, desktop-only /settings), dynamic
+ * overlays are hash params (`/search#doc=<path>`, `/new#draft=<id>`) so the
+ * system back gesture closes them. See lib/client/hash-route.ts and app/(app)/.
  */
 
 export type RecallMode = "list" | "answer";

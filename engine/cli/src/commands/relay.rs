@@ -89,6 +89,23 @@ pub fn run_register(relay: Option<String>, name: Option<String>) -> Result<()> {
     println!("registered home device \"{}\" ({}) -> {}", name, home_id, url);
     println!("credentials written to {}", path.display());
 
+    // Routing follows the registration (docs/ARCHITECTURE.md "Switching
+    // connection services"): existing shares live in shares.json on this
+    // machine, but the new service has never heard of their shareIds.
+    // Re-register every active share route so those shares stay reachable
+    // through the new service. Best-effort — links distributed earlier embed
+    // the old service in `?r=` and cannot be saved either way.
+    match rt.block_on(homekb_core::reregister_routes(&config)) {
+        Ok((0, 0)) => {}
+        Ok((registered, 0)) => {
+            println!("re-registered {registered} share route(s) at the new service");
+        }
+        Ok((registered, failed)) => eprintln!(
+            "warning: re-registered {registered} share route(s), {failed} failed — those shares stay unreachable until the next `homekb register`"
+        ),
+        Err(e) => eprintln!("warning: could not re-register share routes: {e:#}"),
+    }
+
     // Registering minted a NEW home identity. A tunnel that is already running still
     // holds the previous credentials — to the relay, the new home is offline even
     // though everything looks green locally. Restart it so it reloads config.

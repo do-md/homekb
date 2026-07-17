@@ -37,6 +37,7 @@ import {
   IconPhoneSignal,
   IconPlus,
   IconSearch,
+  IconShare,
   IconSliders,
 } from "./icons";
 import { PairScreen } from "./pair-screen";
@@ -63,6 +64,7 @@ function ConnBadge() {
 
 const NAV: { href: string; label: string; icon: typeof IconSearch }[] = [
   { href: "/search", label: "Search", icon: IconSearch },
+  { href: "/shares", label: "Shares", icon: IconShare },
   { href: "/status", label: "Status", icon: IconActivity },
   { href: "/remote", label: "Remote", icon: IconPhoneSignal },
   { href: "/settings", label: "Settings", icon: IconSliders },

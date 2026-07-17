@@ -11,6 +11,7 @@ import { isDesktop } from "@/lib/client/desktop";
 import { checkHealth, RelayError, rpc, rpcAskStream } from "@/lib/client/rpc";
 import type {
   ConnState,
+  CreatedShare,
   DocMeta,
   Draft,
   KbAnswer,
@@ -19,6 +20,7 @@ import type {
   KbSuggestion,
   RecallMode,
   RecallPhase,
+  ShareMeta,
 } from "../type";
 
 /**
@@ -168,6 +170,13 @@ interface KbState {
   newSavedPath: string | null;
   newError: string | null;
 
+  // shares (public share links; records live on the home — see kb.share* RPCs)
+  shares: ShareMeta[];
+  /** Loaded at least once — separates "empty" from "not fetched yet". */
+  sharesLoaded: boolean;
+  sharesLoading: boolean;
+  sharesError: string | null;
+
   // status
   status: KbStatusData | null;
   statusLoading: boolean;
@@ -241,6 +250,10 @@ export class KbStore extends ZenithStore<KbState> {
       newBusy: false,
       newSavedPath: null,
       newError: null,
+      shares: [],
+      sharesLoaded: false,
+      sharesLoading: false,
+      sharesError: null,
       status: null,
       statusLoading: false,
       actionNotice: null,
@@ -909,6 +922,69 @@ export class KbStore extends ZenithStore<KbState> {
         d.newBusy = false;
         d.newError = e instanceof Error ? e.message : "Failed to save note";
       });
+    }
+  }
+
+  // ---------- Shares (public share links) ----------
+  // Records are engine-owned truth on the home (docs/ARCHITECTURE.md "Note
+  // sharing"); this slice is a plain mirror refreshed on demand.
+
+  public async loadShares(opts: { silent?: boolean } = {}) {
+    if (!opts.silent) {
+      this.produce((d) => {
+        d.sharesLoading = true;
+        d.sharesError = null;
+      });
+    }
+    try {
+      const res = await rpc<{ shares: ShareMeta[] }>("kb.shareList", {});
+      this.produce((d) => {
+        d.shares = res.shares;
+        d.sharesLoaded = true;
+        d.sharesLoading = false;
+        d.sharesError = null;
+      });
+    } catch (e) {
+      this.produce((d) => {
+        d.sharesLoading = false;
+        if (!opts.silent) {
+          d.sharesError = e instanceof Error ? e.message : "Failed to load shares";
+        }
+      });
+    }
+  }
+
+  /**
+   * Create a public share link for one note. Throws on failure so the calling
+   * surface (the share panel) renders the error inline — e.g. "not registered
+   * with a connection service" is an actionable message, not a toast.
+   */
+  public async createShare(
+    path: string,
+    opts: { password?: string; expiresDays?: number } = {},
+  ): Promise<CreatedShare> {
+    const res = await rpc<CreatedShare>("kb.shareCreate", {
+      path,
+      password: opts.password || undefined,
+      expiresDays: opts.expiresDays ?? undefined,
+    });
+    // Mirror the fresh record so the management tab and the panel's
+    // "existing shares" list agree without waiting for a tab visit.
+    void this.loadShares({ silent: true });
+    return res;
+  }
+
+  public async revokeShare(shareId: string) {
+    // Optimistic removal (the engine delete is idempotent); resync on failure.
+    this.produce((d) => {
+      d.shares = d.shares.filter((s) => s.shareId !== shareId);
+    });
+    try {
+      await rpc("kb.shareRevoke", { shareId });
+      this.flash("Share revoked — the link is dead");
+    } catch {
+      this.flash("Home offline — couldn't revoke the share");
+      void this.loadShares({ silent: true });
     }
   }
 

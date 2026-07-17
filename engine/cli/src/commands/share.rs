@@ -57,6 +57,9 @@ pub fn run_list(json: bool) -> Result<()> {
             None => String::new(),
         };
         println!("{}  {} — {}{}{}", s.share_id, s.path, title, pw, exp);
+        if let Some(url) = &s.url {
+            println!("    {url}");
+        }
     }
     Ok(())
 }

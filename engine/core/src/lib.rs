@@ -41,5 +41,5 @@ pub use notes::{
 pub use rpc::{RPC_METHODS, RpcFailure, dispatch};
 pub use shares::{
     CreatedShare, ShareError, ShareMeta, SharedNote, create_share, get_share, list_shares,
-    revoke_share, share_allows_asset,
+    reregister_routes, revoke_share, share_allows_asset,
 };
