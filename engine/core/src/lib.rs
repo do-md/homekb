@@ -11,6 +11,7 @@
 mod ai;
 mod api;
 mod ask;
+mod assets;
 mod chunker;
 mod config;
 mod db;
@@ -30,6 +31,7 @@ pub use api::{
     ensure_dirs, list_types, rebuild, reindex, reindex_opts, search, status,
 };
 pub use ask::{AskOutput, AskStreamEvent, Citation, ask, ask_stream, search_routed};
+pub use assets::{SavedAsset, save_asset};
 pub use config::{
     ChatEndpoint, Config, ConfigOverrides, EmbeddingEndpoint, RelayConfig, ServeConfig,
     config_path,

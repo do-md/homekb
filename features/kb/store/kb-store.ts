@@ -205,6 +205,10 @@ export class KbStore extends ZenithStore<KbState> {
   private autoRetryUsed = false;
   /** Last content saved to the library — suppresses the auto-stash that fires on editor remount. */
   private lastLibrarySaved: string | null = null;
+  /** Last content explicitly saved as a draft — same auto-stash suppression:
+   *  "Save draft" clears the workspace, and the remount must not resurrect the
+   *  just-saved text as a second draft. */
+  private lastDraftSaved: string | null = null;
 
   constructor() {
     const desktop = isDesktop();
@@ -801,7 +805,10 @@ export class KbStore extends ZenithStore<KbState> {
   /**
    * Explicit "Save draft". Persists the text to the home so every device sees
    * it. The compose buffer is written first (instant, offline-safe crash net);
-   * the shared save then requires the home to be online.
+   * the shared save then requires the home to be online. On success the
+   * workspace clears — the draft lives in the Drafts list now, and the composer
+   * is ready for the next note (same contract as "Save to library"). On
+   * failure the text stays in the editor (nothing is lost, nothing hidden).
    */
   public async saveDraft(markdown: string) {
     if (!markdown.trim()) return;
@@ -812,6 +819,17 @@ export class KbStore extends ZenithStore<KbState> {
     persistCompose({ text: markdown, editingDraftId: this.state.editingDraftId });
     try {
       await this.pushDraft(markdown);
+      // Clear the workspace. The remount auto-stash must not resurrect the
+      // just-saved text as another draft — mark it saved first.
+      this.lastDraftSaved = markdown;
+      this.produce((d) => {
+        d.editingDraftId = null;
+        d.editorSeed = "";
+        d.editorSession += 1;
+        d.newSavedPath = null;
+        d.newError = null;
+      });
+      persistCompose(null);
       this.flash("Draft saved");
     } catch {
       this.flash("Home offline — draft kept here until you reconnect");
@@ -823,6 +841,8 @@ export class KbStore extends ZenithStore<KbState> {
     if (!markdown.trim()) return;
     // Just saved to the library: don't resurrect it as a draft.
     if (this.lastLibrarySaved !== null && markdown.trim() === this.lastLibrarySaved.trim()) return;
+    // Just saved as a draft (workspace cleared): same suppression.
+    if (this.lastDraftSaved !== null && markdown.trim() === this.lastDraftSaved.trim()) return;
     // Skip when identical to the draft we're editing (nothing typed).
     if (this.state.editingDraftId) {
       const existing = this.state.drafts.find((x) => x.id === this.state.editingDraftId);
@@ -1019,6 +1039,11 @@ export class KbStore extends ZenithStore<KbState> {
     } catch (e) {
       this.flash(e instanceof Error ? e.message : "Failed to trigger reindex");
     }
+  }
+
+  /** Transient notice from UI-side helpers (e.g. editor image upload failures). */
+  public notify(text: string) {
+    this.flash(text);
   }
 
   private flash(text: string) {

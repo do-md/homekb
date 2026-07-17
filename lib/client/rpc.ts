@@ -264,3 +264,42 @@ export async function fetchAssetUrl(path: string): Promise<string> {
   }
   return URL.createObjectURL(await res.blob());
 }
+
+/**
+ * Upload a binary asset (editor image paste/drop) and return the FINAL asset
+ * path relative to `~/.homekb/assets/` (the home owns naming — sanitizing +
+ * collision suffixes; docs/ARCHITECTURE.md "Binary asset channel", upload
+ * direction). `suggestedPath` is `images/<name>` or `attachments/<name>`.
+ * Same endpoint shape in every mode: POST `${assetBase}<path>` with the raw
+ * bytes (serve `/assets/…` on desktop, `/api/relay/asset/…` through a relay).
+ */
+export async function uploadAsset(suggestedPath: string, blob: Blob): Promise<string> {
+  const ep = endpoint();
+  let res: Response;
+  try {
+    res = await fetch(ep.assetBase + suggestedPath.split("/").map(encodeURIComponent).join("/"), {
+      method: "POST",
+      headers: {
+        ...(blob.type ? { "Content-Type": blob.type } : {}),
+        ...ep.headers,
+      },
+      body: blob,
+    });
+  } catch {
+    throw new RelayError("unreachable", "Server is not responding");
+  }
+  if (res.status === 401) throw unauthorized();
+  resetAuthStreak();
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok || typeof data.path !== "string") {
+    const code = data.error ?? `http_${res.status}`;
+    const msg =
+      code === "home_offline"
+        ? "Home computer is not online (run `homekb tunnel` on your computer)"
+        : code === "timeout"
+          ? "Home computer timed out"
+          : (data.message ?? "Image upload failed");
+    throw new RelayError(code, msg);
+  }
+  return data.path as string;
+}

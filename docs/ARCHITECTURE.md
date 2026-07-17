@@ -80,7 +80,9 @@ The client pairing screen never mentions "relay": the user scans a QR or types a
 
 Notes reference images with **standard relative Markdown paths from the note file**, assuming the default layout where `notes/` and `assets/` are siblings under the data root: a note `notes/foo.md` writes `![alt](../assets/images/bar.png)`; a note `notes/sub/foo.md` writes `![alt](../../assets/images/bar.png)`. This keeps notes portable — the same reference renders in Obsidian / VS Code / GitHub without HomeKB.
 
-**Drafts and notes share one asset store — there is no draft/published split.** A draft `drafts/<id>.md` references attachments through the *same* `assets/` tree with the *same* relative form (`../assets/images/bar.png`). Because `drafts/` and `notes/` are both exactly one level under the data root, that reference resolves to the identical asset from either location, so a draft's images/attachments stay valid the instant it is published (`drafts/` → `notes/`) with zero asset moves or rewrites. Any future attachment-upload flow **must** write into the shared `assets/` (`images/` or `attachments/`), never a draft-scoped copy. When resolving a draft's refs, treat it as sitting one level under the root (like a top-level note) so the `..` math is identical.
+**Drafts and notes share one asset store — there is no draft/published split.** A draft `drafts/<id>.md` references attachments through the *same* `assets/` tree with the *same* relative form (`../assets/images/bar.png`). Because `drafts/` and `notes/` are both exactly one level under the data root, that reference resolves to the identical asset from either location, so a draft's images/attachments stay valid the instant it is published (`drafts/` → `notes/`) with zero asset moves or rewrites. Every attachment-upload flow **must** write into the shared `assets/` (`images/` or `attachments/`), never a draft-scoped copy. When resolving a draft's refs, treat it as sitting one level under the root (like a top-level note) so the `..` math is identical.
+
+**Editor image upload (paste / drag-drop)**: the client uploads the raw bytes through the asset service (`POST /assets/<path>` on serve, `POST /api/relay/asset/<path>` through the relay — see "Binary asset channel", upload direction), gets back the **final** asset path (the engine owns naming: sanitized filename, `-2`/`-3`… collision suffixes), and inserts a standard relative reference computed from the note's location (composer / drafts count as one level under the root → `../assets/images/<name>`; a note `sub/foo.md` → `../../assets/images/<name>`). Uploading requires the home to be reachable — there is no offline asset queue (same decision as drafts).
 
 Renderer resolution rule (identical in every renderer — Web, desktop, anything future):
 
@@ -199,6 +201,7 @@ Integrate the local MCP into Claude Code: `claude mcp add homekb -- homekb mcp`.
 - `POST /rpc/stream` `{method, params}` → `text/event-stream` — the **streaming variant, `kb.ask` only** (the UI's Answer mode). Frames: `event: delta` `data: {"text":"<chunk>"}` (incremental answer text, many), then exactly one `event: done` `data: {"citations":[{path,title}],"hits":[Hit]}` (final source metadata); on failure a single `event: error` `data: {"code","message"}` arrives instead of `done`. A non-streamable method → one `error` frame `{code:"not_streamable"}`. Same auth + CORS as `/rpc`. The one-shot `POST /rpc` `kb.ask` stays for MCP / CLI / power tooling (no streaming there).
 - `GET /health` → `{ok:true}` (liveness probe, always unauthenticated: the desktop client uses it to tell whether serve is already running).
 - `GET /assets/<path>` → streams a file under `~/.homekb/assets/` (e.g. `/assets/images/foo.png` → `~/.homekb/assets/images/foo.png`). Path-traversal-safe (resolved path must stay inside the assets root), `Content-Type` guessed from the extension, `Cache-Control: private, max-age=3600`. Missing file → 404 `{ok:false, error:"not_found"}`.
+- `POST /assets/<path>` → **asset upload**: raw bytes body written under `~/.homekb/assets/`. `<path>` is the *suggested* relative path and must be `images/<name>` or `attachments/<name>` (exactly one directory level, kind allowlisted); the engine sanitizes the filename and resolves name collisions with a `-2`/`-3`… suffix, then returns the **final** path: `{ok:true, path:"images/<final-name>"}`. Bad kind/name → 400 `{ok:false, error:"bad_path"}`; body capped at 50 MB → 413. Auth identical to `GET /assets/*` (loopback exempt, otherwise Bearer serveToken). This is the write half of the shared asset store (see "Image references in notes" — uploads never create draft-scoped copies).
 - **Bind address**: default `127.0.0.1` (config `[serve] host` or `--host` to override). Binding a non-loopback address enables the **authenticated public bind** (a power-user/API capability — the client UI has no direct mode; remote clients go through a connection service).
 - **Authentication**: requests from **non-loopback peers** must send `Authorization: Bearer <serveToken>` (`hkd_`) on `/rpc` and `/assets/*`; **loopback peers are exempt** (the desktop webview keeps working unchanged even when serve is publicly bound). On the first non-loopback bind with no token configured, serve generates one, persists it to `config.toml [serve] token`, and prints it once.
 - **CORS** — two policies keyed on the bind address:
@@ -321,7 +324,7 @@ Shared invariants (both targets):
 | `POST /api/relay/register` `{name}` | None | → `{homeId, homeSecret}` |
 | `POST /api/relay/pair` `{action:"new"}` | homeSecret | → `{code, expiresAt}` |
 | `POST /api/relay/pair` `{action:"claim", code, label?}` | None | → `{token, homeId, homeName}` |
-| `GET  /api/relay/tunnel` | homeSecret | SSE downstream: `event: hello` (first; carries `connId`) / `event: rpc` / `event: asset` / `event: ping`(25s) |
+| `GET  /api/relay/tunnel` | homeSecret | SSE downstream: `event: hello` (first; carries `connId`) / `event: rpc` / `event: asset` / `event: assetUpload` / `event: ping`(25s) |
 | `GET  /api/relay/tunnel/health` | homeSecret | → `{ok, online, connId}` — the relay's **current** view of this home's tunnel (answered by the current hub/DO instance, never by a draining old one). The engine polls it to detect zombie connections; see "Tunnel liveness & deploy safety" |
 | `POST /api/relay/tunnel/result` `{id, ok, result?, error?}` | homeSecret | Home device returns the RPC execution result → 204 |
 | `POST /api/relay/tunnel/asset/<id>` | homeSecret | Home device streams the requested asset back: raw bytes body + `Content-Type`; on failure empty body + `X-Asset-Error: <code>` header → 204 |
@@ -329,6 +332,8 @@ Shared invariants (both targets):
 | `POST /api/relay/rpc/stream` `{method, params}` | clientToken | Streaming forward — **`kb.ask` only** (see "Streaming answer channel"): → `text/event-stream` piped verbatim from the home (`sources` → `delta`* → `done`, or `error`). Home offline → 502; no first byte within 60s → 504 |
 | `POST /api/relay/tunnel/ask/<id>` | homeSecret | Home device streams the answer back: request body is the SSE frame stream (`delta`/`done`/`error`); the relay pipes it straight into the pending client response → 204 once fully piped |
 | `GET  /api/relay/asset/<path>` | clientToken | Binary asset fetch through the tunnel (see below); streams the home's bytes to the client without buffering |
+| `POST /api/relay/asset/<path>` | clientToken | **Binary asset upload** through the tunnel (see below): raw bytes body; `<path>` is the suggested relative path (`images/<name>` / `attachments/<name>`). → `{ok:true, path:"<final path>"}` once the home has written the file. Home offline → 502; no home pickup / result within 120s → 504 |
+| `GET  /api/relay/tunnel/upload/<id>` | homeSecret | Home device pulls the pending upload body: the relay pipes the client's request body straight into this response (`Content-Type`/`Content-Length` forwarded). One-shot — a second claim → 404. The home then reports the outcome via `POST /api/relay/tunnel/result` `{id, ok, result:{path}}` (or `{ok:false, error:{code,message}}`) with the **same id** |
 | `GET  /api/relay/health` | clientToken | → `{online}` whether the home device is online |
 | `DELETE /api/relay/home` | homeSecret | Retire this home identity: deletes the home + all its grants / pair codes / OAuth codes / share routing records. Every client paired to it stops authenticating (401) and **auto-unpairs on its next health poll**, landing back on the connect screen — no zombie "forever offline" pairings. Called best-effort by `homekb register` (retiring the identity it replaces) and by `homekb unregister` |
 | `GET  /api/relay/grants` | homeSecret | → `{grants: [{id, label, createdAt, lastUsedAt}]}` — every paired device / MCP grant of this home, newest first. Feeds the desktop "Paired devices" list. The relay knows only labels + hashes, so per-grant liveness is not reported (only the home itself has an online state); clients show `lastUsedAt` instead |
@@ -341,6 +346,7 @@ Shared invariants (both targets):
 SSE `rpc` event data: `{"id":"<reqId>","method":"kb.query","params":{...}}`. An optional `"stream":true` field (only for `kb.ask`, set when the client used `/api/relay/rpc/stream`) tells the home to stream the answer over the ask channel (`POST /api/relay/tunnel/ask/<id>`) instead of posting a single result to `/api/relay/tunnel/result`.
 SSE `hello` event data: `{"homeId","name","connId"}` — `connId` is a random id minted by the hub **for this registered connection**; the engine stores it and uses it for out-of-band liveness verification (see "Tunnel liveness & deploy safety" below).
 SSE `asset` event data: `{"id":"<reqId>","path":"images/foo.png"}`. Share-scoped asset requests add `"share":{"shareId":"...","password":"..."?}` — the home then validates the share (exists, unexpired, password matches, **asset referenced by the shared note**) before streaming; a failed validation returns the usual empty body + `X-Asset-Error` (`share_denied`).
+SSE `assetUpload` event data: `{"id":"<reqId>","path":"images/foo.png","contentType":"image/png"?}` — an upload is waiting; the home claims the bytes with `GET /api/relay/tunnel/upload/<id>` and reports the final path via `POST /api/relay/tunnel/result`.
 
 ### Binary asset channel
 
@@ -352,6 +358,15 @@ Assets (images/attachments) are **never base64-encoded into the SSE stream** (a 
 4. Relay pipes the home's request body **directly into the client's pending response** (no buffering, no disk); `X-Asset-Error` maps to 404/500.
 
 Clients never put tokens in asset URLs: the Web UI fetches with an `Authorization` header and renders via blob URLs. (Desktop mode needs no auth: plain `http://127.0.0.1:8765/assets/<path>`.)
+
+**Upload direction** (editor paste/drop → the home's shared asset store) mirrors the same design — no base64 on the SSE stream, no relay buffering:
+
+1. Client → relay: `POST /api/relay/asset/images/foo.png` (Bearer clientToken), raw bytes body + `Content-Type`. The relay validates the path shape and holds the request open.
+2. Relay → home (SSE): `event: assetUpload` `{"id","path","contentType"?}`; the relay registers a pending upload (120s total timeout → 504 — uploads are larger than downloads).
+3. Home → relay: `GET /api/relay/tunnel/upload/<id>` — the relay pipes the client's request body straight into this response (one-shot claim). The home writes the bytes through the same sanitize/collision-avoid logic as serve `POST /assets/*`.
+4. Home → relay: `POST /api/relay/tunnel/result` `{id, ok:true, result:{path:"images/<final-name>"}}` (or `{ok:false, error}`), and the relay answers the client's still-open POST with `{ok:true, path}`.
+
+The client then inserts the standard relative Markdown reference (`../assets/images/<final-name>` from a top-level note/draft) — rendering flows back through the download channel above. Desktop mode skips the relay entirely (`POST http://127.0.0.1:8765/assets/<path>`).
 
 ### Streaming answer channel
 

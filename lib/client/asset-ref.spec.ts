@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveAssetRef } from "./asset-ref";
+import { assetRefFromNote, resolveAssetRef } from "./asset-ref";
 
 describe("resolveAssetRef", () => {
   it("resolves the canonical form from a top-level note", () => {
@@ -55,5 +55,27 @@ describe("resolveAssetRef", () => {
 
   it("does not let .. inside the src escape back out of assets", () => {
     expect(resolveAssetRef("foo.md", "../assets/../notes/secret.md")).toBeNull();
+  });
+});
+
+describe("assetRefFromNote", () => {
+  it("writes the canonical form for top-level notes and the composer", () => {
+    expect(assetRefFromNote("foo.md", "images/bar.png")).toBe("../assets/images/bar.png");
+    // Composer / drafts sit one level under the data root — same as a top-level note.
+    expect(assetRefFromNote("", "images/bar.png")).toBe("../assets/images/bar.png");
+  });
+
+  it("adds one ../ per note directory level", () => {
+    expect(assetRefFromNote("sub/foo.md", "images/bar.png")).toBe("../../assets/images/bar.png");
+    expect(assetRefFromNote("a/b/foo.md", "attachments/x.pdf")).toBe(
+      "../../../assets/attachments/x.pdf",
+    );
+  });
+
+  it("round-trips through resolveAssetRef for every depth", () => {
+    for (const notePath of ["", "foo.md", "sub/foo.md", "a/b/c.md"]) {
+      const ref = assetRefFromNote(notePath, "images/pasted-20260717.png");
+      expect(resolveAssetRef(notePath, ref)).toBe("images/pasted-20260717.png");
+    }
   });
 });

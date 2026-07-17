@@ -2,6 +2,7 @@
 //!
 //! POST /rpc {method, params} → {ok, result} | {ok:false, error, message}
 //! GET  /assets/<path>        → streams a file under <root>/assets/
+//! POST /assets/<path>        → asset upload (raw bytes → final path)
 //! GET  /health               → {ok:true} (always unauthenticated)
 //!
 //! Bind address decides the mode:
@@ -14,8 +15,8 @@
 use anyhow::Result;
 use axum::{
     Json, Router,
-    body::Body,
-    extract::{ConnectInfo, Path as AxPath, State},
+    body::{Body, Bytes},
+    extract::{ConnectInfo, DefaultBodyLimit, Path as AxPath, State},
     http::{HeaderValue, Method, StatusCode, header},
     response::{
         IntoResponse, Response,
@@ -49,6 +50,9 @@ struct ServeState {
     /// Some(token) = public bind; non-loopback peers must present it.
     token: Option<String>,
 }
+
+/// Upload size cap (docs/ARCHITECTURE.md serve `POST /assets/<path>`).
+const MAX_UPLOAD_BYTES: usize = 50 * 1024 * 1024;
 
 pub fn run(host: Option<String>, port: Option<u16>) -> Result<()> {
     let mut config = Config::load()?;
@@ -106,7 +110,13 @@ pub fn run(host: Option<String>, port: Option<u16>) -> Result<()> {
         let app = Router::new()
             .route("/rpc", post(rpc_handler))
             .route("/rpc/stream", post(rpc_stream_handler))
-            .route("/assets/{*path}", get(asset_handler))
+            .route(
+                "/assets/{*path}",
+                get(asset_handler)
+                    .post(asset_upload_handler)
+                    // Uploads are raw image/attachment bytes — axum's 2 MB default is far too small.
+                    .layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES)),
+            )
             .route("/health", get(|| async { Json(json!({ "ok": true })) }))
             .layer(cors)
             .with_state(state);
@@ -250,6 +260,30 @@ async fn rpc_stream_handler(
     .filter_map(|opt| async move { opt });
 
     Sse::new(events.chain(tail)).into_response()
+}
+
+/// `POST /assets/<path>` — asset upload (docs/ARCHITECTURE.md "HTTP RPC"):
+/// raw bytes body; `<path>` is the suggested relative path (`images/<name>` /
+/// `attachments/<name>`); the engine sanitizes + collision-avoids and returns
+/// the final path. Auth identical to the GET.
+async fn asset_upload_handler(
+    State(state): State<Arc<ServeState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: axum::http::HeaderMap,
+    AxPath(path): AxPath<String>,
+    body: Bytes,
+) -> Response {
+    if !authorized(&state, &peer, &headers) {
+        return unauthorized();
+    }
+    match homekb_core::save_asset(&state.config, &path, &body) {
+        Ok(saved) => Json(json!({ "ok": true, "path": saved.path })).into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "ok": false, "error": "bad_path", "message": format!("{e:#}") })),
+        )
+            .into_response(),
+    }
 }
 
 async fn asset_handler(

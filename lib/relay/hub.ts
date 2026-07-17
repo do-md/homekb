@@ -49,6 +49,9 @@ interface HomeConn {
   send: (event: string, data: string) => void;
   close: () => void;
   pending: Map<string, Pending>;
+  /** Client upload bodies waiting for the home to claim them (upload direction
+   *  of the binary asset channel); keyed by the same request id as `pending`. */
+  uploads: Map<string, UploadSource>;
 }
 
 /**
@@ -70,9 +73,23 @@ export interface ShareContext {
   password?: string;
 }
 
+/**
+ * A client's pending upload body (upload direction of the binary asset
+ * channel): the home claims it with GET /api/relay/tunnel/upload/<id> and the
+ * relay pipes `stream` into that response. `stream` is a node Readable, typed
+ * loosely so this module keeps zero node type dependencies.
+ */
+export interface UploadSource {
+  contentType?: string;
+  contentLength?: string;
+  stream: unknown;
+}
+
 const DEFAULT_TIMEOUT = 30_000;
 /** Streaming ask: the home connects back near-instantly, but retrieval + first token can lag. */
 const ASK_STREAM_TIMEOUT = 60_000;
+/** Uploads move client → home and can be several MB on a slow uplink: claim + write + result. */
+const UPLOAD_TIMEOUT = 120_000;
 
 export class TunnelHub {
   private conns = new Map<string, HomeConn>();
@@ -92,6 +109,7 @@ export class TunnelHub {
       send,
       close,
       pending: new Map(),
+      uploads: new Map(),
     };
     this.conns.set(homeId, conn);
     return conn;
@@ -140,6 +158,66 @@ export class TunnelHub {
       `asset ${path}`,
       timeoutMs,
     ) as Promise<AssetDelivery>;
+  }
+
+  /**
+   * Binary asset channel, upload direction (docs/ARCHITECTURE.md): stash the
+   * client's body as an UploadSource, push an `assetUpload` event, and wait
+   * for the home to (1) claim the body via GET /api/relay/tunnel/upload/<id>
+   * and (2) report the final path via POST /api/relay/tunnel/result with the
+   * same id. Resolves with the home's result (`{path}`); the upload source is
+   * cleaned up however the request settles (result / timeout / tunnel close).
+   */
+  requestAssetUpload(
+    homeId: string,
+    path: string,
+    source: UploadSource,
+    opts: { timeoutMs?: number; onId?: (id: string) => void } = {},
+  ): Promise<unknown> {
+    const conn = this.conns.get(homeId);
+    if (!conn) return Promise.reject(new RpcHubError("home_offline", "home device is not connected"));
+    let requestId = "";
+    const result = this.request(
+      homeId,
+      "assetUpload",
+      (id) => {
+        requestId = id;
+        opts.onId?.(id);
+        conn.uploads.set(id, source);
+        return JSON.stringify({
+          id,
+          path,
+          ...(source.contentType ? { contentType: source.contentType } : {}),
+        });
+      },
+      `asset upload ${path}`,
+      opts.timeoutMs ?? UPLOAD_TIMEOUT,
+    );
+    return result.finally(() => {
+      if (requestId) conn.uploads.delete(requestId);
+    });
+  }
+
+  /** One-shot claim of a pending upload body (home side). */
+  claimUpload(homeId: string, id: string): UploadSource | null {
+    const conn = this.conns.get(homeId);
+    const source = conn?.uploads.get(id);
+    if (!conn || !source) return null;
+    conn.uploads.delete(id);
+    return source;
+  }
+
+  /** Client gave up on an upload (disconnect): drop the body and fail the pending request. */
+  cancelUpload(homeId: string, id: string) {
+    const conn = this.conns.get(homeId);
+    if (!conn) return;
+    conn.uploads.delete(id);
+    const p = conn.pending.get(id);
+    if (p) {
+      conn.pending.delete(id);
+      clearTimeout(p.timer);
+      p.reject(new RpcHubError("tunnel_closed", "client aborted the upload"));
+    }
   }
 
   /**
@@ -210,6 +288,7 @@ export class TunnelHub {
       p.reject(err);
     }
     conn.pending.clear();
+    conn.uploads.clear();
   }
 }
 

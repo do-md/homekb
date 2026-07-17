@@ -8,7 +8,7 @@ import {
 } from "../../lib/relay/hub";
 import { authGrant, authHome } from "../../lib/relay/auth";
 import { CORS_HEADERS } from "../../lib/relay/origin";
-import { sendWebResponse, toWebRequest } from "./adapter";
+import { sendWebResponse, toWebRequest, toWebRequestHeaders } from "./adapter";
 import { renderAuthorizePage } from "./pages";
 import {
   SHARE_ID_RE,
@@ -85,7 +85,7 @@ function isSafeAssetPath(p: string): boolean {
 
 /** Home device tunnel downstream: long-lived SSE connection, pushes rpc/asset instructions. */
 function handleTunnelSse(nodeReq: IncomingMessage, nodeRes: ServerResponse): void {
-  const home = authHome(toWebRequest(nodeReq));
+  const home = authHome(toWebRequestHeaders(nodeReq));
   if (!home) return sendJson(nodeRes, 401, { ok: false, error: "unauthorized" });
 
   nodeRes.writeHead(200, {
@@ -140,7 +140,7 @@ function handleTunnelAssetPost(
   nodeRes: ServerResponse,
   id: string,
 ): void {
-  const home = authHome(toWebRequest(nodeReq));
+  const home = authHome(toWebRequestHeaders(nodeReq));
   if (!home) return sendJson(nodeRes, 401, { ok: false, error: "unauthorized" });
 
   const errorCode = nodeReq.headers["x-asset-error"];
@@ -214,7 +214,7 @@ async function handleRelayAssetGet(
   nodeRes: ServerResponse,
   assetPath: string,
 ): Promise<void> {
-  const grant = authGrant(toWebRequest(nodeReq));
+  const grant = authGrant(toWebRequestHeaders(nodeReq));
   if (!grant) return sendJson(nodeRes, 401, { ok: false, error: "unauthorized" });
   if (!isSafeAssetPath(assetPath)) {
     return sendJson(nodeRes, 400, { ok: false, error: "bad_path" });
@@ -227,6 +227,100 @@ async function handleRelayAssetGet(
     return sendHubError(nodeRes, e, "asset fetch failed");
   }
   pipeAssetDelivery(nodeRes, delivery);
+}
+
+/**
+ * Client-side binary asset upload (docs/ARCHITECTURE.md "Binary asset channel",
+ * upload direction): the client's raw-bytes POST is held open while the home
+ * claims the body (GET /api/relay/tunnel/upload/<id>) and reports the final
+ * asset path via POST /api/relay/tunnel/result. Zero buffering — the body
+ * stream is handed to the hub as-is and piped straight into the home's claim.
+ */
+async function handleRelayAssetUpload(
+  nodeReq: IncomingMessage,
+  nodeRes: ServerResponse,
+  assetPath: string,
+): Promise<void> {
+  const grant = authGrant(toWebRequestHeaders(nodeReq));
+  if (!grant) return sendJson(nodeRes, 401, { ok: false, error: "unauthorized" });
+  if (!isSafeAssetPath(assetPath)) {
+    return sendJson(nodeRes, 400, { ok: false, error: "bad_path" });
+  }
+
+  const contentType = nodeReq.headers["content-type"];
+  const contentLength = nodeReq.headers["content-length"];
+  let uploadId = "";
+  const pending = hub().requestAssetUpload(
+    grant.home_id,
+    assetPath,
+    {
+      contentType: typeof contentType === "string" ? contentType : undefined,
+      contentLength: typeof contentLength === "string" ? contentLength : undefined,
+      stream: nodeReq,
+    },
+    { onId: (id) => (uploadId = id) },
+  );
+  nodeReq.on("error", () => {}); // abort surfaces via 'close'
+  // Client went away before the body was fully received → abort the upload
+  // (drops the stashed body and fails the pending request immediately).
+  nodeReq.on("close", () => {
+    if (!nodeReq.complete && uploadId) hub().cancelUpload(grant.home_id, uploadId);
+  });
+
+  let result: unknown;
+  try {
+    result = await pending;
+  } catch (e) {
+    const hubErr = asRpcHubError(e);
+    if (hubErr?.code === "rpc_error") {
+      // Engine-side failure (bad kind, disk error) — surface its code/message.
+      return sendJson(nodeRes, 400, {
+        ok: false,
+        error: hubErr.detail?.code ?? "asset_write_failed",
+        message: hubErr.detail?.message ?? hubErr.message,
+      });
+    }
+    return sendHubError(nodeRes, e, "asset upload failed");
+  }
+  const path = (result as { path?: unknown } | null)?.path;
+  if (typeof path !== "string" || !path) {
+    return sendJson(nodeRes, 500, { ok: false, error: "bad_home_result" });
+  }
+  sendJson(nodeRes, 200, { ok: true, path });
+}
+
+/**
+ * Home device claim of a pending upload body: pipe the client's request body
+ * straight into this response (one-shot; a second claim → 404). The home then
+ * posts the outcome to /api/relay/tunnel/result with the same id.
+ */
+function handleTunnelUploadClaim(
+  nodeReq: IncomingMessage,
+  nodeRes: ServerResponse,
+  id: string,
+): void {
+  const home = authHome(toWebRequestHeaders(nodeReq));
+  if (!home) return sendJson(nodeRes, 401, { ok: false, error: "unauthorized" });
+
+  const source = hub().claimUpload(home.id, id);
+  if (!source) return sendJson(nodeRes, 404, { ok: false, error: "no_pending" });
+
+  const clientReq = source.stream as Readable;
+  const headers: Record<string, string> = {
+    "Content-Type": source.contentType || "application/octet-stream",
+    ...CORS_HEADERS,
+  };
+  if (source.contentLength) headers["Content-Length"] = source.contentLength;
+  nodeRes.writeHead(200, headers);
+
+  clientReq.pipe(nodeRes);
+  clientReq.on("error", () => {
+    // Client aborted mid-body: kill the home's claim and fail the pending request.
+    hub().cancelUpload(home.id, id);
+    nodeRes.destroy();
+  });
+  // Home went away mid-claim → stop consuming the client body.
+  nodeRes.on("close", () => clientReq.unpipe(nodeRes));
 }
 
 /**
@@ -273,7 +367,7 @@ function handleTunnelAskPost(
   nodeRes: ServerResponse,
   id: string,
 ): void {
-  const home = authHome(toWebRequest(nodeReq));
+  const home = authHome(toWebRequestHeaders(nodeReq));
   if (!home) return sendJson(nodeRes, 401, { ok: false, error: "unauthorized" });
 
   const delivery: AssetDelivery = {
@@ -379,9 +473,20 @@ async function handle(nodeReq: IncomingMessage, nodeRes: ServerResponse): Promis
   if (method === "POST" && path.startsWith(TUNNEL_ASK)) {
     return handleTunnelAskPost(nodeReq, nodeRes, path.slice(TUNNEL_ASK.length));
   }
+  const TUNNEL_UPLOAD = "/api/relay/tunnel/upload/";
+  if (method === "GET" && path.startsWith(TUNNEL_UPLOAD)) {
+    return handleTunnelUploadClaim(nodeReq, nodeRes, path.slice(TUNNEL_UPLOAD.length));
+  }
   const RELAY_ASSET = "/api/relay/asset/";
   if (method === "GET" && path.startsWith(RELAY_ASSET)) {
     return handleRelayAssetGet(
+      nodeReq,
+      nodeRes,
+      decodeURIComponent(path.slice(RELAY_ASSET.length)),
+    );
+  }
+  if (method === "POST" && path.startsWith(RELAY_ASSET)) {
+    return handleRelayAssetUpload(
       nodeReq,
       nodeRes,
       decodeURIComponent(path.slice(RELAY_ASSET.length)),

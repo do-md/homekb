@@ -237,6 +237,7 @@ async fn pump(
                         }
                         "rpc" => handle_rpc(&data, client, config, relay),
                         "asset" => handle_asset(&data, client, config, relay),
+                        "assetUpload" => handle_asset_upload(&data, client, config, relay),
                         _ => {}
                     }
                 }
@@ -389,6 +390,74 @@ fn handle_asset(
             }
             Ok(_) => {}
             Err(e) => tracing::warn!("failed to post asset: {e}"),
+        }
+    });
+}
+
+/// Binary asset channel, upload direction (docs/ARCHITECTURE.md "Binary asset
+/// channel"): the relay announces a pending upload `{id, path}` over SSE; we
+/// pull the raw bytes with GET /api/relay/tunnel/upload/<id>, write them into
+/// the shared assets store (sanitize + collision-avoid, engine-owned naming),
+/// and report the final path via the regular result channel with the same id.
+fn handle_asset_upload(
+    data: &str,
+    client: &reqwest::Client,
+    config: &Arc<Config>,
+    relay: &homekb_core::RelayConfig,
+) {
+    let Ok(msg) = serde_json::from_str::<Value>(data) else {
+        tracing::warn!("bad assetUpload event payload: {data}");
+        return;
+    };
+    let Some(id) = msg.get("id").and_then(|v| v.as_str()).map(str::to_string) else {
+        return;
+    };
+    let path = msg
+        .get("path")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let client = client.clone();
+    let config = config.clone();
+    let claim_url = format!("{}/api/relay/tunnel/upload/{}", relay.url, id);
+    let result_url = format!("{}/api/relay/tunnel/result", relay.url);
+    let secret = relay.home_secret.clone();
+
+    tokio::spawn(async move {
+        tracing::info!("asset upload {path}");
+        let saved = async {
+            let res = client
+                .get(&claim_url)
+                .bearer_auth(&secret)
+                .send()
+                .await
+                .map_err(|e| format!("claim upload body: {e}"))?;
+            if !res.status().is_success() {
+                return Err(format!("claim upload body: HTTP {}", res.status()));
+            }
+            let bytes = res
+                .bytes()
+                .await
+                .map_err(|e| format!("read upload body: {e}"))?;
+            homekb_core::save_asset(&config, &path, &bytes).map_err(|e| format!("{e:#}"))
+        }
+        .await;
+
+        let body = match saved {
+            Ok(saved) => json!({ "id": id, "ok": true, "result": { "path": saved.path } }),
+            Err(message) => {
+                tracing::warn!("asset upload failed: {message}");
+                json!({ "id": id, "ok": false, "error": { "code": "asset_write_failed", "message": message } })
+            }
+        };
+        if let Err(e) = client
+            .post(&result_url)
+            .bearer_auth(&secret)
+            .json(&body)
+            .send()
+            .await
+        {
+            tracing::warn!("failed to post asset upload result: {e}");
         }
     });
 }

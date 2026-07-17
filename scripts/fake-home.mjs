@@ -65,6 +65,49 @@ function draftDelete({ id }) {
   return { id };
 }
 
+/**
+ * Binary asset channel, upload direction: claim the pending body from the relay
+ * (GET /tunnel/upload/<id>), write it under ASSETS_DIR with the engine's
+ * collision-avoid convention, and report the final path via /tunnel/result.
+ */
+async function serveAssetUpload(id, suggestedPath) {
+  const respond = (ok, resultOrError) =>
+    fetch(`${BASE}/api/relay/tunnel/result`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${SECRET}`, "Content-Type": "application/json" },
+      body: JSON.stringify(ok ? { id, ok: true, result: resultOrError } : { id, ok: false, error: resultOrError }),
+    });
+  const parts = (suggestedPath ?? "").split("/");
+  const safe =
+    parts.length === 2 &&
+    ["images", "attachments"].includes(parts[0]) &&
+    parts[1] && parts[1] !== "." && parts[1] !== "..";
+  if (!safe || !ASSETS_DIR) {
+    console.log("[fake-home] asset upload rejected:", suggestedPath);
+    await respond(false, { code: "asset_write_failed", message: "bad path" });
+    return;
+  }
+  const res = await fetch(`${BASE}/api/relay/tunnel/upload/${id}`, {
+    headers: { Authorization: `Bearer ${SECRET}` },
+  });
+  if (!res.ok) {
+    console.log("[fake-home] upload claim failed:", res.status);
+    await respond(false, { code: "asset_write_failed", message: `claim HTTP ${res.status}` });
+    return;
+  }
+  const bytes = Buffer.from(await res.arrayBuffer());
+  const dir = path.join(ASSETS_DIR, parts[0]);
+  fs.mkdirSync(dir, { recursive: true });
+  const dot = parts[1].lastIndexOf(".");
+  const [stem, ext] = dot > 0 ? [parts[1].slice(0, dot), parts[1].slice(dot)] : [parts[1], ""];
+  let name = `${stem}${ext}`;
+  for (let n = 2; fs.existsSync(path.join(dir, name)); n++) name = `${stem}-${n}${ext}`;
+  fs.writeFileSync(path.join(dir, name), bytes);
+  const finalPath = `${parts[0]}/${name}`;
+  console.log("[fake-home] asset upload:", suggestedPath, "→", finalPath, `(${bytes.length} bytes)`);
+  await respond(true, { path: finalPath });
+}
+
 /** Binary asset channel: read the requested file from ASSETS_DIR and stream it back. */
 async function serveAsset(id, assetPath) {
   const post = (body, headers) =>
@@ -110,6 +153,11 @@ for await (const chunk of res.body) {
     if (event === "asset") {
       const { id, path: assetPath } = JSON.parse(data);
       serveAsset(id, assetPath);
+      continue;
+    }
+    if (event === "assetUpload") {
+      const { id, path: assetPath } = JSON.parse(data);
+      serveAssetUpload(id, assetPath);
       continue;
     }
     if (event !== "rpc") continue;

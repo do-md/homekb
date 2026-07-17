@@ -56,3 +56,15 @@ export function resolveAssetRef(notePath: string, src: string): string | null {
   if (stack.length < 2 || stack[0] !== "assets") return null;
   return stack.slice(1).join("/");
 }
+
+/**
+ * Inverse of `resolveAssetRef`: the relative Markdown reference a note at
+ * `notePath` writes for an asset (path relative to `~/.homekb/assets/`).
+ * The composer / drafts pass `""` — they sit one level under the data root
+ * (docs/ARCHITECTURE.md "Image references in notes"), same as a top-level
+ * note: `../assets/images/bar.png`; a note `sub/foo.md` → `../../assets/…`.
+ */
+export function assetRefFromNote(notePath: string, assetPath: string): string {
+  const depth = notePath.split("/").length - 1; // "" and "foo.md" → 0
+  return `${"../".repeat(depth + 1)}assets/${assetPath}`;
+}

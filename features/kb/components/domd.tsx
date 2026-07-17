@@ -20,9 +20,9 @@ import {
   useEditorStoreApi,
   type ImageLoader,
 } from "@do-md/core-react";
-import { isExternalSrc, resolveAssetRef } from "@/lib/client/asset-ref";
+import { assetRefFromNote, isExternalSrc, resolveAssetRef } from "@/lib/client/asset-ref";
 import { isDesktop } from "@/lib/client/desktop";
-import { fetchAssetUrl, SERVE_BASE } from "@/lib/client/rpc";
+import { fetchAssetUrl, SERVE_BASE, uploadAsset } from "@/lib/client/rpc";
 import { useKbStoreApi } from "../store/kb-store";
 
 /** Build an ImageLoader bound to the note the markdown came from. */
@@ -121,6 +121,107 @@ function EditorBridge({
   return null;
 }
 
+/** Map a pasted blob's MIME type to a file extension for the suggested name. */
+const IMAGE_EXT: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+  "image/svg+xml": "svg",
+  "image/avif": "avif",
+  "image/heic": "heic",
+};
+
+/**
+ * Suggested upload name (the home owns the FINAL name — sanitizing + collision
+ * suffixes). Real file names pass through; clipboard pastes arrive as a generic
+ * "image.png", which would pile up as image-2/-3/… — stamp those instead.
+ */
+function suggestUploadName(file: File): string {
+  const generic = !file.name || /^image\.\w+$/i.test(file.name);
+  if (!generic) return file.name.replace(/[/\\]/g, "-");
+  const ext = IMAGE_EXT[file.type] ?? "png";
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  const stamp = `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+  return `pasted-${stamp}.${ext}`;
+}
+
+/**
+ * Editor image upload (docs/ARCHITECTURE.md "Editor image upload"): capture-phase
+ * paste/drop listeners on the editor container pre-empt DOMD's own text handlers
+ * when the payload is image files. Each image is uploaded through the asset
+ * service (shared `assets/images/`, home-owned naming), then inserted as a
+ * standard relative Markdown reference resolved from this note's location —
+ * the imageLoader renders it back through the same asset service.
+ * Requires the home to be reachable; failures surface as a store notice.
+ */
+function ImagePasteDropBridge({
+  notePath,
+  containerRef,
+}: {
+  notePath: string;
+  containerRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const store = useEditorStoreApi() as unknown as EditorStore;
+  const kb = useKbStoreApi();
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const insertSequential = async (files: File[]) => {
+      for (const file of files) {
+        try {
+          const assetPath = await uploadAsset(`images/${suggestUploadName(file)}`, file);
+          store.insertImage(assetRefFromNote(notePath, assetPath), file.name || "image");
+        } catch (e) {
+          kb.notify(e instanceof Error ? e.message : "Image upload failed");
+          break; // one notice, not one per file, when the home is unreachable
+        }
+      }
+    };
+
+    const imageFiles = (files: FileList | undefined | null): File[] =>
+      Array.from(files ?? []).filter((f) => f.type.startsWith("image/"));
+
+    const onPaste = (e: ClipboardEvent) => {
+      const files = Array.from(e.clipboardData?.items ?? [])
+        .filter((i) => i.kind === "file" && i.type.startsWith("image/"))
+        .map((i) => i.getAsFile())
+        .filter((f): f is File => !!f);
+      if (!files.length) return; // plain text → DOMD's own paste handler
+      e.preventDefault();
+      e.stopPropagation();
+      void insertSequential(files);
+    };
+    const onDragOver = (e: DragEvent) => {
+      // preventDefault is required to make the element a drop target for files.
+      if (Array.from(e.dataTransfer?.items ?? []).some((i) => i.kind === "file")) {
+        e.preventDefault();
+      }
+    };
+    const onDrop = (e: DragEvent) => {
+      const files = imageFiles(e.dataTransfer?.files);
+      if (!files.length) return; // text drops → DOMD's own drop handler
+      e.preventDefault();
+      e.stopPropagation();
+      void insertSequential(files);
+    };
+
+    el.addEventListener("paste", onPaste, true);
+    el.addEventListener("dragover", onDragOver, true);
+    el.addEventListener("drop", onDrop, true);
+    return () => {
+      el.removeEventListener("paste", onPaste, true);
+      el.removeEventListener("dragover", onDragOver, true);
+      el.removeEventListener("drop", onDrop, true);
+    };
+  }, [store, kb, notePath, containerRef]);
+
+  return null;
+}
+
 /**
  * WYSIWYG Markdown editor (pure in-place rendering, no raw-syntax mode).
  * Uncontrolled: content lives in the DOMD store; the parent pulls markdown out
@@ -159,6 +260,7 @@ export function KbEditor({
         imageLoader={makeImageLoader(notePath)}
       >
         <EditorBridge handleRef={handleRef} />
+        <ImagePasteDropBridge notePath={notePath} containerRef={containerRef} />
         <DOMD />
       </DOMDProvider>
     </div>

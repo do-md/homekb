@@ -67,6 +67,27 @@ wait $ASSET_PID
 grep -qi "content-type: image/png" "$TMP/asset.hdr" && cmp -s "$TMP/asset.out" "$TMP/pixel.png" && echo "asset bytes + content-type OK" || { echo "asset channel failed"; exit 1; }
 test "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/relay/asset/images/pixel.png")" = "401" && echo "asset 401 without token OK"
 
+echo "== 6.55 Binary asset upload channel (client POST bytes → SSE assetUpload → home claims body → result) =="
+printf 'UPLOADEDBYTES' > "$TMP/up.png"
+curl -s -X POST "$BASE/api/relay/asset/images/up.png" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: image/png' \
+  --data-binary "@$TMP/up.png" > "$TMP/upload.out" &
+UPLOAD_PID=$!
+sleep 2
+UPLOAD_ID=$(grep -A1 "event: assetUpload" "$TMP/sse.log" | grep -o '"id":"[^"]*"' | tail -1 | cut -d'"' -f4)
+echo "home received assetUpload id: $UPLOAD_ID (path should be images/up.png)"
+curl -s -D "$TMP/claim.hdr" "$BASE/api/relay/tunnel/upload/$UPLOAD_ID" -H "Authorization: Bearer $SECRET" -o "$TMP/claim.out"
+grep -qi "content-type: image/png" "$TMP/claim.hdr" && cmp -s "$TMP/claim.out" "$TMP/up.png" \
+  && echo "home claimed upload bytes OK" || { echo "upload claim failed"; exit 1; }
+test "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/relay/tunnel/upload/$UPLOAD_ID" -H "Authorization: Bearer $SECRET")" = "404" \
+  && echo "second claim 404 OK"
+curl -s -X POST "$BASE/api/relay/tunnel/result" -H "Authorization: Bearer $SECRET" -H 'Content-Type: application/json' \
+  -d "{\"id\":\"$UPLOAD_ID\",\"ok\":true,\"result\":{\"path\":\"images/up-2.png\"}}" -o /dev/null -w "upload result relay-back HTTP %{http_code}\n"
+wait $UPLOAD_PID
+echo "client received: $(cat "$TMP/upload.out")"
+grep -q '"path":"images/up-2.png"' "$TMP/upload.out" && echo "upload final path OK" || { echo "upload channel failed"; exit 1; }
+test "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/relay/asset/images/up.png" --data-binary 'x')" = "401" && echo "upload 401 without token OK"
+test "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/relay/asset/..%2Fup.png" -H "Authorization: Bearer $TOKEN" --data-binary 'x')" = "400" && echo "upload traversal 400 OK"
+
 echo "== 6.6 Streaming ask channel (rpc/stream → home streams SSE frames → client) =="
 curl -sN -X POST "$BASE/api/relay/rpc/stream" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"method":"kb.ask","params":{"query":"streaming test"}}' > "$TMP/ask.out" &
