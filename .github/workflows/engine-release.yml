@@ -42,9 +42,12 @@ jobs:
         working-directory: engine
     env:
       # sqlite-vec 0.1.9's C source typedefs uint*_t from BSD u_int*_t types,
-      # which musl only exposes behind _GNU_SOURCE + sys/types.h (glibc/macOS
-      # get them transitively). Target-scoped, inert for the other targets.
-      CFLAGS_x86_64_unknown_linux_musl: "-D_GNU_SOURCE -include sys/types.h"
+      # which musl headers don't expose by default (glibc/macOS get them
+      # transitively). Map them to GCC's predefined single-token type macros —
+      # plain -D defines are inert for assembly files (a broad
+      # `-include sys/types.h` broke aws-lc-sys's .S compilation) and for the
+      # other targets (the env var is target-scoped).
+      CFLAGS_x86_64_unknown_linux_musl: "-Du_int8_t=__UINT8_TYPE__ -Du_int16_t=__UINT16_TYPE__ -Du_int64_t=__UINT64_TYPE__"
     steps:
       - uses: actions/checkout@v4
 
