@@ -34,14 +34,8 @@
             "@do-md/zenith/middleware": [
                 "./.packages/@do-md/zenith/middleware"
             ],
-            "@do-md/common": [
-                "./.packages/@do-md/common"
-            ],
             "@do-md/utils": [
                 "./.packages/@do-md/utils"
-            ],
-            "@do-md/core-react": [
-                "./.packages/@do-md/core-react"
             ]
         }
     },

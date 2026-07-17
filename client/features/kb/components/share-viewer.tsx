@@ -12,7 +12,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { DOMD, DOMDProvider, type ImageLoader } from "@do-md/core-react";
+import { DOMD, DOMDProvider } from "@do-md/core-react";
+import type { ImageLoader } from "./domd";
 import { isExternalSrc, resolveAssetRef } from "@/lib/client/asset-ref";
 import { defaultRelayUrl, normalizeBaseUrl } from "@/lib/client/connection";
 import { Spinner } from "./icons";

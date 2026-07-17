@@ -1,6 +1,6 @@
 "use client";
 import { createMemo, createReactStore, ZenithStore } from "@do-md/zenith";
-import type { EditorStore } from "@do-md/core-react";
+import type { EditorStoreApi } from "@do-md/core-react";
 import { claimPairCode } from "@/lib/client/relay-client";
 import {
   clearConnection,
@@ -195,7 +195,7 @@ export class KbStore extends ZenithStore<KbState> {
   // Kept off the reactive state (per-token setState would thrash); the answer text lives
   // in the DOMD editor, fed incrementally via insertText and frame-batched with rAF.
   /** The read-only DOMD editor currently rendering the streaming answer (null when unmounted). */
-  private liveEditor: EditorStore | null = null;
+  private liveEditor: EditorStoreApi | null = null;
   /** Deltas accumulated since the last rAF flush. */
   private pendingDelta = "";
   private rafId: number | null = null;
@@ -559,13 +559,13 @@ export class KbStore extends ZenithStore<KbState> {
 
   /** StreamingAnswer mounts → hand its DOMD editor to the store; backfill anything
    *  already accumulated before the editor existed (single insertText, never resetMD). */
-  public attachLiveEditor(ed: EditorStore) {
+  public attachLiveEditor(ed: EditorStoreApi) {
     this.liveEditor = ed;
     this.pendingDelta = "";
     if (this.liveText) ed.insertText(this.liveText);
   }
 
-  public detachLiveEditor(ed: EditorStore) {
+  public detachLiveEditor(ed: EditorStoreApi) {
     if (this.liveEditor === ed) {
       this.flushDelta();
       this.liveEditor = null;

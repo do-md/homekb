@@ -16,14 +16,17 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import {
   DOMD,
   DOMDProvider,
-  type EditorStore,
+  type DOMDProviderProps,
   useEditorStoreApi,
-  type ImageLoader,
 } from "@do-md/core-react";
 import { assetRefFromNote, isExternalSrc, resolveAssetRef } from "@/lib/client/asset-ref";
 import { isDesktop } from "@/lib/client/desktop";
 import { fetchAssetUrl, SERVE_BASE, uploadAsset } from "@/lib/client/rpc";
 import { useKbStoreApi } from "../store/kb-store";
+
+/** The npm build of @do-md/core-react does not export this type by name —
+ *  derive it from the provider props so call sites keep a stable import. */
+export type ImageLoader = NonNullable<DOMDProviderProps["imageLoader"]>;
 
 /** Build an ImageLoader bound to the note the markdown came from. */
 export function makeImageLoader(notePath: string): ImageLoader {
@@ -68,9 +71,10 @@ export function KbMarkdown({
  *  insertText (docs/ARCHITECTURE.md "Streaming answer channel"). useLayoutEffect so the
  *  editor is attached before the store's first flush frame runs. */
 function StreamingBridge() {
-  const editor = useEditorStoreApi() as unknown as EditorStore;
+  const editor = useEditorStoreApi();
   const kb = useKbStoreApi();
   useLayoutEffect(() => {
+    if (!editor) return;
     kb.attachLiveEditor(editor);
     return () => kb.detachLiveEditor(editor);
   }, [editor, kb]);
@@ -109,7 +113,7 @@ function EditorBridge({
     handleRef.current = {
       getMarkdown: () => {
         try {
-          return store.toMarkdown();
+          return store ? store.toMarkdown() : "";
         } catch {
           return "";
         }
@@ -163,12 +167,12 @@ function ImagePasteDropBridge({
   notePath: string;
   containerRef: React.RefObject<HTMLDivElement | null>;
 }) {
-  const store = useEditorStoreApi() as unknown as EditorStore;
+  const store = useEditorStoreApi();
   const kb = useKbStoreApi();
 
   useEffect(() => {
     const el = containerRef.current;
-    if (!el) return;
+    if (!el || !store) return;
 
     const insertSequential = async (files: File[]) => {
       for (const file of files) {
