@@ -2,6 +2,7 @@
   "name": "homekb-relay",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "HomeKB relay — Node self-host target: registration / pairing / SSE tunnel / RPC forwarding / remote MCP. One process, one SQLite file, zero knowledge-base data.",
   "type": "module",
   "main": "dist/server.mjs",

@@ -5,6 +5,8 @@ members = ["core", "cli"]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+repository = "https://github.com/do-md/homekb"
 
 # Versions inherited from the source crates (kb-compile / kb-query).
 [workspace.dependencies]

@@ -2,6 +2,7 @@
   "name": "homekb-relay-cf",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "HomeKB relay — Cloudflare Workers target (Worker + Durable Object hub + D1)",
   "scripts": {
     "dev": "wrangler dev",

@@ -2,6 +2,8 @@
 name = "homekb-cli"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
 description = "homekb command line: init/reindex/watch/query/status/rebuild (+ mcp/register/pair/tunnel stubs)"
 
 [[bin]]

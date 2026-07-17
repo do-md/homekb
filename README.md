@@ -238,6 +238,14 @@ HomeKB is not presented as production-ready yet. The design is intentionally ope
 
 ---
 
+## License
+
+Source code owned by the HomeKB repository is available under the [MIT License](LICENSE): you may use, modify, distribute, sublicense, and sell it under the license terms.
+
+The MIT License does not relicense third-party dependencies. In particular, `@do-md/core-react@0.2.14` is licensed under the PolyForm Noncommercial License 1.0.0 and retains its noncommercial-use restrictions. See [Third-Party Notices](THIRD_PARTY_NOTICES.md) before distributing a complete HomeKB build.
+
+---
+
 ## Documentation and feedback
 
 - [Architecture and protocol contract](docs/ARCHITECTURE.md)

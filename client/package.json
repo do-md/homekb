@@ -2,6 +2,7 @@
   "name": "homekb",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "HomeKB — personal knowledge base where data lives on your own machine: local compile + semantic recall engine (Rust CLI/MCP), web relay for remote access, agent-native integration",
   "scripts": {
     "dev": "next dev -p 3000",

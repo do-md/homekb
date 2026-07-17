@@ -3,6 +3,8 @@ name = "homekb-desktop"
 version = "0.1.0"
 description = "HomeKB desktop client — pure renderer: detect/install engine → connect to homekb serve"
 edition = "2021"
+license = "MIT"
+repository = "https://github.com/do-md/homekb"
 
 [[bin]]
 name = "homekb-desktop"
