@@ -28,3 +28,6 @@ relay.db-*
 
 # Relay build output
 relay/dist/
+
+# Local Claude Code config (agent defs, session state) — not part of the shipped repo
+.claude/
