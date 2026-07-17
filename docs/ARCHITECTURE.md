@@ -196,6 +196,24 @@ homekb tunnel --install [--interval N] / --uninstall / --status [--json]  # Mana
 
 Integrate the local MCP into Claude Code: `claude mcp add homekb -- homekb mcp`.
 
+### Distribution (standalone engine binaries)
+
+The engine ships as a **self-contained single binary** — SQLite and sqlite-vec are compiled in (`bundled`), TLS is rustls — so an installed binary has **zero runtime prerequisites** (no Rust, no system libraries; an AI API key in config is the only requirement to compile/ask).
+
+- **Release tags**: `engine-v<version>` (version = `engine/Cargo.toml` workspace version). Distinct from the desktop app's `v<version>` tags in the same repo — tooling that resolves "latest engine release" must filter by the `engine-v` prefix, never use `releases/latest`.
+- **CI**: `.github/workflows/engine-release.yml` — tag push (or manual dispatch) builds + tests the matrix and attaches artifacts to the GitHub release. Artifact names are a **contract** (consumed by `install.sh`, the Homebrew formula, and the Scoop manifest) and carry no version — the tag does:
+  - `homekb-macos-arm64.tar.gz` (aarch64-apple-darwin)
+  - `homekb-macos-x64.tar.gz` (x86_64-apple-darwin)
+  - `homekb-linux-x64.tar.gz` (x86_64-unknown-linux-musl — fully static, runs on any distro)
+  - `homekb-windows-x64.zip` (x86_64-pc-windows-msvc)
+  Each archive contains exactly one file: the `homekb` binary (`homekb.exe` on Windows).
+- **Install channels**:
+  - `install.sh` (repo root): `curl -fsSL https://raw.githubusercontent.com/do-md/homekb/main/install.sh | sh` — detects OS/arch, downloads the latest `engine-v*` release, installs to `~/.local/bin/homekb`. Always removes the old binary before copying (macOS kernel signature cache: in-place overwrite of the same inode gets the binary SIGKILLed).
+  - **Homebrew** (macOS/Linux): tap `do-md/homebrew-tap`, formula `homekb` → `brew install do-md/tap/homekb`. Formula pins the release tag + per-artifact sha256; bumped on each engine release.
+  - **Scoop** (Windows): bucket `do-md/scoop-bucket`, manifest `homekb` → `scoop bucket add homekb https://github.com/do-md/scoop-bucket && scoop install homekb`.
+  - Linux has no dominant universal package manager; `install.sh` is the canonical path (Homebrew-on-Linux also works).
+- **Platform caveat**: the resident-service management commands (`watch --install`, `tunnel --install`) are launchd-based and macOS-only for now; on Linux/Windows they fail with a clear message and `watch`/`tunnel` run in the foreground instead (systemd user-unit support planned). Everything else — compile, query, ask, MCP, serve, register/pair, tunnel — is platform-independent.
+
 **The ask pipeline (core::answer, completed end-to-end inside the engine)**: LLM routing (infer the doc_type filter + whether the full document is needed + **whether the question is a category enumeration** — "what recipes do I have" wants coverage of a category, not a KNN top-K) is **dispatched in parallel with query vectorization** (the vector depends only on the question string, not on the routing result) → retrieval: normally dual-pool local KNN with the ready-made vectors; **when the router says `enumerate` with a valid docType, retrieval switches to the category summary sweep** (every doc of the category, content = compiled summary, ranked by summary-vector distance, no distance cutoff — the synthesizer then judges over the whole category's summaries, which beats vector recall for enumeration/recommendation intents; `needs_full` is ignored in this mode) → assemble the context block (**numbered per source document** — one `[n]` per doc with its snippets listed under it) → LLM-synthesized answer (based solely on the retrieved snippets, citing sources, following the question's language). The user-facing `hits`/`citations` are source-level (see the `kb.ask` row in the RPC table). Three external requests total: route(chat) ∥ embed(embeddings) → synthesize(chat), reusing shared per-endpoint OpenAI-protocol clients in-process (connection-pool keep-alive). Route + synthesize use the `[ask]` endpoint (falling back to `[summary]`); embed uses the `[embedding]` endpoint pinned by the snapshot meta. Ported from claude-os kb.service's kbInferRoute/kbSynthesize. The engine exposes both a one-shot `ask()` (blocking synthesize) and an `ask_stream()` (synthesize via OpenAI `create_stream`, emitting `AskStreamEvent::Delta` chunks then a terminal `AskStreamEvent::Done{citations,hits}`) — both share the identical route/embed/retrieve path; only the synthesize call differs.
 
 ### HTTP RPC (homekb serve)

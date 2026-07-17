@@ -1,0 +1,110 @@
+# Engine release pipeline (docs/ARCHITECTURE.md "Distribution").
+#
+# Trigger: push a tag `engine-v<version>` (must match engine/Cargo.toml
+# workspace version) → build + test the four-target matrix → create a GitHub
+# release with the artifacts. `workflow_dispatch` runs build + test only
+# (validation without publishing).
+#
+# Artifact names are a contract consumed by install.sh, the Homebrew formula,
+# and the Scoop manifest — change the doc before changing them.
+name: engine-release
+
+on:
+  push:
+    tags: ["engine-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: aarch64-apple-darwin
+            artifact: homekb-macos-arm64.tar.gz
+          - os: macos-13
+            target: x86_64-apple-darwin
+            artifact: homekb-macos-x64.tar.gz
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-musl
+            artifact: homekb-linux-x64.tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: homekb-windows-x64.zip
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: engine
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install musl tools
+        if: contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Add Rust target
+        run: rustup target add ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: engine
+          key: ${{ matrix.target }}
+
+      - name: Test
+        run: cargo test --release --target ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package (unix)
+        if: runner.os != 'Windows'
+        # COPYFILE_DISABLE: keep bsdtar from serializing macOS extended
+        # attributes into AppleDouble ._* members.
+        env:
+          COPYFILE_DISABLE: "1"
+        run: tar -C "target/${{ matrix.target }}/release" -czf "${{ matrix.artifact }}" homekb
+
+      - name: Package (windows)
+        if: runner.os == 'Windows'
+        run: Compress-Archive -Path "target/${{ matrix.target }}/release/homekb.exe" -DestinationPath "${{ matrix.artifact }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: engine/${{ matrix.artifact }}
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/engine-v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify tag matches engine version
+        run: |
+          version=$(grep -m1 '^version' engine/Cargo.toml | sed 's/.*"\(.*\)"/\1/')
+          tag="${GITHUB_REF_NAME#engine-v}"
+          if [ "$version" != "$tag" ]; then
+            echo "Tag engine-v$tag does not match engine/Cargo.toml version $version" >&2
+            exit 1
+          fi
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "Engine $GITHUB_REF_NAME" \
+            --notes "Standalone \`homekb\` engine binaries (self-contained, no runtime dependencies). Install via \`curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/install.sh | sh\`, Homebrew (\`brew install do-md/tap/homekb\`), or Scoop (\`scoop install homekb\`). See docs/ARCHITECTURE.md \"Distribution\"." \
+            dist/*
