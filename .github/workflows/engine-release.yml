@@ -27,9 +27,15 @@ jobs:
           - os: macos-14
             target: aarch64-apple-darwin
             artifact: homekb-macos-arm64.tar.gz
-          - os: macos-13
+          # Cross-compiled from the arm64 runner (the shared Intel macos-13
+          # queue is unreliably slow). arm64 already tests the same code; an
+          # x86_64 host can't execute an x86_64 binary, so this entry only
+          # builds — the Apple SDK ships both arch slices, so the cc-built C
+          # deps (sqlite-vec, aws-lc-sys) cross-compile cleanly.
+          - os: macos-14
             target: x86_64-apple-darwin
             artifact: homekb-macos-x64.tar.gz
+            skip_test: true
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             artifact: homekb-linux-x64.tar.gz
@@ -52,6 +58,7 @@ jobs:
           key: ${{ matrix.target }}
 
       - name: Test
+        if: ${{ !matrix.skip_test }}
         run: cargo test --release --target ${{ matrix.target }}
 
       - name: Build
