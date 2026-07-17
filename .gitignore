@@ -6,9 +6,8 @@ out/
 next-env.d.ts
 tsconfig.tsbuildinfo
 
-# Desktop build (tauri-build.mjs staging directory and engine binary copy)
+# Desktop build (tauri-build.mjs staging directory)
 .tauri-staging/
-client/src-tauri/resources/engine/
 
 # Copy-mode packages: zenith/utils source copies are committed (repo must build
 # from a fresh clone), but @do-md/core-react must NEVER be committed — it is

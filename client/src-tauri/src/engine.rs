@@ -1,4 +1,5 @@
-//! Engine-side helpers: binary detection, config.toml summary, serve health check, CLI invocation.
+//! Engine-side helpers: binary detection, acquisition (GitHub release download),
+//! config.toml summary, serve health check, CLI invocation.
 //!
 //! The desktop client is a pure renderer (docs/ARCHITECTURE.md "desktop client"):
 //! this module only locates/invokes the `homekb` CLI and reads/writes the local
@@ -451,6 +452,156 @@ pub fn run_cli(bin: &Path, args: &[&str]) -> Result<String, String> {
     }
 }
 
+// ---------- Engine acquisition (docs/ARCHITECTURE.md "Engine acquisition") ----------
+//
+// The app does not bundle the engine: when none is detected (or the user asks
+// for an upgrade), the latest `engine-v*` GitHub release artifact is downloaded
+// and installed to ~/.local/bin/homekb. Artifact names are the Distribution
+// name contract shared with install.sh / Homebrew / Scoop.
+
+/// GitHub repository hosting `engine-v*` releases.
+const ENGINE_REPO: &str = "do-md/homekb";
+/// Engine release tag prefix — desktop `v*` tags share the repo, so "latest
+/// engine" must filter by this prefix and never use `releases/latest`.
+const ENGINE_TAG_PREFIX: &str = "engine-v";
+
+/// Platform artifact name (Distribution name contract, docs/ARCHITECTURE.md).
+fn engine_artifact_name() -> Result<&'static str, String> {
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    return Ok("homekb-macos-arm64.tar.gz");
+    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+    return Ok("homekb-macos-x64.tar.gz");
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    return Ok("homekb-linux-x64.tar.gz");
+    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+    return Ok("homekb-windows-x64.zip");
+    #[allow(unreachable_code)]
+    Err("no prebuilt engine binary for this platform (see docs/ARCHITECTURE.md \"Distribution\")".to_string())
+}
+
+fn http_client() -> Result<reqwest::blocking::Client, String> {
+    reqwest::blocking::Client::builder()
+        .user_agent(concat!("homekb-desktop/", env!("CARGO_PKG_VERSION")))
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| format!("failed to build http client: {e}"))
+}
+
+pub struct EngineRelease {
+    pub tag: String,
+    pub version: String,
+}
+
+/// Resolve the latest published engine release: list releases (newest first)
+/// and take the first non-draft, non-prerelease `engine-v*` tag.
+pub fn latest_engine_release() -> Result<EngineRelease, String> {
+    let url = format!("https://api.github.com/repos/{ENGINE_REPO}/releases?per_page=30");
+    let resp = http_client()?
+        .get(&url)
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .map_err(|e| format!("cannot reach GitHub to look up the engine release: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("engine release lookup failed (GitHub returned {})", resp.status()));
+    }
+    let body = resp
+        .text()
+        .map_err(|e| format!("failed to read GitHub release list: {e}"))?;
+    let releases: serde_json::Value = serde_json::from_str(&body)
+        .map_err(|e| format!("unexpected GitHub release list response: {e}"))?;
+    let rel = releases
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|r| {
+            r["tag_name"]
+                .as_str()
+                .is_some_and(|t| t.starts_with(ENGINE_TAG_PREFIX))
+                && !r["draft"].as_bool().unwrap_or(false)
+                && !r["prerelease"].as_bool().unwrap_or(false)
+        })
+        .ok_or_else(|| format!("no {ENGINE_TAG_PREFIX}* release found in {ENGINE_REPO}"))?;
+    let tag = rel["tag_name"].as_str().unwrap_or_default().to_string();
+    let version = tag.trim_start_matches(ENGINE_TAG_PREFIX).to_string();
+    Ok(EngineRelease { tag, version })
+}
+
+/// Download the release artifact for this platform and install (or upgrade) it
+/// to ~/.local/bin/homekb. Staged write → verify (`--version`) → remove the old
+/// binary → rename into place. Never an in-place overwrite: rewriting through
+/// the same inode invalidates the macOS kernel signature cache and every
+/// subsequent exec is SIGKILLed. Returns the installed engine version.
+pub fn download_and_install_engine(tag: &str) -> Result<String, String> {
+    download_and_install_engine_to(tag, &install_target())
+}
+
+fn download_and_install_engine_to(tag: &str, dst: &Path) -> Result<String, String> {
+    let artifact = engine_artifact_name()?;
+    let url = format!("https://github.com/{ENGINE_REPO}/releases/download/{tag}/{artifact}");
+    let resp = http_client()?
+        .get(&url)
+        .send()
+        .map_err(|e| format!("engine download failed: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("engine download failed (GitHub returned {} for {artifact})", resp.status()));
+    }
+    let bytes = resp
+        .bytes()
+        .map_err(|e| format!("engine download interrupted: {e}"))?;
+
+    let dir = dst
+        .parent()
+        .ok_or_else(|| "install target has no parent directory".to_string())?;
+    fs::create_dir_all(dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
+    // Staged in the same directory so the final rename is atomic (same filesystem).
+    let staged = dir.join(".homekb.download");
+    extract_engine_archive(artifact, &bytes, &staged)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&staged, fs::Permissions::from_mode(0o755))
+            .map_err(|e| format!("set executable permission failed: {e}"))?;
+    }
+    let Some(version) = engine_version(&staged) else {
+        let _ = fs::remove_file(&staged);
+        return Err("downloaded engine binary failed to run (--version)".to_string());
+    };
+    if dst.exists() {
+        fs::remove_file(&dst).map_err(|e| format!("remove old engine binary: {e}"))?;
+    }
+    fs::rename(&staged, &dst).map_err(|e| format!("engine install failed: {e}"))?;
+    Ok(version)
+}
+
+/// Extract the single `homekb` binary out of a release archive into `staged`.
+fn extract_engine_archive(artifact: &str, bytes: &[u8], staged: &Path) -> Result<(), String> {
+    if !artifact.ends_with(".tar.gz") {
+        // homekb-windows-x64.zip — the desktop shell does not ship on Windows yet;
+        // when it does, add zip extraction here.
+        return Err(format!(
+            "auto-install cannot unpack {artifact} on this platform — install the engine via a package manager instead"
+        ));
+    }
+    let gz = flate2::read::GzDecoder::new(bytes);
+    let mut archive = tar::Archive::new(gz);
+    for entry in archive.entries().map_err(|e| format!("read engine archive: {e}"))? {
+        let mut entry = entry.map_err(|e| format!("read engine archive entry: {e}"))?;
+        let is_engine = entry
+            .path()
+            .ok()
+            .and_then(|p| p.file_name().map(|n| n == "homekb"))
+            .unwrap_or(false);
+        if entry.header().entry_type().is_file() && is_engine {
+            let mut out = fs::File::create(staged)
+                .map_err(|e| format!("stage {}: {e}", staged.display()))?;
+            std::io::copy(&mut entry, &mut out).map_err(|e| format!("extract engine binary: {e}"))?;
+            return Ok(());
+        }
+    }
+    Err(format!("no homekb binary found inside {artifact}"))
+}
+
 /// Child process log file: ~/Library/Logs/HomeKB/<name>.log (macOS first).
 pub fn log_file(name: &str) -> Result<fs::File, String> {
     let dir = home_dir().join("Library/Logs/HomeKB");
@@ -460,4 +611,32 @@ pub fn log_file(name: &str) -> Result<fs::File, String> {
         .append(true)
         .open(dir.join(format!("{name}.log")))
         .map_err(|e| format!("open log file: {e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Live end-to-end acquisition test against the real GitHub release —
+    /// network-dependent, so ignored by default:
+    ///   cargo test -- --ignored engine_acquisition_live
+    #[test]
+    #[ignore = "live network: resolves + downloads the real engine-v* release"]
+    fn engine_acquisition_live() {
+        let rel = latest_engine_release().expect("resolve latest engine release");
+        assert!(rel.tag.starts_with(ENGINE_TAG_PREFIX), "tag {} lacks prefix", rel.tag);
+        assert!(!rel.version.is_empty());
+
+        let dir = std::env::temp_dir().join(format!("homekb-engine-install-test-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let dst = dir.join("homekb");
+        // Fresh install, then a second run over the existing binary (the
+        // upgrade path: remove-then-rename, never an in-place overwrite).
+        let v1 = download_and_install_engine_to(&rel.tag, &dst).expect("fresh install");
+        assert_eq!(v1, rel.version);
+        let v2 = download_and_install_engine_to(&rel.tag, &dst).expect("reinstall over existing");
+        assert_eq!(v2, rel.version);
+        assert_eq!(engine_version(&dst).as_deref(), Some(rel.version.as_str()));
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

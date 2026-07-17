@@ -54,6 +54,17 @@ function shouldAutoCheck(): boolean {
   }
 }
 
+/** Dotted-numeric version compare: true when `a` is strictly newer than `b`. */
+function isNewerVersion(a: string, b: string): boolean {
+  const pa = a.split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = b.split(".").map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d !== 0) return d > 0;
+  }
+  return false;
+}
+
 function markUpdateChecked(): void {
   try {
     localStorage.setItem(UPDATE_CHECK_KEY, String(Date.now()));
@@ -114,6 +125,10 @@ interface DesktopState {
   updateReady: string | null; // version already downloaded + installed, waiting for relaunch
   updateBusy: boolean;
 
+  // Engine update (docs "Engine acquisition": the download flow doubles as the upgrade path)
+  engineLatest: string | null; // newer version available on GitHub (null = none known)
+  engineUpdateBusy: boolean;
+
   notice: string | null;
 }
 
@@ -152,6 +167,8 @@ export class DesktopStore extends ZenithStore<DesktopState> {
       appVersion: null,
       updateReady: null,
       updateBusy: false,
+      engineLatest: null,
+      engineUpdateBusy: false,
       notice: null,
     });
   }
@@ -667,6 +684,60 @@ export class DesktopStore extends ZenithStore<DesktopState> {
       await relaunch();
     } catch (e) {
       this.flash(invokeErrorMessage(e, "Restart failed — quit and reopen HomeKB"));
+    }
+  }
+
+  // ---------- Engine update (docs/ARCHITECTURE.md "Engine acquisition") ----------
+  /**
+   * Check GitHub for a newer `engine-v*` release. `engineLatest` is only set
+   * when it is strictly newer than the installed version (or the installed
+   * version is unknown) — the Settings button flips to "Update" off it.
+   */
+  public async checkEngineUpdate() {
+    if (this.state.engineUpdateBusy) return;
+    this.produce((d) => {
+      d.engineUpdateBusy = true;
+    });
+    try {
+      const latest = await invoke<string>("engine_latest_version");
+      const current = this.state.engine?.version;
+      const newer = !current || isNewerVersion(latest, current);
+      this.produce((d) => {
+        d.engineLatest = newer ? latest : null;
+      });
+      if (!newer) this.flash(`Engine ${current} is up to date`);
+    } catch (e) {
+      this.flash(invokeErrorMessage(e, "Engine update check failed"));
+    } finally {
+      this.produce((d) => {
+        d.engineUpdateBusy = false;
+      });
+    }
+  }
+
+  /**
+   * Download + install the latest engine release. Same Tauri command as the
+   * first-run install (`engine_install`); the shell restarts its owned serve
+   * child afterwards so the new binary serves immediately.
+   */
+  public async updateEngine() {
+    if (this.state.engineUpdateBusy) return;
+    this.produce((d) => {
+      d.engineUpdateBusy = true;
+    });
+    try {
+      const version = await invoke<string>("engine_install");
+      this.produce((d) => {
+        d.engineLatest = null;
+      });
+      this.flash(`Engine updated to ${version}`);
+      await this.refreshEngine();
+    } catch (e) {
+      this.flash(invokeErrorMessage(e, "Engine update failed"));
+    } finally {
+      this.produce((d) => {
+        d.engineUpdateBusy = false;
+      });
     }
   }
 

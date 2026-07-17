@@ -4,7 +4,7 @@ import { useDesktopStore, useDesktopStoreApi } from "../store/desktop-store";
 
 const PHASE_TEXT: Record<string, string> = {
   checking: "Detecting local engine…",
-  installing: "First run: installing engine to ~/.local/bin …",
+  installing: "First run: downloading the HomeKB engine (a few MB) …",
   starting: "Starting local service (homekb serve)…",
 };
 

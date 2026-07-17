@@ -17,7 +17,6 @@ export interface EngineStatus {
   installed: boolean;
   path: string | null;
   version: string | null;
-  bundledVersion: string | null;
   initialized: boolean;
   serveRunning: boolean;
   configPath: string;

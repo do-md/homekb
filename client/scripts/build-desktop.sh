@@ -17,14 +17,14 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Target triple — first arg, Apple Silicon only for now: the bundled engine
-# binary (src-tauri resources, copied by tauri-build.mjs from
-# engine/target/release/homekb) is built for the HOST arch. Shipping x86_64
-# needs an x86_64 engine cross-build wired into tauri-build.mjs first.
+# Target triple — first arg, Apple Silicon only for now (the shell itself has
+# only been built/verified on aarch64; the engine is NOT bundled — the app
+# downloads the matching engine-v* release artifact at first run, so an x86_64
+# shell build only needs this guard lifted and a real x86_64 verification pass).
 TARGET="${1:-aarch64-apple-darwin}"
 if [ "$TARGET" != "aarch64-apple-darwin" ]; then
-  echo "Error: only aarch64-apple-darwin is supported for now (the bundled" >&2
-  echo "       engine binary is host-arch; cross-building it is not wired up)." >&2
+  echo "Error: only aarch64-apple-darwin is supported for now (x86_64 shell" >&2
+  echo "       builds have not been verified yet)." >&2
   exit 1
 fi
 ARCH="${TARGET%-apple-darwin}"
@@ -53,11 +53,6 @@ if [ -f "$TAURI_SIGNING_PRIVATE_KEY" ]; then
   TAURI_SIGNING_PRIVATE_KEY="$(cat "$TAURI_SIGNING_PRIVATE_KEY")"
   export TAURI_SIGNING_PRIVATE_KEY
 fi
-
-# ── Build the engine (release) — bundled into the .app by tauri-build.mjs ─────
-# The engine crate lives at the repo root, one level above client/.
-echo "Building engine (release)..."
-(cd "$PROJECT_DIR/../engine" && cargo build --release)
 
 # ── Decode secrets to temp files ──────────────────────────────────────────────
 TMPDIR_BUILD=$(mktemp -d)
@@ -97,23 +92,11 @@ if [ ! -d "$APP_BUNDLE" ]; then
   exit 1
 fi
 
-# ── Re-sign bottom-up: nested engine binary, then the outer app ──────────────
-# The bundled engine (Contents/Resources/engine/homekb) is a nested executable
-# built by plain `cargo build --release`. Tauri signs the app bundle and its
-# own main binary but does NOT deep-sign resource executables, so notarization
-# rejects the archive ("not signed with a valid Developer ID / no secure
-# timestamp / hardened runtime not enabled"). Sign it explicitly with the
-# hardened runtime + timestamp, then re-seal the outer app (touching a nested
-# binary invalidates the app's signature). Order matters — inner first.
-ENGINE_IN_APP="$APP_BUNDLE/Contents/Resources/engine/homekb"
-if [ -f "$ENGINE_IN_APP" ]; then
-  echo "Signing bundled engine binary..."
-  codesign --force --sign "$APPLE_SIGNING_IDENTITY" --options runtime --timestamp \
-    "$ENGINE_IN_APP"
-else
-  echo "Warning: bundled engine binary not found at $ENGINE_IN_APP" >&2
-fi
-
+# ── Re-seal the app ──────────────────────────────────────────────────────────
+# The engine is no longer bundled as a resource executable (it is downloaded at
+# first run — docs "Engine acquisition"), so no nested-binary deep-signing pass
+# is needed anymore. Re-sign the outer app once with the hardened runtime +
+# timestamp for notarization.
 echo "Re-sealing app bundle..."
 codesign --force --sign "$APPLE_SIGNING_IDENTITY" --options runtime --timestamp \
   --preserve-metadata=entitlements \

@@ -21,6 +21,13 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
 dirs = "6"
+# Engine acquisition (docs/ARCHITECTURE.md "Engine acquisition"): download the
+# latest engine-v* release artifact from GitHub and unpack the single-binary
+# tar.gz. reqwest is already in the dependency tree via tauri-plugin-updater;
+# rustls keeps TLS off the system stack.
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+flate2 = "1"
+tar = "0.4"
 
 [profile.release]
 opt-level = 3

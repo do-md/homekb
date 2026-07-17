@@ -266,6 +266,57 @@ function AppUpdatesCard() {
   );
 }
 
+/**
+ * Engine card (docs "Engine acquisition"): installed version/binary/serve
+ * liveness + a manual update check. The engine is downloaded from the
+ * engine-v* GitHub release — the same `engine_install` command as first run.
+ */
+function EngineCard() {
+  const api = useDesktopStoreApi();
+  const engine = useDesktopStore((s) => s.state.engine);
+  const engineLatest = useDesktopStore((s) => s.state.engineLatest);
+  const busy = useDesktopStore((s) => s.state.engineUpdateBusy);
+
+  return (
+    <Section title="Engine">
+      <Row label="Version" value={engine?.version ?? "Unknown"} />
+      <Row label="Binary" value={engine?.path ?? "Not installed"} />
+      <Row
+        label="Local service"
+        value={
+          engine?.serveRunning ? (
+            <span className="inline-flex items-center gap-1.5">
+              <span className="text-hk-green">
+                <StatusDot className="h-1.5! w-1.5!" />
+              </span>
+              Running · 127.0.0.1:8765
+            </span>
+          ) : (
+            "Not running"
+          )
+        }
+      />
+      {engineLatest && <Row label="Available" value={engineLatest} />}
+      <div className="mt-2 flex justify-end">
+        <button
+          className="flex items-center gap-1.5 rounded-xl bg-hk-coral px-4 py-2 text-[13.5px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover disabled:opacity-50"
+          disabled={busy}
+          onClick={() => void (engineLatest ? api.updateEngine() : api.checkEngineUpdate())}
+        >
+          {busy && <Spinner size={13} />}
+          {engineLatest
+            ? busy
+              ? "Updating…"
+              : `Update to ${engineLatest}`
+            : busy
+              ? "Checking…"
+              : "Check for engine updates"}
+        </button>
+      </div>
+    </Section>
+  );
+}
+
 /** Desktop-only Settings view: engine + directories + AI providers + appearance. */
 export function SettingsView() {
   const api = useDesktopStoreApi();
@@ -280,25 +331,7 @@ export function SettingsView() {
       <div className="mx-auto flex w-full max-w-xl flex-col gap-3 px-4 py-5 pb-[max(env(safe-area-inset-bottom),24px)]">
         <h1 className="text-[21px] font-bold tracking-tight text-hk-heading">Settings</h1>
 
-        <Section title="Engine">
-          <Row label="Version" value={engine?.version ?? "Unknown"} />
-          <Row label="Binary" value={engine?.path ?? "Not installed"} />
-          <Row
-            label="Local service"
-            value={
-              engine?.serveRunning ? (
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="text-hk-green">
-                    <StatusDot className="h-1.5! w-1.5!" />
-                  </span>
-                  Running · 127.0.0.1:8765
-                </span>
-              ) : (
-                "Not running"
-              )
-            }
-          />
-        </Section>
+        <EngineCard />
 
         <AppUpdatesCard />
 

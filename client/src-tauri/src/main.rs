@@ -15,9 +15,7 @@ use serde::Serialize;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
-use tauri::Manager;
 use tauri::async_runtime::spawn_blocking;
-use tauri::path::BaseDirectory;
 
 struct Procs {
     serve: Option<Child>,
@@ -35,7 +33,6 @@ struct EngineStatus {
     installed: bool,
     path: Option<String>,
     version: Option<String>,
-    bundled_version: Option<String>,
     initialized: bool,
     serve_running: bool,
     config_path: String,
@@ -106,14 +103,7 @@ fn parse_daemon_status(out: &str, what: &str) -> Result<DaemonStatus, String> {
     })
 }
 
-fn bundled_engine(app: &tauri::AppHandle) -> Option<PathBuf> {
-    app.path()
-        .resolve("engine/homekb", BaseDirectory::Resource)
-        .ok()
-        .filter(|p| p.is_file())
-}
-
-fn build_status(app: &tauri::AppHandle) -> EngineStatus {
+fn build_status() -> EngineStatus {
     let bin = engine::engine_path();
     let cfg = engine::read_config();
     let config_path = engine::config_path();
@@ -122,9 +112,6 @@ fn build_status(app: &tauri::AppHandle) -> EngineStatus {
         installed: bin.is_some(),
         version: bin.as_deref().and_then(engine::engine_version),
         path: bin.map(|p| p.display().to_string()),
-        bundled_version: bundled_engine(app)
-            .as_deref()
-            .and_then(engine::engine_version),
         initialized,
         serve_running: engine::serve_health(),
         config_path: config_path.display().to_string(),
@@ -152,29 +139,30 @@ async fn blocking<T: Send + 'static>(
 // ---------- engine ----------
 
 #[tauri::command]
-async fn engine_status(app: tauri::AppHandle) -> Result<EngineStatus, String> {
-    blocking(move || Ok(build_status(&app))).await
+async fn engine_status() -> Result<EngineStatus, String> {
+    blocking(|| Ok(build_status())).await
 }
 
-/// First-launch installation: bundled resource binary → ~/.local/bin/homekb (no popup, per docs contract).
+/// Install or upgrade the engine from the latest GitHub `engine-v*` release
+/// (docs/ARCHITECTURE.md "Engine acquisition"): download the platform artifact,
+/// verify the staged binary, swap it in on a fresh inode, then restart the
+/// shell-owned serve child (if any) so the new binary serves immediately.
+/// No popup, per docs contract. Returns the installed engine version.
 #[tauri::command]
-async fn engine_install(app: tauri::AppHandle) -> Result<String, String> {
-    blocking(move || {
-        let src = bundled_engine(&app).ok_or("no engine binary bundled in app")?;
-        let dst = engine::install_target();
-        if let Some(parent) = dst.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| format!("create {}: {e}", parent.display()))?;
-        }
-        std::fs::copy(&src, &dst).map_err(|e| format!("engine install failed: {e}"))?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&dst, std::fs::Permissions::from_mode(0o755))
-                .map_err(|e| format!("set executable permission failed: {e}"))?;
-        }
-        Ok(dst.display().to_string())
+async fn engine_install() -> Result<String, String> {
+    blocking(|| {
+        let release = engine::latest_engine_release()?;
+        let version = engine::download_and_install_engine(&release.tag)?;
+        restart_owned_serve()?;
+        Ok(version)
     })
     .await
+}
+
+/// Latest published engine version (the Settings "Engine" update check).
+#[tauri::command]
+async fn engine_latest_version() -> Result<String, String> {
+    blocking(|| engine::latest_engine_release().map(|r| r.version)).await
 }
 
 /// `homekb init`: create directory tree + write config (idempotent).
@@ -594,6 +582,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             engine_status,
             engine_install,
+            engine_latest_version,
             engine_init,
             serve_ensure,
             config_set_ai_endpoint,
