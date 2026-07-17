@@ -22,6 +22,29 @@ export class RelayError extends Error {
   }
 }
 
+/**
+ * Transient-401 debounce (docs/ARCHITECTURE.md "Tunnel liveness & deploy
+ * safety" §3): a single 401 — e.g. a relay deploy-window auth blip — must not
+ * destroy the pairing. Only **two consecutive** 401s across any calls surface
+ * as `unauthorized` (which auto-unpairs); the first one surfaces as
+ * `unauthorized_transient`, which the store treats like a connectivity blip.
+ * Any non-401 *response* resets the streak (network errors don't — they are
+ * no evidence either way).
+ */
+let consecutive401 = 0;
+
+function unauthorized(): RelayError {
+  consecutive401 += 1;
+  if (consecutive401 >= 2) {
+    return new RelayError("unauthorized", "Not authorized — please pair again");
+  }
+  return new RelayError("unauthorized_transient", "Authorization hiccup — retrying");
+}
+
+function resetAuthStreak(): void {
+  consecutive401 = 0;
+}
+
 interface Endpoint {
   rpcUrl: string;
   /** Streaming RPC (kb.ask only) — the `rpcUrl` sibling; emits delta/done/error SSE frames. */
@@ -79,8 +102,9 @@ async function rpcAt<T>(
   }
   const data = await res.json().catch(() => ({}));
   if (res.status === 401) {
-    throw new RelayError("unauthorized", "Not authorized — please pair again");
+    throw unauthorized();
   }
+  resetAuthStreak();
   if (!res.ok || !data.ok) {
     const code = data.error ?? `http_${res.status}`;
     const msg =
@@ -146,8 +170,9 @@ export async function rpcAskStream(
     throw new RelayError("unreachable", "Server is not responding");
   }
   if (res.status === 401) {
-    throw new RelayError("unauthorized", "Not authorized — please pair again");
+    throw unauthorized();
   }
+  resetAuthStreak();
   if (!res.ok || !res.body) {
     const data = await res.json().catch(() => ({}) as Record<string, string>);
     const code = data.error ?? `http_${res.status}`;
@@ -205,7 +230,8 @@ export async function checkHealth(): Promise<boolean> {
   } catch {
     return false;
   }
-  if (res.status === 401) throw new RelayError("unauthorized", "Pairing has expired");
+  if (res.status === 401) throw unauthorized();
+  resetAuthStreak();
   if (!res.ok) return false;
   if (ep.healthKind === "relay") {
     const data = await res.json().catch(() => ({}));
@@ -230,7 +256,8 @@ export async function fetchAssetUrl(path: string): Promise<string> {
   } catch {
     throw new RelayError("unreachable", "Server is not responding");
   }
-  if (res.status === 401) throw new RelayError("unauthorized", "Not authorized");
+  if (res.status === 401) throw unauthorized();
+  resetAuthStreak();
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new RelayError(data.error ?? `http_${res.status}`, "Asset fetch failed");

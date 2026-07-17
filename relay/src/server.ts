@@ -27,6 +27,7 @@ import {
   relayShareDelete,
   relaySharePublicView,
   relayShareRegister,
+  relayTunnelHealth,
   tunnelResult,
   wellKnownAuthServer,
   wellKnownProtectedResource,
@@ -54,6 +55,7 @@ const ROUTES: Record<string, Handler> = {
   "GET /api/relay/grants": relayGrantsList,
   "POST /api/relay/rpc": relayRpc,
   "POST /api/relay/tunnel/result": tunnelResult,
+  "GET /api/relay/tunnel/health": relayTunnelHealth,
   "POST /api/relay/share": relayShareRegister,
   "POST /api/oauth/token": oauthToken,
   "POST /api/oauth/register": oauthRegister,
@@ -126,7 +128,7 @@ function handleTunnelSse(nodeReq: IncomingMessage, nodeRes: ServerResponse): voi
     cleanup();
   });
 
-  send("hello", JSON.stringify({ homeId: home.id, name: home.name }));
+  send("hello", JSON.stringify({ homeId: home.id, name: home.name, connId: conn.connId }));
 }
 
 /**

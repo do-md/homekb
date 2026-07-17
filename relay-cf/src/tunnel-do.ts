@@ -58,6 +58,10 @@ interface Pending {
 }
 
 interface Conn {
+  /** Random id minted at registration; sent in `hello`, reported by /online —
+   *  the engine's out-of-band liveness verification compares against it
+   *  (docs/ARCHITECTURE.md "Tunnel liveness & deploy safety"). */
+  id: string;
   writer: WritableStreamDefaultWriter<Uint8Array>;
   pending: Map<string, Pending>;
   pingTimer: number;
@@ -85,7 +89,9 @@ export class HomeTunnelDO {
       return this.handleUpstream(request, path.slice("/upstream/".length));
     }
     if (request.method === "GET" && path === "/online") {
-      return Response.json({ online: this.conn !== null });
+      // connId lets the home verify ITS connection is the registered one
+      // (a zombie stream on a draining old instance has a different / no id here).
+      return Response.json({ online: this.conn !== null, connId: this.conn?.id ?? null });
     }
     return Response.json({ ok: false, error: "not_found" }, { status: 404 });
   }
@@ -101,7 +107,7 @@ export class HomeTunnelDO {
 
     const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
     const writer = writable.getWriter();
-    const conn: Conn = { writer, pending: new Map(), pingTimer: 0 };
+    const conn: Conn = { id: randomId(12), writer, pending: new Map(), pingTimer: 0 };
     this.conn = conn;
 
     // Ping keeps intermediaries from idling the stream out AND detects a dead home:
@@ -117,7 +123,7 @@ export class HomeTunnelDO {
       this.dropConn(conn, new HubError("tunnel_closed", "tunnel closed"));
     });
 
-    this.send(conn, "hello", JSON.stringify({ homeId, name })).catch(() => {});
+    this.send(conn, "hello", JSON.stringify({ homeId, name, connId: conn.id })).catch(() => {});
 
     return new Response(readable, {
       headers: {

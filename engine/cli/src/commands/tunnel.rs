@@ -99,6 +99,13 @@ const READ_TIMEOUT: Duration = Duration::from_secs(90);
 const MAX_BACKOFF_SECS: u64 = 60;
 /// Never reconnect faster than this, so a persistently-failing connect can't hot-loop.
 const MIN_BACKOFF_MS: u64 = 100;
+/// Out-of-band liveness verification (docs/ARCHITECTURE.md "Tunnel liveness &
+/// deploy safety"): in-band pings can come from a draining OLD relay instance
+/// after a deploy, so the engine must ask the CURRENT instance whether this
+/// connection is the registered one. First check soon after connect (catches
+/// the deploy-window zombie almost immediately), then periodically.
+const VERIFY_FIRST_DELAY: Duration = Duration::from_secs(10);
+const VERIFY_INTERVAL: Duration = Duration::from_secs(60);
 
 /// "Full jitter" backoff: a uniformly random delay in `[MIN_BACKOFF_MS, ceil]`.
 ///
@@ -185,25 +192,107 @@ async fn pump(
     config: &Arc<Config>,
     relay: &homekb_core::RelayConfig,
 ) -> Result<()> {
-    let mut buf = String::new();
-    loop {
-        let chunk = tokio::time::timeout(READ_TIMEOUT, res.chunk())
-            .await
-            .map_err(|_| anyhow!("no data for {}s (missed pings)", READ_TIMEOUT.as_secs()))??;
-        let Some(bytes) = chunk else {
-            return Ok(()); // server closed cleanly
-        };
-        buf.push_str(&String::from_utf8_lossy(&bytes));
-        while let Some(idx) = buf.find("\n\n") {
-            let raw: String = buf.drain(..idx + 2).collect();
-            if let Some((event, data)) = parse_sse(&raw) {
-                match event.as_str() {
-                    "rpc" => handle_rpc(&data, client, config, relay),
-                    "asset" => handle_asset(&data, client, config, relay),
-                    _ => {}
+    // connId arrives in the `hello` event; the verifier compares it against the
+    // CURRENT relay instance's view (out-of-band). An old relay that sends no
+    // connId leaves this None and the verifier stays dormant (compatible).
+    let conn_id: Arc<std::sync::Mutex<Option<String>>> = Arc::new(std::sync::Mutex::new(None));
+    let (zombie_tx, mut zombie_rx) = tokio::sync::oneshot::channel::<String>();
+    let verifier = tokio::spawn(verify_loop(
+        client.clone(),
+        relay.clone(),
+        conn_id.clone(),
+        zombie_tx,
+    ));
+
+    let out = async {
+        let mut buf = String::new();
+        loop {
+            let chunk = tokio::select! {
+                r = tokio::time::timeout(READ_TIMEOUT, res.chunk()) => {
+                    r.map_err(|_| anyhow!("no data for {}s (missed pings)", READ_TIMEOUT.as_secs()))??
+                }
+                reason = &mut zombie_rx => {
+                    let reason = reason.unwrap_or_else(|_| "verifier stopped".into());
+                    return Err(anyhow!(
+                        "liveness verification failed ({reason}) — the relay's current instance does not see this connection (stale after a relay deploy?)"
+                    ));
+                }
+            };
+            let Some(bytes) = chunk else {
+                return Ok(()); // server closed cleanly
+            };
+            buf.push_str(&String::from_utf8_lossy(&bytes));
+            while let Some(idx) = buf.find("\n\n") {
+                let raw: String = buf.drain(..idx + 2).collect();
+                if let Some((event, data)) = parse_sse(&raw) {
+                    match event.as_str() {
+                        "hello" => {
+                            if let Ok(v) = serde_json::from_str::<Value>(&data) {
+                                if let Some(id) = v.get("connId").and_then(|x| x.as_str()) {
+                                    tracing::debug!("tunnel registered as connId {id}");
+                                    *conn_id.lock().unwrap_or_else(|p| p.into_inner()) =
+                                        Some(id.to_string());
+                                }
+                            }
+                        }
+                        "rpc" => handle_rpc(&data, client, config, relay),
+                        "asset" => handle_asset(&data, client, config, relay),
+                        _ => {}
+                    }
                 }
             }
         }
+    }
+    .await;
+    verifier.abort();
+    out
+}
+
+/// Out-of-band liveness verifier (docs/ARCHITECTURE.md "Tunnel liveness &
+/// deploy safety"). A plain HTTP request always routes to the relay's CURRENT
+/// deployment, so its answer is authoritative in a way in-band pings are not.
+/// Kills the tunnel ONLY on a definitive negative (2xx response saying
+/// `online:false` or a different `connId`); network errors, 5xx, 404 (old
+/// relay without the endpoint) are inconclusive and never cause a reconnect.
+async fn verify_loop(
+    client: reqwest::Client,
+    relay: homekb_core::RelayConfig,
+    conn_id: Arc<std::sync::Mutex<Option<String>>>,
+    zombie_tx: tokio::sync::oneshot::Sender<String>,
+) {
+    let url = format!("{}/api/relay/tunnel/health", relay.url);
+    tokio::time::sleep(VERIFY_FIRST_DELAY).await;
+    loop {
+        let ours = conn_id.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        if let Some(ours) = ours {
+            let res = client
+                .get(&url)
+                .bearer_auth(&relay.home_secret)
+                .timeout(Duration::from_secs(10))
+                .send()
+                .await;
+            if let Ok(res) = res {
+                if res.status().is_success() {
+                    if let Ok(v) = res.json::<Value>().await {
+                        let online = v.get("online").and_then(|x| x.as_bool()).unwrap_or(true);
+                        let current = v
+                            .get("connId")
+                            .and_then(|x| x.as_str())
+                            .map(str::to_string);
+                        if !online || current.as_deref() != Some(ours.as_str()) {
+                            let reason = format!(
+                                "relay reports online={online}, connId={current:?}, ours={ours}"
+                            );
+                            tracing::warn!("tunnel liveness check negative: {reason}");
+                            let _ = zombie_tx.send(reason);
+                            return;
+                        }
+                        tracing::debug!("tunnel liveness ok (connId {ours})");
+                    }
+                }
+            }
+        }
+        tokio::time::sleep(VERIFY_INTERVAL).await;
     }
 }
 

@@ -21,6 +21,14 @@ SSE_PID=$!
 sleep 1
 grep -q hello "$TMP/sse.log" && echo "hello event OK"
 
+echo "== 2.5 Tunnel liveness: hello connId must match GET /api/relay/tunnel/health =="
+HELLO_CONNID=$(grep -A1 "event: hello" "$TMP/sse.log" | grep -o '"connId":"[^"]*"' | head -1 | cut -d'"' -f4)
+HEALTH=$(curl -s "$BASE/api/relay/tunnel/health" -H "Authorization: Bearer $SECRET")
+echo "hello connId: $HELLO_CONNID / health: $HEALTH"
+echo "$HEALTH" | grep -q '"online":true' && echo "$HEALTH" | grep -q "\"connId\":\"$HELLO_CONNID\"" \
+  && echo "tunnel/health connId match OK" || { echo "tunnel/health mismatch"; exit 1; }
+test "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/relay/tunnel/health")" = "401" && echo "tunnel/health 401 without homeSecret OK"
+
 echo "== 3. Generate pairing code & claim =="
 CODE=$(curl -s -X POST "$BASE/api/relay/pair" -H "Authorization: Bearer $SECRET" -H 'Content-Type: application/json' -d '{"action":"new"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["code"])')
 echo "pairing code: $CODE"

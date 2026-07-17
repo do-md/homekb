@@ -220,7 +220,7 @@ The UI (`features/kb`) is written once; the transport layer (`lib/client`) route
 
 - **The connect screen exposes no mode choice and never says "relay"**: the user scans the QR from their home computer (nothing else shown), or types the pairing code + the service address (visible field, prefilled from `NEXT_PUBLIC_RELAY_URL`, **empty when unset — never a localhost fallback**; the client cannot know the home's service without scanning).
 - The Web UI stores the whole connection object in localStorage under `homekb.connection.v1`: `{mode:"relay", relayUrl, token, home:{homeId,homeName}}`.
-- **Recovery paths**: a 401 on any call (health poll included) auto-unpairs back to the connect screen; the offline screen additionally offers an explicit "Disconnect & pair again" escape hatch so a user is never stuck staring at "Home is offline" with no way to re-scan.
+- **Recovery paths**: **two consecutive** 401s on any calls (health poll included) auto-unpair back to the connect screen — a single transient 401 (e.g. a relay deploy-window auth blip) must not destroy the pairing (see "Tunnel liveness & deploy safety"); any success resets the counter. The offline screen additionally offers an explicit "Disconnect & pair again" escape hatch so a user is never stuck staring at "Home is offline" with no way to re-scan.
 - Asset rendering: `relay` mode fetches `…/asset/<path>` with the `Authorization` header and renders via blob URLs; `desktop` embeds plain serve URLs. How image srcs inside note Markdown map to asset paths is defined once in "Image references in notes" (`lib/client/asset-ref.ts` implements it).
 - Answer streaming: Answer mode calls the streaming endpoint (`${base}/rpc/stream` on serve, `${relayUrl}/api/relay/rpc/stream` on relay — the `rpcUrl` sibling) and consumes the `delta`/`done`/`error` SSE frames, feeding each `delta` into the DOMD editor incrementally. List mode keeps using the one-shot `rpc()` (`kb.query`).
 
@@ -321,7 +321,8 @@ Shared invariants (both targets):
 | `POST /api/relay/register` `{name}` | None | → `{homeId, homeSecret}` |
 | `POST /api/relay/pair` `{action:"new"}` | homeSecret | → `{code, expiresAt}` |
 | `POST /api/relay/pair` `{action:"claim", code, label?}` | None | → `{token, homeId, homeName}` |
-| `GET  /api/relay/tunnel` | homeSecret | SSE downstream: `event: rpc` / `event: asset` / `event: ping`(25s) |
+| `GET  /api/relay/tunnel` | homeSecret | SSE downstream: `event: hello` (first; carries `connId`) / `event: rpc` / `event: asset` / `event: ping`(25s) |
+| `GET  /api/relay/tunnel/health` | homeSecret | → `{ok, online, connId}` — the relay's **current** view of this home's tunnel (answered by the current hub/DO instance, never by a draining old one). The engine polls it to detect zombie connections; see "Tunnel liveness & deploy safety" |
 | `POST /api/relay/tunnel/result` `{id, ok, result?, error?}` | homeSecret | Home device returns the RPC execution result → 204 |
 | `POST /api/relay/tunnel/asset/<id>` | homeSecret | Home device streams the requested asset back: raw bytes body + `Content-Type`; on failure empty body + `X-Asset-Error: <code>` header → 204 |
 | `POST /api/relay/rpc` `{method, params}` | clientToken | Forward to the home device, 30s timeout; offline → 502 `{error:"home_offline"}` |
@@ -338,6 +339,7 @@ Shared invariants (both targets):
 | `GET  /api/relay/share/:shareId/asset/<path>` | None (public; `X-Share-Password` header when the share is password-protected) | Share-scoped binary asset fetch: forwarded on the asset channel with share context; the home streams the bytes only if the share is valid **and the shared note references that asset** |
 
 SSE `rpc` event data: `{"id":"<reqId>","method":"kb.query","params":{...}}`. An optional `"stream":true` field (only for `kb.ask`, set when the client used `/api/relay/rpc/stream`) tells the home to stream the answer over the ask channel (`POST /api/relay/tunnel/ask/<id>`) instead of posting a single result to `/api/relay/tunnel/result`.
+SSE `hello` event data: `{"homeId","name","connId"}` — `connId` is a random id minted by the hub **for this registered connection**; the engine stores it and uses it for out-of-band liveness verification (see "Tunnel liveness & deploy safety" below).
 SSE `asset` event data: `{"id":"<reqId>","path":"images/foo.png"}`. Share-scoped asset requests add `"share":{"shareId":"...","password":"..."?}` — the home then validates the share (exists, unexpired, password matches, **asset referenced by the shared note**) before streaming; a failed validation returns the usual empty body + `X-Asset-Error` (`share_denied`).
 
 ### Binary asset channel
@@ -363,6 +365,18 @@ Clients never put tokens in asset URLs: the Web UI fetches with an `Authorizatio
 Desktop mode skips the relay entirely: the webview hits `POST http://127.0.0.1:8765/rpc/stream` and consumes the same frame protocol directly from serve.
 
 The answer's `[n]` markers and `citations` follow the same source-numbering contract as the one-shot `kb.ask` (see the RPC table). `citations`/`hits` arrive **twice**: early in the `sources` frame (render-first UX) and again in the terminal `done` frame (kept for backward compatibility — older clients that only read `done` keep working; the payloads are identical).
+
+## Tunnel liveness & deploy safety (zombie-connection self-healing)
+
+**The failure mode** (observed 2026-07-17 after a Workers deploy): any relay deploy/restart severs every home's tunnel SSE. The engine reconnects within seconds — but during the deploy propagation window that reconnect can land on a **draining old instance** (Workers keeps an old isolate alive while its in-flight requests finish, and an SSE request never finishes). The old instance registers the connection and keeps pinging it, so to the engine everything looks healthy; meanwhile the **current** instance answers `/online` with `conn = null`, and every remote client sees the home as offline — indefinitely. The lesson generalizes: **in-band traffic (pings included) can never prove the connection is registered with the current instance; only an out-of-band request — which always routes to the current deployment — can.**
+
+The self-healing contract (all three parts are mandatory; together they make relay deploys/restarts zero-coordination — nobody restarts anything by hand):
+
+1. **Connection identity**: the hub/DO mints a random `connId` when a tunnel registers and sends it in the `hello` event. `GET /api/relay/tunnel/health` (homeSecret) reports the current instance's view: `{online, connId}`.
+2. **Engine verification loop**: while a tunnel is connected, the engine verifies out-of-band — **once ~10 s after connect** (catches the deploy-window zombie almost immediately), then **every ~60 s** (bounds any other silent divergence). A verification is *negative* when the response is definitive and contradicts the engine's state: `online:false`, or `connId` ≠ the one from `hello`. On a negative the engine drops the connection and reconnects (normal backoff). Network errors / non-200s are *inconclusive* and never kill a working tunnel (a flaky proxy must not cause reconnect storms).
+3. **Client tolerance**: remote clients auto-unpair on 401 only after **two consecutive** 401 responses — a single transient 401 (deploy-window auth blip) must not destroy a pairing. Health-poll "offline" states never unpair (only 401s do).
+
+Deploy runbook consequence: `wrangler deploy` needs no tunnel coordination — every home self-heals within ~10 s (deploy-window zombies) / ~60 s (worst case). The old `launchctl kickstart` workaround is obsolete.
 
 ## Note sharing (public share links)
 

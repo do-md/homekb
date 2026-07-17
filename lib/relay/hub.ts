@@ -41,6 +41,10 @@ export function asRpcHubError(e: unknown): RpcHubError | null {
 
 interface HomeConn {
   homeId: string;
+  /** Random id minted at registration; sent in `hello`, reported by connInfo —
+   *  the engine's out-of-band liveness verification compares against it
+   *  (docs/ARCHITECTURE.md "Tunnel liveness & deploy safety"). */
+  connId: string;
   connectedAt: number;
   send: (event: string, data: string) => void;
   close: () => void;
@@ -81,7 +85,14 @@ export class TunnelHub {
         old.close();
       } catch {}
     }
-    const conn: HomeConn = { homeId, connectedAt: Date.now(), send, close, pending: new Map() };
+    const conn: HomeConn = {
+      homeId,
+      connId: nanoid(12),
+      connectedAt: Date.now(),
+      send,
+      close,
+      pending: new Map(),
+    };
     this.conns.set(homeId, conn);
     return conn;
   }
@@ -97,6 +108,12 @@ export class TunnelHub {
 
   online(homeId: string): boolean {
     return this.conns.has(homeId);
+  }
+
+  /** The current hub's view of a home's tunnel (home-side liveness verification). */
+  connInfo(homeId: string): { online: boolean; connId: string | null } {
+    const conn = this.conns.get(homeId);
+    return { online: !!conn, connId: conn?.connId ?? null };
   }
 
   call(homeId: string, method: string, params: unknown, timeoutMs = DEFAULT_TIMEOUT): Promise<unknown> {

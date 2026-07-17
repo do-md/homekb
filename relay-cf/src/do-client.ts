@@ -95,9 +95,16 @@ export function requestAskStream(env: Env, homeId: string, params: unknown): Pro
   return requestStream(env, homeId, "/ask-request", { params });
 }
 
+/** The current DO instance's view of the home's tunnel. */
+export async function homeConnInfo(
+  env: Env,
+  homeId: string,
+): Promise<{ online: boolean; connId: string | null }> {
+  const res = await tunnelStub(env, homeId).fetch("https://do/online");
+  return (await res.json()) as { online: boolean; connId: string | null };
+}
+
 /** Whether the home's tunnel is currently connected. */
 export async function homeOnline(env: Env, homeId: string): Promise<boolean> {
-  const res = await tunnelStub(env, homeId).fetch("https://do/online");
-  const body = (await res.json()) as { online: boolean };
-  return body.online;
+  return (await homeConnInfo(env, homeId)).online;
 }

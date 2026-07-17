@@ -227,6 +227,18 @@ export async function relayHealth(req: Request): Promise<Response> {
 }
 
 /**
+ * Home-side tunnel liveness (docs/ARCHITECTURE.md "Tunnel liveness & deploy safety"):
+ * the CURRENT hub's view of this home's tunnel. The engine polls it out-of-band
+ * and reconnects when `online:false` or `connId` differs from its `hello`.
+ */
+export async function relayTunnelHealth(req: Request): Promise<Response> {
+  const home = authHome(req);
+  if (!home) return jsonError(401, "unauthorized");
+  const info = hub().connInfo(home.id);
+  return Response.json({ ok: true, online: info.online, connId: info.connId });
+}
+
+/**
  * Paired-devices list (home device authenticated): every grant of this home, newest
  * first. The relay stores only labels + token hashes, so there is no per-grant
  * liveness — clients render lastUsedAt instead (docs/ARCHITECTURE.md, grants API).

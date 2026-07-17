@@ -1,6 +1,13 @@
 import type { Env } from "./env";
 import { authGrant, authHome } from "./auth";
-import { callHome, homeOnline, HubClientError, hubErrorStatus, tunnelStub } from "./do-client";
+import {
+  callHome,
+  homeConnInfo,
+  homeOnline,
+  HubClientError,
+  hubErrorStatus,
+  tunnelStub,
+} from "./do-client";
 import { handleMcpMessage } from "./mcp-handler";
 import { requestOrigin } from "./origin";
 import { b64url, jsonError, randomId, randomPairCode, randomToken, sha256hex } from "./util";
@@ -248,6 +255,20 @@ export async function relayHealth(req: Request, env: Env): Promise<Response> {
   const grant = await authGrant(req, env);
   if (!grant) return jsonError(401, "unauthorized");
   return Response.json({ ok: true, online: await homeOnline(env, grant.home_id) });
+}
+
+/**
+ * Home-side tunnel liveness (docs/ARCHITECTURE.md "Tunnel liveness & deploy safety"):
+ * the CURRENT instance's view of this home's tunnel. The engine polls this
+ * out-of-band and reconnects when `online:false` or `connId` differs from the
+ * one it received in `hello` — the self-healing that makes relay deploys
+ * zero-coordination.
+ */
+export async function relayTunnelHealth(req: Request, env: Env): Promise<Response> {
+  const home = await authHome(req, env);
+  if (!home) return jsonError(401, "unauthorized");
+  const info = await homeConnInfo(env, home.id);
+  return Response.json({ ok: true, online: info.online, connId: info.connId });
 }
 
 /**
