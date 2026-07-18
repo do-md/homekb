@@ -92,6 +92,10 @@ export interface CreatedShare {
  *  "Auto mode"): a streaming AI answer or a note list. There is no user-facing
  *  mode toggle — the ask router judges the intent per query. */
 export type ResultKind = "answer" | "list";
+/** Progressive ask stages, mapped 1:1 onto stream-frame arrivals (docs
+ *  "First-paint batch"): submit→hits = vector search, hits→route outcome =
+ *  query analysis, sources→done = answer synthesis. Null when idle/terminal. */
+export type AskStage = "searching" | "thinking" | "answering";
 /** "streaming" = answer tokens arriving (answer results only); "done" = complete. */
 export type RecallPhase = "idle" | "searching" | "streaming" | "done";
 

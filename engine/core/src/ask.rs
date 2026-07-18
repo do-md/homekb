@@ -73,16 +73,22 @@ pub struct AskOutput {
 }
 
 /// One frame on the streaming ask channel (docs/ARCHITECTURE.md "Streaming answer channel").
+/// `Hits` is the first-paint batch (docs "First-paint batch"): unrouted grouped KNN on
+/// the ready vector, emitted right after embedding — before the route resolves — so the
+/// note list never waits on a chat-model round trip.
 /// `Sources` is emitted right after retrieval — before the first token — so clients can
 /// render the citation list immediately instead of waiting out the synthesize latency.
 /// `Delta`s carry incremental answer text as the synthesizer produces tokens; exactly one
 /// terminal `Done` follows, repeating the source metadata (kept identical to `Sources`
 /// for backward compatibility with clients that only read the terminal frame).
 /// `Results` is the auto-mode list short-circuit (docs "Auto mode"): the router judged
-/// that no synthesized answer is wanted, so the stream is exactly this one terminal
-/// frame — grouped doc-level hits plus the applied route, no synthesis.
+/// that no synthesized answer is wanted, so the routed list is the terminal frame —
+/// grouped doc-level hits plus the applied route, no synthesis.
 #[derive(Debug, Clone)]
 pub enum AskStreamEvent {
+    Hits {
+        hits: Vec<Hit>,
+    },
     Sources {
         citations: Vec<Citation>,
         hits: Vec<Hit>,
@@ -230,6 +236,26 @@ fn retrieve_with(config: &Config, question: &str, routed: &Routed) -> Result<Opt
     }))
 }
 
+/// Grouped doc-level KNN over a ready vector — the list surface's retrieval
+/// shape (`group: true`, LIST_LIMIT, MAX_DISTANCE). With `doc_type: None`
+/// this is also the unrouted first-paint batch (docs "First-paint batch").
+fn grouped_knn(
+    config: &Config,
+    question: &str,
+    doc_type: Option<String>,
+    vec: &[f32],
+) -> Result<SearchOutput> {
+    let opts = SearchOptions {
+        query: question.to_string(),
+        limit: LIST_LIMIT,
+        doc_type,
+        group: true,
+        max_distance: MAX_DISTANCE,
+        ..Default::default()
+    };
+    search_with_vector(config, &opts, vec)
+}
+
 /// The auto-mode list short-circuit (docs/ARCHITECTURE.md "Auto mode"):
 /// identical retrieval semantics to a routed `kb.query` — the enumerate sweep
 /// when the router picked a valid category, grouped doc-level KNN otherwise —
@@ -237,27 +263,20 @@ fn retrieve_with(config: &Config, question: &str, routed: &Routed) -> Result<Opt
 /// calls beyond the route that already ran.
 fn list_search(config: &Config, question: &str, routed: &Routed) -> Result<SearchOutput> {
     let enumerate = routed.route.enumerate && routed.doc_type.is_some();
-    let opts = if enumerate {
-        SearchOptions {
+    let mut out = if enumerate {
+        let opts = SearchOptions {
             query: question.to_string(),
             doc_type: routed.doc_type.clone(),
             enumerate: true,
             max_distance: 0.0,
             ..Default::default()
-        }
+        };
+        search_with_vector(config, &opts, &routed.vec)?
     } else {
-        SearchOptions {
-            query: question.to_string(),
-            limit: LIST_LIMIT,
-            doc_type: routed.doc_type.clone(),
-            group: true,
-            max_distance: MAX_DISTANCE,
-            ..Default::default()
-        }
+        grouped_knn(config, question, routed.doc_type.clone(), &routed.vec)?
     };
-    let mut out = search_with_vector(config, &opts, &routed.vec)?;
     out.route = Some(AppliedRoute {
-        doc_type: opts.doc_type.clone(),
+        doc_type: routed.doc_type.clone(),
         enumerate,
     });
     Ok(out)
@@ -303,13 +322,17 @@ pub async fn ask(config: &Config, question: &str) -> Result<AskOutput> {
 }
 
 /// Streaming ask (docs/ARCHITECTURE.md "Streaming answer channel"): identical
-/// retrieval, but synthesize streams token chunks as `AskStreamEvent::Delta`,
-/// followed by exactly one terminal `AskStreamEvent::Done` with the source
-/// metadata. Sends on `tx`; a closed receiver (client gone) stops synthesis.
+/// retrieval, but delivery is progressive (docs "First-paint batch") — the
+/// route call is spawned in the background and an unrouted grouped-KNN `Hits`
+/// frame goes out as soon as the embedding returns, so the first note list
+/// never waits on a chat-model round trip. The routed outcome then refines
+/// it: synthesize streams token chunks as `AskStreamEvent::Delta`, followed by
+/// exactly one terminal `AskStreamEvent::Done` with the source metadata.
+/// Sends on `tx`; a closed receiver (client gone) stops synthesis.
 ///
 /// `auto: true` (docs "Auto mode") lets the router decide whether an answer is
-/// wanted at all: on a retrieval/browse intent (`answer: false`) the stream is
-/// a single terminal `AskStreamEvent::Results` — the routed list, no synthesis.
+/// wanted at all: on a retrieval/browse intent (`answer: false`) the terminal
+/// frame is `AskStreamEvent::Results` — the routed list, no synthesis.
 /// A route failure defaults to `answer: true`, so auto can only ever degrade to
 /// the ordinary answer flow.
 pub async fn ask_stream(
@@ -322,10 +345,54 @@ pub async fn ask_stream(
     anyhow::ensure!(!question.is_empty(), "question is empty");
     let cli = client(config)?;
 
-    let routed = route_and_embed(&cli, config, question).await?;
+    // Spawned (not just joined) so the route request progresses while we await
+    // the embedding and run the first-paint search on this task.
+    let types = list_types(config).unwrap_or_default();
+    let route_task = {
+        let cli = cli.clone();
+        let config = config.clone();
+        let question = question.to_string();
+        let names: Vec<String> = types.iter().map(|t| t.doc_type.clone()).collect();
+        tokio::spawn(async move {
+            let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+            infer_route(&cli, &config, &question, &refs).await
+        })
+    };
+    let vec = embed_search_query(config, question)
+        .await
+        .context("embed question")?;
+
+    // First paint: unrouted grouped doc-level KNN on the ready vector — pure
+    // local math, typically sub-second end to end.
+    let early = grouped_knn(config, question, None, &vec)?;
+    let _ = tx.send(AskStreamEvent::Hits {
+        hits: early.results.clone(),
+    });
+
+    // Route failure (or task panic) degrades to the default route = answer flow.
+    let route = match route_task.await {
+        Ok(Ok(r)) => r,
+        _ => Route::default(),
+    };
+    let doc_type = route
+        .doc_type
+        .clone()
+        .filter(|t| types.iter().any(|k| &k.doc_type == t));
+    let routed = Routed {
+        route,
+        doc_type,
+        vec,
+    };
 
     if auto && !routed.route.answer {
-        let out = list_search(config, question, &routed)?;
+        // The route refines the first paint only when it adds a category filter
+        // (and possibly an enumeration sweep); otherwise the routed list IS the
+        // early batch — reuse it instead of re-searching.
+        let out = if routed.doc_type.is_some() {
+            list_search(config, question, &routed)?
+        } else {
+            early
+        };
         let route = out.route.unwrap_or(AppliedRoute {
             doc_type: None,
             enumerate: false,

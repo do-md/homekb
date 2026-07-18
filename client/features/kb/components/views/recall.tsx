@@ -1,17 +1,21 @@
 "use client";
 
 /**
- * Search / ask views (design 2a entry, 3a answer, 3b skeleton, 3c list, 4a empty states).
- * One ask input, no mode toggle: the engine's router decides per query whether to
- * stream an AI answer or return the note list (docs/ARCHITECTURE.md "Auto mode");
- * list results are whole notes, document-level cards — never fragment chunks.
- * "Answer with AI instead" on list/empty results is the misroute escape hatch.
+ * Search / ask views (design 2a entry, 3c list, 4a empty states) with progressive
+ * delivery (docs/ARCHITECTURE.md "First-paint batch"): the note list is ALWAYS the
+ * top surface and paints as soon as the vector search lands (the early `hits`
+ * frame — no LLM in that path); a three-stage strip (search → analyze → answer)
+ * tracks the pipeline; when the engine decides to answer, the answer streams into
+ * a compact fixed-height dock above the composer (no auto-scroll) with an expand
+ * control that opens the full answer as a `#answer=1` hash overlay (system back
+ * closes it). "Answer with AI instead" on list/empty results is the misroute
+ * escape hatch.
  */
 
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { type AiStatus, isDesktop } from "@/lib/client/desktop";
-import { pushHash } from "@/lib/client/hash-route";
+import { closeHashOverlay, pushHash, useHashParam } from "@/lib/client/hash-route";
 import {
   useDesktopStore,
   useDesktopStoreApi,
@@ -26,10 +30,12 @@ import {
   IconChevronRight,
   IconDoc,
   IconDocPlus,
+  IconExpand,
   IconRefresh,
   IconSearch,
   IconSliders,
   IconSpark,
+  IconX,
   Spinner,
   StatusDot,
 } from "../icons";
@@ -94,28 +100,62 @@ function NoteItem({ hit, maxScore }: { hit: KbHit; maxScore: number }) {
   );
 }
 
-/** Retrieval skeleton (design 3b) — shimmer bars, quiet motion. Shown before the
- *  engine's answer-vs-list decision arrives, so the copy stays surface-neutral. */
-function SearchSkeleton() {
+/** Note-card shimmers while the first-paint batch is still in flight. */
+function ListSkeleton() {
   return (
-    <div>
-      <div className="flex items-center gap-2 text-[13px] text-base-content/60">
-        <span className="text-primary">
-          <Spinner size={14} />
-        </span>
-        Searching your notes…
-      </div>
-      <div className="mt-3 rounded-2xl border border-base-300 bg-base-200 p-4">
-        <div className="flex flex-col gap-2.5">
-          {[100, 92, 96, 60].map((w, i) => (
+    <div className="flex flex-col gap-2.5">
+      {[0, 1, 2].map((i) => (
+        <span
+          key={i}
+          className="hk-shimmer block h-24 rounded-2xl bg-base-200"
+          style={{ animationDelay: `${i * 0.12}s` }}
+        />
+      ))}
+    </div>
+  );
+}
+
+const STAGES = [
+  ["searching", "Search"],
+  ["thinking", "Analyze"],
+  ["answering", "Answer"],
+] as const;
+
+/** Progressive-pipeline indicator (docs "First-paint batch"): which stage the
+ *  submit is in — vector search → query analysis (LLM router) → answer
+ *  synthesis. Hidden once the terminal frame lands (results speak). */
+function StageStrip() {
+  const stage = useKbStore((s) => s.state.stage);
+  if (!stage) return null;
+  const activeIdx = STAGES.findIndex(([key]) => key === stage);
+  return (
+    <div className="flex items-center gap-2 text-[12px]">
+      {STAGES.map(([key, label], i) => {
+        const state = i < activeIdx ? "done" : i === activeIdx ? "active" : "pending";
+        return (
+          <span key={key} className="flex items-center gap-2">
+            {i > 0 && <span className="h-px w-4 bg-base-300" />}
             <span
-              key={i}
-              className="hk-shimmer block h-3 rounded bg-base-300"
-              style={{ width: `${w}%`, animationDelay: `${i * 0.12}s` }}
-            />
-          ))}
-        </div>
-      </div>
+              className={`flex items-center gap-1.5 font-medium ${
+                state === "active"
+                  ? "text-primary"
+                  : state === "done"
+                    ? "text-base-content/60"
+                    : "text-base-content/35"
+              }`}
+            >
+              {state === "done" ? (
+                <IconCheck size={11} strokeWidth={2.5} />
+              ) : state === "active" ? (
+                <Spinner size={11} />
+              ) : (
+                <span className="h-1 w-1 rounded-full bg-current" />
+              )}
+              {label}
+            </span>
+          </span>
+        );
+      })}
     </div>
   );
 }
@@ -160,48 +200,56 @@ function decorateCitationRefs(root: HTMLElement, citationCount: number) {
   }
 }
 
+/** Decorate inline [n] markers once streaming completes (rAF lets DOMD commit
+ *  the final insertText before we walk its DOM). Shared by dock + overlay. */
+function useCitationChips(
+  ref: React.RefObject<HTMLDivElement | null>,
+  writing: boolean,
+  citationCount: number,
+) {
+  useEffect(() => {
+    if (writing || !ref.current || citationCount === 0) return;
+    const raf = requestAnimationFrame(() => {
+      if (ref.current) decorateCitationRefs(ref.current, citationCount);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [ref, writing, citationCount]);
+}
+
+function citationChipOf(target: EventTarget | null): number | null {
+  const chip = target instanceof Element ? target.closest<HTMLElement>(".hk-cite-ref") : null;
+  const n = chip ? parseInt(chip.dataset.cite ?? "", 10) : NaN;
+  return Number.isFinite(n) ? n : null;
+}
+
 /**
- * Answer result (design 3a, streaming state 3b): flat neutral card; primary only on
- * the label + chips. The answer renders as real Markdown *while it streams* — the
- * KB store feeds token chunks straight into a persistent DOMD editor via insertText.
- * On completion the inline `[n]` markers upgrade to clickable citation chips.
+ * Compact answer dock, pinned above the composer: the answer streams here as real
+ * Markdown (store → DOMD insertText) inside a FIXED max height with no auto-scroll
+ * — the text quietly grows below the fold; the user scrolls if they want to. The
+ * top-right expand control opens the full answer as a `#answer=1` hash overlay.
+ * Inline [n] chips (post-stream) open the cited note directly.
  */
-function AnswerResult() {
-  const phase = useKbStore((s) => s.state.phase);
+function AnswerDock() {
   const answer = useKbStore((s) => s.state.answer);
   const answerMs = useKbStore((s) => s.state.answerMs);
+  const phase = useKbStore((s) => s.state.phase);
   const bodyRef = useRef<HTMLDivElement>(null);
   const writing = phase === "streaming";
   const citationCount = answer?.citations?.length ?? 0;
+  useCitationChips(bodyRef, writing, citationCount);
 
-  // Once the answer is complete, upgrade inline [n] markers into clickable chips.
-  // A rAF lets DOMD commit the final insertText before we walk its DOM.
-  useEffect(() => {
-    if (writing || !bodyRef.current || citationCount === 0) return;
-    const raf = requestAnimationFrame(() => {
-      if (bodyRef.current) decorateCitationRefs(bodyRef.current, citationCount);
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [writing, citationCount]);
+  const openCited = (target: EventTarget | null) => {
+    const n = citationChipOf(target);
+    const cited = n != null ? answer?.citations?.[n - 1] : undefined;
+    if (cited) pushHash("doc", cited.path);
+  };
 
   const secs = answerMs != null ? `${(answerMs / 1000).toFixed(1)}s` : null;
 
-  const jumpToCitation = (target: EventTarget | null) => {
-    const chip = target instanceof Element ? target.closest<HTMLElement>(".hk-cite-ref") : null;
-    if (!chip) return;
-    const row = document.getElementById(`answer-cite-${chip.dataset.cite}`);
-    if (!row) return;
-    row.scrollIntoView({ behavior: "smooth", block: "center" });
-    row.classList.remove("hk-cite-flash");
-    // Restart the flash animation even when re-clicking the same chip.
-    void row.offsetWidth;
-    row.classList.add("hk-cite-flash");
-  };
-
   return (
-    <div className="flex flex-col gap-5">
-      <div className="rounded-2xl border border-base-300 bg-base-200 p-4">
-        <div className="flex items-center gap-1.5 text-[12px] font-semibold tracking-wide text-primary uppercase">
+    <div className="px-4">
+      <div className="shadow-sm mx-auto w-full max-w-2xl rounded-2xl border border-base-300 bg-base-200">
+        <div className="flex items-center gap-1.5 px-4 pt-3 text-[12px] font-semibold tracking-wide text-primary uppercase">
           {writing ? (
             <>
               <Spinner size={12} />
@@ -213,65 +261,149 @@ function AnswerResult() {
               Answer
             </>
           )}
+          {!writing && secs && (
+            <span className="ml-1 font-normal tracking-normal text-base-content/35 normal-case">
+              from {citationCount} {citationCount === 1 ? "note" : "notes"} · {secs}
+            </span>
+          )}
+          <button
+            onClick={() => pushHash("answer", "1")}
+            aria-label="Expand answer"
+            className="btn btn-ghost btn-xs ml-auto -mr-2 text-base-content/45 hover:text-base-content"
+          >
+            <IconExpand size={14} />
+          </button>
         </div>
         <div
           ref={bodyRef}
-          className="hk-answer"
-          onClick={(e) => jumpToCitation(e.target)}
+          className="hk-answer max-h-44 overflow-y-auto px-4 pb-3"
+          onClick={(e) => openCited(e.target)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") jumpToCitation(e.target);
+            if (e.key === "Enter" || e.key === " ") openCited(e.target);
           }}
         >
-          <KbStreamingAnswer className="mt-2" />
+          <KbStreamingAnswer className="mt-1.5" />
         </div>
-        {!writing && (
-          <div className="mt-3 border-t border-base-200 pt-2.5 text-xs text-base-content/35">
-            from {citationCount} of your notes
-            {secs ? ` · ${secs}` : ""}
-          </div>
-        )}
       </div>
-
-      {answer && citationCount > 0 && (
-        <div>
-          <div className="hk-label">Based on your notes</div>
-          <div className="mt-2 flex flex-col">
-            {answer.citations.map((c, i) => (
-              <button
-                key={c.path}
-                id={`answer-cite-${i + 1}`}
-                onClick={() => pushHash("doc", c.path)}
-                className={`flex items-center gap-3 rounded-lg px-1 py-2.5 text-left transition-colors hover:bg-base-200 ${
-                  i > 0 ? "border-t border-base-200" : ""
-                }`}
-              >
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-semibold text-primary">
-                  {i + 1}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[14px] font-medium text-base-content">
-                    {c.title || c.path}
-                  </span>
-                  <span className="block truncate text-xs text-base-content/45">{c.path}</span>
-                </span>
-                <IconChevronRight size={14} className="shrink-0 text-base-content/45" />
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
-/** List result (design 3c): docType chips + count + document cards. The engine
- *  chose this surface (retrieval/browse intent) — "Answer with AI instead" is
- *  the escape hatch when the user actually wanted a synthesized answer. */
+/**
+ * Full-screen answer detail (`#answer=1` hash overlay — system back closes it).
+ * Rendered INSTEAD of the dock while open (one live DOMD editor at a time; a
+ * mid-stream expand remounts it and the store backfills the text so far).
+ * Inline [n] chips jump to the citation rows; rows open the cited note.
+ */
+function AnswerOverlay() {
+  const answer = useKbStore((s) => s.state.answer);
+  const answerMs = useKbStore((s) => s.state.answerMs);
+  const phase = useKbStore((s) => s.state.phase);
+  const submittedQuery = useKbStore((s) => s.state.submittedQuery);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const writing = phase === "streaming";
+  const citationCount = answer?.citations?.length ?? 0;
+  useCitationChips(bodyRef, writing, citationCount);
+
+  const jumpToCitation = (target: EventTarget | null) => {
+    const n = citationChipOf(target);
+    if (n == null) return;
+    const row = document.getElementById(`answer-cite-${n}`);
+    if (!row) return;
+    row.scrollIntoView({ behavior: "smooth", block: "center" });
+    row.classList.remove("hk-cite-flash");
+    // Restart the flash animation even when re-clicking the same chip.
+    void row.offsetWidth;
+    row.classList.add("hk-cite-flash");
+  };
+
+  const secs = answerMs != null ? `${(answerMs / 1000).toFixed(1)}s` : null;
+
+  return (
+    <div className="fixed inset-0 z-40 flex flex-col bg-base-100">
+      <div className="flex items-start gap-3 px-4 pt-[max(env(safe-area-inset-top),16px)] pb-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 text-[12px] font-semibold tracking-wide text-primary uppercase">
+            {writing ? <Spinner size={12} /> : <IconSpark size={13} strokeWidth={1.5} />}
+            {writing ? "Writing…" : "Answer"}
+          </div>
+          <h1 className="mt-1 truncate text-[17px] leading-snug font-bold tracking-tight text-base-content">
+            {submittedQuery}
+          </h1>
+        </div>
+        <button
+          onClick={() => closeHashOverlay()}
+          aria-label="Close"
+          className="btn btn-ghost btn-sm btn-circle text-base-content/60"
+        >
+          <IconX size={18} />
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-[max(env(safe-area-inset-bottom),16px)]">
+        <div className="mx-auto w-full max-w-2xl">
+          <div
+            ref={bodyRef}
+            className="hk-answer"
+            onClick={(e) => jumpToCitation(e.target)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") jumpToCitation(e.target);
+            }}
+          >
+            <KbStreamingAnswer />
+          </div>
+          {!writing && (
+            <div className="mt-3 border-t border-base-200 pt-2.5 text-xs text-base-content/35">
+              from {citationCount} of your notes
+              {secs ? ` · ${secs}` : ""}
+            </div>
+          )}
+          {answer && citationCount > 0 && (
+            <div className="mt-5 pb-6">
+              <div className="hk-label">Based on your notes</div>
+              <div className="mt-2 flex flex-col">
+                {answer.citations.map((c, i) => (
+                  <button
+                    key={c.path}
+                    id={`answer-cite-${i + 1}`}
+                    onClick={() => pushHash("doc", c.path)}
+                    className={`flex items-center gap-3 rounded-lg px-1 py-2.5 text-left transition-colors hover:bg-base-200 ${
+                      i > 0 ? "border-t border-base-200" : ""
+                    }`}
+                  >
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-semibold text-primary">
+                      {i + 1}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[14px] font-medium text-base-content">
+                        {c.title || c.path}
+                      </span>
+                      <span className="block truncate text-xs text-base-content/45">{c.path}</span>
+                    </span>
+                    <IconChevronRight size={14} className="shrink-0 text-base-content/45" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** The note list (design 3c): docType chips + count + document cards — ALWAYS
+ *  the top surface, painted from the first-paint batch and refined by the
+ *  routed outcome (replaced wholesale; cards key by path so unchanged notes
+ *  don't re-render). "Answer with AI" appears only on a terminal list — the
+ *  escape hatch when the user actually wanted a synthesized answer. */
 function ListResult() {
   const api = useKbStoreApi();
   const hits = useKbStore((s) => s.state.hits);
   const filtered = useKbStore((s) => s.filteredHits);
   const typeFilter = useKbStore((s) => s.state.typeFilter);
+  const resultKind = useKbStore((s) => s.state.resultKind);
+  const phase = useKbStore((s) => s.state.phase);
+  const terminalList = resultKind === "list" && phase === "done";
 
   const types = Array.from(new Set(hits.map((h) => h.docType ?? "other")));
   const maxScore = hits.reduce((m, h) => Math.max(m, h.score), 0);
@@ -302,16 +434,18 @@ function ListResult() {
         <span>
           {filtered.length} {filtered.length === 1 ? "note" : "notes"} · By relevance
         </span>
-        <button
-          onClick={() => api.answerInstead()}
-          className="btn btn-ghost btn-xs gap-1 font-semibold text-primary"
-        >
-          <IconSpark size={12} strokeWidth={1.5} /> Answer with AI
-        </button>
+        {terminalList && (
+          <button
+            onClick={() => api.answerInstead()}
+            className="btn btn-ghost btn-xs gap-1 font-semibold text-primary"
+          >
+            <IconSpark size={12} strokeWidth={1.5} /> Answer with AI
+          </button>
+        )}
       </div>
       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-        {filtered.map((h, i) => (
-          <NoteItem key={`${h.path}-${i}`} hit={h} maxScore={maxScore} />
+        {filtered.map((h) => (
+          <NoteItem key={h.path} hit={h} maxScore={maxScore} />
         ))}
       </div>
     </div>
@@ -635,12 +769,14 @@ export function RecallView() {
   const api = useKbStoreApi();
   const connState = useKbStore((s) => s.connState);
   const resultKind = useKbStore((s) => s.state.resultKind);
+  const stage = useKbStore((s) => s.state.stage);
   const phase = useKbStore((s) => s.state.phase);
   const submittedQuery = useKbStore((s) => s.state.submittedQuery);
   const hits = useKbStore((s) => s.state.hits);
   const answer = useKbStore((s) => s.state.answer);
   const searchError = useKbStore((s) => s.state.searchError);
   const status = useKbStore((s) => s.state.status);
+  const answerExpanded = useHashParam("answer") != null;
 
   // Offline escalates to a full action screen (design 4b); composer goes muted.
   if (connState === "offline") {
@@ -663,6 +799,9 @@ export function RecallView() {
     phase === "done" && (resultKind === "answer" ? answer != null : hits.length > 0);
   const noResults =
     phase === "done" && !searchError && !hasResults && submittedQuery.length > 0;
+  // The answer rides above the composer (dock), or full-screen when expanded —
+  // exactly one of the two mounts (a single live DOMD editor at a time).
+  const answerVisible = resultKind === "answer" && answer != null;
 
   return (
     <>
@@ -682,17 +821,21 @@ export function RecallView() {
                 </button>
               </div>
 
+              <StageStrip />
+
               {searchError && (
                 <div className="rounded-xl border border-base-300 bg-base-200 px-4 py-3 text-[13.5px] text-hk-orange-text">
                   {searchError}
                 </div>
               )}
 
-              {phase === "searching" && <SearchSkeleton />}
-
-              {(phase === "streaming" || (phase === "done" && answer)) &&
-                resultKind === "answer" && <AnswerResult />}
-              {phase === "done" && resultKind === "list" && hits.length > 0 && <ListResult />}
+              {/* The note list is ALWAYS the top surface: first paint from the
+                  early hits frame, refined in place by the routed outcome. */}
+              {hits.length > 0 ? (
+                <ListResult />
+              ) : (
+                stage === "searching" && <ListSkeleton />
+              )}
               {noResults && <NoResults />}
             </div>
           ) : emptyLibrary ? (
@@ -702,6 +845,7 @@ export function RecallView() {
           )}
         </div>
       </div>
+      {answerVisible && (answerExpanded ? <AnswerOverlay /> : <AnswerDock />)}
       <Composer
         variant={submittedQuery ? "followup" : "entry"}
         muted={emptyLibrary}

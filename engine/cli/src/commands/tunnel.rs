@@ -521,6 +521,7 @@ fn ask_frame(name: &str, value: &Value) -> String {
 
 fn ask_event_frame(ev: AskStreamEvent) -> String {
     match ev {
+        AskStreamEvent::Hits { hits } => ask_frame("hits", &json!({ "hits": hits })),
         AskStreamEvent::Sources { citations, hits } => {
             ask_frame("sources", &json!({ "citations": citations, "hits": hits }))
         }

@@ -169,6 +169,10 @@ export async function rpcAskStream(
   opts: {
     onDelta: (text: string) => void;
     onSources?: (sources: AskStreamResult) => void;
+    /** First-paint batch (docs "First-paint batch"): unrouted grouped KNN hits,
+     *  emitted right after embedding — before the route resolves. Engines that
+     *  predate the frame never fire this; the terminal outcome still arrives. */
+    onHits?: (hits: unknown[]) => void;
     /** Let the engine decide answer-vs-list (docs "Auto mode"). Off = always answer. */
     auto?: boolean;
     signal?: AbortSignal;
@@ -216,6 +220,9 @@ export async function rpcAskStream(
     if (event === "delta") {
       const { text } = JSON.parse(data) as { text?: string };
       if (typeof text === "string" && text) opts.onDelta(text);
+    } else if (event === "hits") {
+      const { hits } = JSON.parse(data) as { hits?: unknown[] };
+      opts.onHits?.(hits ?? []);
     } else if (event === "sources") {
       opts.onSources?.(JSON.parse(data) as AskStreamResult);
     } else if (event === "done") {

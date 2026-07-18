@@ -10,6 +10,7 @@ import {
 import { isDesktop } from "@/lib/client/desktop";
 import { checkHealth, RelayError, rpc, rpcAskStream } from "@/lib/client/rpc";
 import type {
+  AskStage,
   ConnState,
   CreatedShare,
   DocMeta,
@@ -128,8 +129,10 @@ interface KbState {
   // see lib/client/hash-route.ts) — the store keeps only data.
 
   // recall — one ask entry; the engine decides answer-vs-list per query
-  // (docs/ARCHITECTURE.md "Auto mode"). resultKind reflects that decision.
+  // (docs/ARCHITECTURE.md "Auto mode"). resultKind reflects that decision;
+  // stage tracks the progressive delivery (vector → analysis → answer).
   resultKind: ResultKind | null;
+  stage: AskStage | null;
   query: string;
   submittedQuery: string;
   phase: RecallPhase;
@@ -225,6 +228,7 @@ export class KbStore extends ZenithStore<KbState> {
       pairBusy: false,
       pairError: null,
       resultKind: null,
+      stage: null,
       query: "",
       submittedQuery: "",
       phase: "idle",
@@ -469,6 +473,7 @@ export class KbStore extends ZenithStore<KbState> {
       d.searchError = null;
       d.typeFilter = null;
       d.resultKind = null;
+      d.stage = null;
     });
   }
 
@@ -490,26 +495,41 @@ export class KbStore extends ZenithStore<KbState> {
       d.answerMs = null;
       d.typeFilter = null;
       d.resultKind = null;
+      d.stage = "searching";
+      // The list renders as soon as hits exist now — clear the previous
+      // query's batch so it can't flash under the new heading.
+      d.hits = [];
     });
     try {
-      // One ask entry (docs/ARCHITECTURE.md "Auto mode"): every submit goes to
-      // the streaming kb.ask with `auto: true`, and the engine's router — which
-      // already runs before every query anyway — decides the surface. A real
-      // question streams an answer (sources → delta* → done, deltas feeding the
-      // live DOMD editor via insertText); a retrieval/browse intent returns one
-      // terminal `results` frame with the routed note list (enumerate-aware —
-      // "what recipes do I have" yields the WHOLE category, relevance-ranked).
+      // One ask entry with progressive delivery (docs/ARCHITECTURE.md "Auto
+      // mode" + "First-paint batch"): every submit goes to the streaming kb.ask
+      // with `auto: true`. The early `hits` frame paints the note list as soon
+      // as the vector search lands (no LLM in that path); the engine's router
+      // then refines it — a `results` frame finalizes the list, while sources →
+      // delta* → done replace the list with the answer's sources and stream the
+      // answer into the dock (deltas feed the live DOMD editor via insertText).
+      // Stage tracks frame arrivals: searching → thinking → answering.
       // `forceAnswer` is the misroute escape hatch: auto off → always answer.
-      // An old engine ignores `auto` and always answers — graceful degradation.
+      // An old engine sends no `hits` frame and always answers — graceful.
       this.resetLive();
       const outcome = await rpcAskStream(q, {
         auto: !opts.forceAnswer,
+        // First-paint batch: unrouted grouped KNN — render immediately, the
+        // route decision is still cooking.
+        onHits: (hits) => {
+          this.produce((d) => {
+            d.hits = (hits as KbHit[]) ?? [];
+            d.stage = "thinking";
+          });
+        },
         // Sources arrive before the first token (docs "Streaming answer
-        // channel") — render the citation list right away and flip to the
-        // streaming phase so the Answer card mounts while tokens cook.
+        // channel"): the authoritative source list replaces the early batch
+        // (keyed by path — unchanged notes don't re-render) and the answer
+        // dock mounts while tokens cook.
         onSources: (sources) => {
           this.produce((d) => {
             d.resultKind = "answer";
+            d.stage = "answering";
             d.answer = {
               answer: "",
               citations: sources.citations ?? [],
@@ -524,6 +544,7 @@ export class KbStore extends ZenithStore<KbState> {
       if (outcome.kind === "list") {
         this.produce((d) => {
           d.resultKind = "list";
+          d.stage = null;
           d.hits = (outcome.hits as KbHit[]) ?? [];
           d.phase = "done";
         });
@@ -532,6 +553,7 @@ export class KbStore extends ZenithStore<KbState> {
       this.flushDelta();
       this.produce((d) => {
         d.resultKind = "answer";
+        d.stage = null;
         d.answer = {
           answer: this.liveText,
           citations: outcome.citations ?? [],
@@ -545,6 +567,7 @@ export class KbStore extends ZenithStore<KbState> {
       if (e instanceof RelayError && e.code === "unauthorized") return this.unpair();
       this.produce((d) => {
         d.phase = "done";
+        d.stage = null;
         d.searchError = e instanceof Error ? e.message : "Search failed";
       });
     }

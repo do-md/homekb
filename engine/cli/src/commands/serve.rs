@@ -203,6 +203,7 @@ fn sse_frame(name: &str, value: Value) -> Event {
 
 fn sse_ask_event(ev: AskStreamEvent) -> Event {
     match ev {
+        AskStreamEvent::Hits { hits } => sse_frame("hits", json!({ "hits": hits })),
         AskStreamEvent::Sources { citations, hits } => {
             sse_frame("sources", json!({ "citations": citations, "hits": hits }))
         }

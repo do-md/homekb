@@ -194,6 +194,16 @@ export function IconX(p: IconProps) {
   );
 }
 
+/** Maximize / expand (two diagonal corner arrows) — the answer dock's expand control. */
+export function IconExpand(p: IconProps) {
+  return (
+    <svg {...base(p)}>
+      <path d="M14 4h6v6M20 4l-7 7" />
+      <path d="M10 20H4v-6M4 20l7-7" />
+    </svg>
+  );
+}
+
 /** Loading ring (homekb-spin). Primary by default via currentColor. */
 export function Spinner({ size = 16, className = "" }: { size?: number; className?: string }) {
   return (
