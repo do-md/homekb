@@ -2,8 +2,10 @@
 
 /**
  * Search / ask views (design 2a entry, 3a answer, 3b skeleton, 3c list, 4a empty states).
- * One ask input, two modes: Answer (default, AI-synthesized + cited notes) and
- * List (whole notes, document-level cards — never fragment chunks).
+ * One ask input, no mode toggle: the engine's router decides per query whether to
+ * stream an AI answer or return the note list (docs/ARCHITECTURE.md "Auto mode");
+ * list results are whole notes, document-level cards — never fragment chunks.
+ * "Answer with AI instead" on list/empty results is the misroute escape hatch.
  */
 
 import { useEffect, useRef } from "react";
@@ -16,7 +18,7 @@ import {
 } from "@/features/desktop/store/desktop-store";
 import type { KbHit } from "../../type";
 import { useKbStore, useKbStoreApi } from "../../store/kb-store";
-import { Composer, ModeToggle } from "../composer";
+import { Composer } from "../composer";
 import { KbStreamingAnswer } from "../domd";
 import {
   IconArrowRight,
@@ -92,15 +94,16 @@ function NoteItem({ hit, maxScore }: { hit: KbHit; maxScore: number }) {
   );
 }
 
-/** Answer skeleton while retrieving (design 3b) — shimmer bars, quiet motion. */
-function AnswerSkeleton() {
+/** Retrieval skeleton (design 3b) — shimmer bars, quiet motion. Shown before the
+ *  engine's answer-vs-list decision arrives, so the copy stays surface-neutral. */
+function SearchSkeleton() {
   return (
     <div>
       <div className="flex items-center gap-2 text-[13px] text-base-content/60">
         <span className="text-primary">
           <Spinner size={14} />
         </span>
-        Reading your notes to write your answer…
+        Searching your notes…
       </div>
       <div className="mt-3 rounded-2xl border border-base-300 bg-base-200 p-4">
         <div className="flex flex-col gap-2.5">
@@ -261,7 +264,9 @@ function AnswerResult() {
   );
 }
 
-/** List result (design 3c): docType chips + count + document cards. */
+/** List result (design 3c): docType chips + count + document cards. The engine
+ *  chose this surface (retrieval/browse intent) — "Answer with AI instead" is
+ *  the escape hatch when the user actually wanted a synthesized answer. */
 function ListResult() {
   const api = useKbStoreApi();
   const hits = useKbStore((s) => s.state.hits);
@@ -293,8 +298,16 @@ function ListResult() {
           })}
         </div>
       )}
-      <div className="text-xs text-base-content/35">
-        {filtered.length} {filtered.length === 1 ? "note" : "notes"} · By relevance
+      <div className="flex items-center justify-between text-xs text-base-content/35">
+        <span>
+          {filtered.length} {filtered.length === 1 ? "note" : "notes"} · By relevance
+        </span>
+        <button
+          onClick={() => api.answerInstead()}
+          className="btn btn-ghost btn-xs gap-1 font-semibold text-primary"
+        >
+          <IconSpark size={12} strokeWidth={1.5} /> Answer with AI
+        </button>
       </div>
       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
         {filtered.map((h, i) => (
@@ -305,25 +318,26 @@ function ListResult() {
   );
 }
 
-/** No search results (design 4a bottom). */
+/** No search results (design 4a bottom). A list-kind empty offers the answer
+ *  escape hatch — the AI reads more widely than the visible match list. */
 function NoResults() {
   const api = useKbStoreApi();
   const q = useKbStore((s) => s.state.submittedQuery);
-  const mode = useKbStore((s) => s.state.mode);
+  const resultKind = useKbStore((s) => s.state.resultKind);
   return (
     <div className="flex flex-col items-center py-14 text-center">
       <IconSearch size={26} className="text-base-content/35" />
       <div className="mt-3 text-[16px] font-semibold text-base-content">No notes matched</div>
       <p className="mt-1.5 max-w-xs text-[13.5px] leading-relaxed text-base-content/60">
         Nothing in your library matches &ldquo;{q}&rdquo; — try different words
-        {mode === "list" ? ", or ask it as a question." : "."}
+        {resultKind === "list" ? ", or ask the AI to answer." : "."}
       </p>
-      {mode === "list" && (
+      {resultKind === "list" && (
         <button
-          onClick={() => api.setMode("answer")}
-          className="mt-4 text-[14px] font-semibold text-primary hover:text-primary"
+          onClick={() => api.answerInstead()}
+          className="btn btn-ghost btn-sm mt-4 gap-1.5 font-semibold text-primary"
         >
-          Ask as a question instead
+          <IconSpark size={14} strokeWidth={1.5} /> Answer with AI instead
         </button>
       )}
     </div>
@@ -620,7 +634,7 @@ function EntryBody() {
 export function RecallView() {
   const api = useKbStoreApi();
   const connState = useKbStore((s) => s.connState);
-  const mode = useKbStore((s) => s.state.mode);
+  const resultKind = useKbStore((s) => s.state.resultKind);
   const phase = useKbStore((s) => s.state.phase);
   const submittedQuery = useKbStore((s) => s.state.submittedQuery);
   const hits = useKbStore((s) => s.state.hits);
@@ -645,7 +659,8 @@ export function RecallView() {
   }
 
   const emptyLibrary = phase === "idle" && status != null && (status.docs ?? 0) === 0;
-  const hasResults = phase === "done" && (mode === "answer" ? answer != null : hits.length > 0);
+  const hasResults =
+    phase === "done" && (resultKind === "answer" ? answer != null : hits.length > 0);
   const noResults =
     phase === "done" && !searchError && !hasResults && submittedQuery.length > 0;
 
@@ -655,21 +670,16 @@ export function RecallView() {
         <div className="mx-auto w-full max-w-2xl px-4 py-4">
           {submittedQuery ? (
             <div className="flex flex-col gap-4">
-              <div>
-                <div className="flex items-start justify-between gap-3">
-                  <h1 className="text-[21px] leading-snug font-bold tracking-tight text-base-content">
-                    {submittedQuery}
-                  </h1>
-                  <button
-                    onClick={() => api.clearSearch()}
-                    className="mt-1 shrink-0 text-xs font-medium text-base-content/45 transition-colors hover:text-base-content/60"
-                  >
-                    Clear
-                  </button>
-                </div>
-                <div className="mt-2.5">
-                  <ModeToggle />
-                </div>
+              <div className="flex items-start justify-between gap-3">
+                <h1 className="text-[21px] leading-snug font-bold tracking-tight text-base-content">
+                  {submittedQuery}
+                </h1>
+                <button
+                  onClick={() => api.clearSearch()}
+                  className="mt-1 shrink-0 text-xs font-medium text-base-content/45 transition-colors hover:text-base-content/60"
+                >
+                  Clear
+                </button>
               </div>
 
               {searchError && (
@@ -678,24 +688,11 @@ export function RecallView() {
                 </div>
               )}
 
-              {phase === "searching" &&
-                (mode === "answer" ? (
-                  <AnswerSkeleton />
-                ) : (
-                  <div className="flex flex-col gap-2.5">
-                    {[0, 1, 2].map((i) => (
-                      <span
-                        key={i}
-                        className="hk-shimmer block h-24 rounded-2xl bg-base-200"
-                        style={{ animationDelay: `${i * 0.12}s` }}
-                      />
-                    ))}
-                  </div>
-                ))}
+              {phase === "searching" && <SearchSkeleton />}
 
               {(phase === "streaming" || (phase === "done" && answer)) &&
-                mode === "answer" && <AnswerResult />}
-              {phase === "done" && mode === "list" && hits.length > 0 && <ListResult />}
+                resultKind === "answer" && <AnswerResult />}
+              {phase === "done" && resultKind === "list" && hits.length > 0 && <ListResult />}
               {noResults && <NoResults />}
             </div>
           ) : emptyLibrary ? (

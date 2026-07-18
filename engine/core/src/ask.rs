@@ -2,12 +2,18 @@
 //!
 //! Pipeline (ported from claude-os kb.service `kbInferRoute`/`kbSynthesize`):
 //! 1. route ∥ embed: the routing LLM call (optional doc_type filter +
-//!                whether whole documents are needed) runs concurrently
-//!                with embedding the question — the query vector depends
-//!                only on the question string, not on the route;
+//!                whether whole documents are needed + whether a synthesized
+//!                answer is wanted at all) runs concurrently with embedding
+//!                the question — the query vector depends only on the
+//!                question string, not on the route;
 //! 2. retrieve:   two-pool KNN + RRF search, locally, with the ready vector;
 //! 3. synthesize: LLM answers strictly from the retrieved snippets, citing
 //!                sources, following the language of the question.
+//!
+//! The streaming path additionally supports auto mode (docs/ARCHITECTURE.md
+//! "Auto mode"): when the router says the intent is retrieval/browse rather
+//! than a question, step 3 is skipped and the routed list is emitted as a
+//! single terminal `Results` frame.
 //!
 //! The user-facing output has no chunk granularity: the context block is
 //! numbered per source document (one `[n]` per doc, its snippets listed
@@ -35,6 +41,9 @@ use crate::config::Config;
 const MAX_DISTANCE: f64 = 1.1;
 const CHUNK_LIMIT: usize = 24;
 const FULL_LIMIT: usize = 6;
+/// Grouped doc-level result cap on the auto list path (mirrors what the UI's
+/// routed `kb.query {group: true}` used to request).
+const LIST_LIMIT: usize = 20;
 /// Cap on the assembled context block sent to the synthesizer.
 const CONTEXT_BUDGET_CHARS: usize = 60_000;
 /// Answer returned when retrieval finds nothing relevant in the KB.
@@ -69,6 +78,9 @@ pub struct AskOutput {
 /// `Delta`s carry incremental answer text as the synthesizer produces tokens; exactly one
 /// terminal `Done` follows, repeating the source metadata (kept identical to `Sources`
 /// for backward compatibility with clients that only read the terminal frame).
+/// `Results` is the auto-mode list short-circuit (docs "Auto mode"): the router judged
+/// that no synthesized answer is wanted, so the stream is exactly this one terminal
+/// frame — grouped doc-level hits plus the applied route, no synthesis.
 #[derive(Debug, Clone)]
 pub enum AskStreamEvent {
     Sources {
@@ -80,9 +92,13 @@ pub enum AskStreamEvent {
         citations: Vec<Citation>,
         hits: Vec<Hit>,
     },
+    Results {
+        hits: Vec<Hit>,
+        route: AppliedRoute,
+    },
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Deserialize)]
 struct Route {
     doc_type: Option<String>,
     #[serde(default)]
@@ -92,6 +108,28 @@ struct Route {
     /// when `doc_type` resolves to a known category.
     #[serde(default)]
     enumerate: bool,
+    /// Whether a synthesized reply is wanted (docs/ARCHITECTURE.md "Auto
+    /// mode"). False = retrieval/browse intent (the user wants the notes
+    /// themselves); only consumed on the auto streaming path. Defaults to
+    /// true — a router failure must degrade to the answer flow, never to a
+    /// surprise list.
+    #[serde(default = "default_true")]
+    answer: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for Route {
+    fn default() -> Self {
+        Self {
+            doc_type: None,
+            needs_full: false,
+            enumerate: false,
+            answer: true,
+        }
+    }
 }
 
 type OpenAIClient = Client<async_openai::config::OpenAIConfig>;
@@ -118,15 +156,21 @@ struct Retrieval {
     cited: usize,
 }
 
-async fn retrieve(
-    cli: &OpenAIClient,
-    config: &Config,
-    question: &str,
-) -> Result<Option<Retrieval>> {
-    // route ∥ embed — the query vector depends only on the question string,
-    // so embedding runs concurrently with routing to hide the route latency.
-    // A route failure is non-fatal (degrades to unfiltered chunk search);
-    // an embed failure is fatal.
+/// The shared front half of every ask path: the routing decision, the
+/// vocabulary-validated doc_type, and the ready-made query vector.
+struct Routed {
+    route: Route,
+    /// The route's doc_type, kept only when it is in the known vocabulary —
+    /// prefer no filter over an error.
+    doc_type: Option<String>,
+    vec: Vec<f32>,
+}
+
+/// route ∥ embed — the query vector depends only on the question string,
+/// so embedding runs concurrently with routing to hide the route latency.
+/// A route failure is non-fatal (degrades to `Route::default()` — the
+/// unfiltered answer flow); an embed failure is fatal.
+async fn route_and_embed(cli: &OpenAIClient, config: &Config, question: &str) -> Result<Routed> {
     let types = list_types(config).unwrap_or_default();
     let type_names: Vec<&str> = types.iter().map(|t| t.doc_type.as_str()).collect();
     let (route, vec) = tokio::join!(
@@ -135,20 +179,26 @@ async fn retrieve(
     );
     let route = route.unwrap_or_default();
     let vec = vec.context("embed question")?;
-    // The doc_type from the router must be in the known vocabulary; discard
-    // unrecognized values — prefer no filter over an error.
     let doc_type = route
         .doc_type
+        .clone()
         .filter(|t| types.iter().any(|k| &k.doc_type == t));
+    Ok(Routed {
+        route,
+        doc_type,
+        vec,
+    })
+}
 
+fn retrieve_with(config: &Config, question: &str, routed: &Routed) -> Result<Option<Retrieval>> {
     // Enumeration intent + a resolved category → whole-category summary
     // sweep (coverage-first, no distance cutoff); the synthesizer judges
     // over every summary in the category. Otherwise: dual-pool KNN.
-    let enumerate = route.enumerate && doc_type.is_some();
+    let enumerate = routed.route.enumerate && routed.doc_type.is_some();
     let opts = if enumerate {
         SearchOptions {
             query: question.to_string(),
-            doc_type,
+            doc_type: routed.doc_type.clone(),
             enumerate: true,
             max_distance: 0.0,
             ..Default::default()
@@ -156,15 +206,15 @@ async fn retrieve(
     } else {
         SearchOptions {
             query: question.to_string(),
-            limit: if route.needs_full { FULL_LIMIT } else { CHUNK_LIMIT },
-            doc_type,
-            full: route.needs_full,
+            limit: if routed.route.needs_full { FULL_LIMIT } else { CHUNK_LIMIT },
+            doc_type: routed.doc_type.clone(),
+            full: routed.route.needs_full,
             group: false,
             max_distance: MAX_DISTANCE,
             enumerate: false,
         }
     };
-    let out = search_with_vector(config, &opts, &vec)?;
+    let out = search_with_vector(config, &opts, &routed.vec)?;
     if out.results.is_empty() {
         return Ok(None);
     }
@@ -178,6 +228,39 @@ async fn retrieve(
         context_block,
         cited,
     }))
+}
+
+/// The auto-mode list short-circuit (docs/ARCHITECTURE.md "Auto mode"):
+/// identical retrieval semantics to a routed `kb.query` — the enumerate sweep
+/// when the router picked a valid category, grouped doc-level KNN otherwise —
+/// reusing the route + vector already computed for this question. Zero LLM
+/// calls beyond the route that already ran.
+fn list_search(config: &Config, question: &str, routed: &Routed) -> Result<SearchOutput> {
+    let enumerate = routed.route.enumerate && routed.doc_type.is_some();
+    let opts = if enumerate {
+        SearchOptions {
+            query: question.to_string(),
+            doc_type: routed.doc_type.clone(),
+            enumerate: true,
+            max_distance: 0.0,
+            ..Default::default()
+        }
+    } else {
+        SearchOptions {
+            query: question.to_string(),
+            limit: LIST_LIMIT,
+            doc_type: routed.doc_type.clone(),
+            group: true,
+            max_distance: MAX_DISTANCE,
+            ..Default::default()
+        }
+    };
+    let mut out = search_with_vector(config, &opts, &routed.vec)?;
+    out.route = Some(AppliedRoute {
+        doc_type: opts.doc_type.clone(),
+        enumerate,
+    });
+    Ok(out)
 }
 
 /// Citations align 1:1 with the `[n]` numbering: only sources that actually made
@@ -201,7 +284,8 @@ pub async fn ask(config: &Config, question: &str) -> Result<AskOutput> {
     anyhow::ensure!(!question.is_empty(), "question is empty");
     let cli = client(config)?;
 
-    let Some(r) = retrieve(&cli, config, question).await? else {
+    let routed = route_and_embed(&cli, config, question).await?;
+    let Some(r) = retrieve_with(config, question, &routed)? else {
         return Ok(AskOutput {
             answer: EMPTY_KB_ANSWER.to_string(),
             citations: vec![],
@@ -222,16 +306,38 @@ pub async fn ask(config: &Config, question: &str) -> Result<AskOutput> {
 /// retrieval, but synthesize streams token chunks as `AskStreamEvent::Delta`,
 /// followed by exactly one terminal `AskStreamEvent::Done` with the source
 /// metadata. Sends on `tx`; a closed receiver (client gone) stops synthesis.
+///
+/// `auto: true` (docs "Auto mode") lets the router decide whether an answer is
+/// wanted at all: on a retrieval/browse intent (`answer: false`) the stream is
+/// a single terminal `AskStreamEvent::Results` — the routed list, no synthesis.
+/// A route failure defaults to `answer: true`, so auto can only ever degrade to
+/// the ordinary answer flow.
 pub async fn ask_stream(
     config: &Config,
     question: &str,
+    auto: bool,
     tx: &mpsc::UnboundedSender<AskStreamEvent>,
 ) -> Result<()> {
     let question = question.trim();
     anyhow::ensure!(!question.is_empty(), "question is empty");
     let cli = client(config)?;
 
-    let Some(r) = retrieve(&cli, config, question).await? else {
+    let routed = route_and_embed(&cli, config, question).await?;
+
+    if auto && !routed.route.answer {
+        let out = list_search(config, question, &routed)?;
+        let route = out.route.unwrap_or(AppliedRoute {
+            doc_type: None,
+            enumerate: false,
+        });
+        let _ = tx.send(AskStreamEvent::Results {
+            hits: out.results,
+            route,
+        });
+        return Ok(());
+    }
+
+    let Some(r) = retrieve_with(config, question, &routed)? else {
         let _ = tx.send(AskStreamEvent::Sources {
             citations: vec![],
             hits: vec![],
@@ -368,7 +474,7 @@ async fn infer_route(
     let system = format!(
         "You route knowledge-base queries. Known doc_type values: [{}].\n\
          Output ONLY a JSON object: {{\"doc_type\": string|null, \"needs_full\": boolean, \
-         \"enumerate\": boolean}}.\n\
+         \"enumerate\": boolean, \"answer\": boolean}}.\n\
          doc_type: pick one ONLY when the question clearly targets that category; \
          when in doubt output null (a false positive filter hides content; null never does).\n\
          enumerate: true when the question asks to list, browse, count, or pick across \
@@ -379,13 +485,20 @@ async fn infer_route(
          needs_full: true only when the user needs complete documents \
          (e.g. a full recipe procedure, a whole article, entire code); \
          false when snippets suffice (definitions, lookups, background). \
-         Ignored when enumerate is true.",
+         Ignored when enumerate is true.\n\
+         answer: whether a composed reply is wanted. false when the intent is to \
+         FIND or BROWSE the notes themselves — bare keywords, \"my notes about X\", \
+         \"find/show/list my X\" (the notes ARE the result). true when the user asks \
+         a question to be answered FROM the notes — how/why/what-is, comparisons, \
+         recommendations, summaries (\"recommend two dishes\" is answer+enumerate; \
+         \"what recipes do I have\" is just browsing: answer=false). \
+         When unsure output true.",
         types.join(", ")
     );
     let req = CreateChatCompletionRequestArgs::default()
         .model(config.ask_endpoint().model)
         .temperature(0.0)
-        .max_tokens(60u32)
+        .max_tokens(80u32)
         .messages([
             ChatCompletionRequestSystemMessageArgs::default()
                 .content(system)

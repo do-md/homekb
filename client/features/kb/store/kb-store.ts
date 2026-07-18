@@ -18,8 +18,8 @@ import type {
   KbHit,
   KbStatusData,
   KbSuggestion,
-  RecallMode,
   RecallPhase,
+  ResultKind,
   ShareMeta,
 } from "../type";
 
@@ -127,8 +127,9 @@ interface KbState {
   // Which surface is shown is owned by the URL (path routes + hash overlays,
   // see lib/client/hash-route.ts) — the store keeps only data.
 
-  // recall
-  mode: RecallMode;
+  // recall — one ask entry; the engine decides answer-vs-list per query
+  // (docs/ARCHITECTURE.md "Auto mode"). resultKind reflects that decision.
+  resultKind: ResultKind | null;
   query: string;
   submittedQuery: string;
   phase: RecallPhase;
@@ -223,7 +224,7 @@ export class KbStore extends ZenithStore<KbState> {
       lastConnectedAt: loadLastConnectedAt(),
       pairBusy: false,
       pairError: null,
-      mode: "answer",
+      resultKind: null,
       query: "",
       submittedQuery: "",
       phase: "idle",
@@ -444,12 +445,11 @@ export class KbStore extends ZenithStore<KbState> {
     });
   }
 
-  public setMode(mode: RecallMode) {
-    this.produce((d) => {
-      d.mode = mode;
-    });
+  /** Escape hatch for an auto misroute (the engine listed notes but the user
+   *  wanted an answer): re-run the submitted query forcing the answer path. */
+  public answerInstead() {
     const q = this.state.submittedQuery;
-    if (q) void this.runSearch(q);
+    if (q) void this.runSearch(q, { forceAnswer: true });
   }
 
   public setTypeFilter(t: string | null) {
@@ -468,6 +468,7 @@ export class KbStore extends ZenithStore<KbState> {
       d.answer = null;
       d.searchError = null;
       d.typeFilter = null;
+      d.resultKind = null;
     });
   }
 
@@ -478,8 +479,7 @@ export class KbStore extends ZenithStore<KbState> {
     await this.runSearch(q);
   }
 
-  private async runSearch(q: string) {
-    const mode = this.state.mode;
+  private async runSearch(q: string, opts: { forceAnswer?: boolean } = {}) {
     const startedAt = Date.now();
     this.produce((d) => {
       d.submittedQuery = q;
@@ -489,63 +489,58 @@ export class KbStore extends ZenithStore<KbState> {
       d.answer = null;
       d.answerMs = null;
       d.typeFilter = null;
+      d.resultKind = null;
     });
     try {
-      if (mode === "answer") {
-        // Real token streaming (docs/ARCHITECTURE.md "Streaming answer channel"):
-        // deltas feed the live DOMD editor via insertText; phase flips to "streaming"
-        // on the first token; the terminal `done` frame carries citations + hits.
-        this.resetLive();
-        const done = await rpcAskStream(q, {
-          // Sources arrive before the first token (docs "Streaming answer
-          // channel") — render the citation list right away and flip to the
-          // streaming phase so the Answer card mounts while tokens cook.
-          onSources: (sources) => {
-            this.produce((d) => {
-              d.answer = {
-                answer: "",
-                citations: sources.citations ?? [],
-                hits: (sources.hits as KbHit[] | undefined) ?? [],
-              };
-              d.hits = (sources.hits as KbHit[] | undefined) ?? [];
-              d.phase = "streaming";
-            });
-          },
-          onDelta: (t) => this.appendAnswerDelta(t),
-        });
-        this.flushDelta();
+      // One ask entry (docs/ARCHITECTURE.md "Auto mode"): every submit goes to
+      // the streaming kb.ask with `auto: true`, and the engine's router — which
+      // already runs before every query anyway — decides the surface. A real
+      // question streams an answer (sources → delta* → done, deltas feeding the
+      // live DOMD editor via insertText); a retrieval/browse intent returns one
+      // terminal `results` frame with the routed note list (enumerate-aware —
+      // "what recipes do I have" yields the WHOLE category, relevance-ranked).
+      // `forceAnswer` is the misroute escape hatch: auto off → always answer.
+      // An old engine ignores `auto` and always answers — graceful degradation.
+      this.resetLive();
+      const outcome = await rpcAskStream(q, {
+        auto: !opts.forceAnswer,
+        // Sources arrive before the first token (docs "Streaming answer
+        // channel") — render the citation list right away and flip to the
+        // streaming phase so the Answer card mounts while tokens cook.
+        onSources: (sources) => {
+          this.produce((d) => {
+            d.resultKind = "answer";
+            d.answer = {
+              answer: "",
+              citations: sources.citations ?? [],
+              hits: (sources.hits as KbHit[] | undefined) ?? [],
+            };
+            d.hits = (sources.hits as KbHit[] | undefined) ?? [];
+            d.phase = "streaming";
+          });
+        },
+        onDelta: (t) => this.appendAnswerDelta(t),
+      });
+      if (outcome.kind === "list") {
         this.produce((d) => {
-          d.answer = {
-            answer: this.liveText,
-            citations: done.citations ?? [],
-            hits: (done.hits as KbHit[] | undefined) ?? [],
-          };
-          d.hits = (done.hits as KbHit[] | undefined) ?? [];
-          d.answerMs = Date.now() - startedAt;
+          d.resultKind = "list";
+          d.hits = (outcome.hits as KbHit[]) ?? [];
           d.phase = "done";
         });
-      } else {
-        // List mode: routed search (docs/ARCHITECTURE.md "routed search") —
-        // the engine's router detects category-enumeration intent ("what
-        // recipes do I have") and returns the WHOLE category (summaries,
-        // relevance-ranked, no distance cutoff) instead of a truncated
-        // KNN top-K. Non-enumeration queries keep the grouped KNN behavior
-        // below (limit/maxDistance apply only in that fallback).
-        const res = await rpc<{
-          results: KbHit[];
-          route?: { docType?: string; enumerate: boolean };
-        }>("kb.query", {
-          query: q,
-          limit: 20,
-          group: true,
-          maxDistance: 1.1,
-          route: true,
-        });
-        this.produce((d) => {
-          d.hits = res.results ?? [];
-          d.phase = "done";
-        });
+        return;
       }
+      this.flushDelta();
+      this.produce((d) => {
+        d.resultKind = "answer";
+        d.answer = {
+          answer: this.liveText,
+          citations: outcome.citations ?? [],
+          hits: (outcome.hits as KbHit[] | undefined) ?? [],
+        };
+        d.hits = (outcome.hits as KbHit[] | undefined) ?? [];
+        d.answerMs = Date.now() - startedAt;
+        d.phase = "done";
+      });
     } catch (e) {
       if (e instanceof RelayError && e.code === "unauthorized") return this.unpair();
       this.produce((d) => {
@@ -671,12 +666,10 @@ export class KbStore extends ZenithStore<KbState> {
     }
   }
 
-  /** Click-through from a home-screen suggestion: ask it directly. */
+  /** Click-through from a home-screen suggestion: these are generated
+   *  *questions*, so skip the router judgment and force the answer path. */
   public askSuggestion(question: string) {
-    this.produce((d) => {
-      d.mode = "answer";
-    });
-    void this.runSearch(question);
+    void this.runSearch(question, { forceAnswer: true });
   }
 
   // ---------- Reader / Editor ----------

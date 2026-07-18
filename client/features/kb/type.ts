@@ -88,8 +88,11 @@ export interface CreatedShare {
  * system back gesture closes them. See lib/client/hash-route.ts and app/(app)/.
  */
 
-export type RecallMode = "list" | "answer";
-/** "streaming" = answer tokens arriving (Answer mode only); "done" = complete. */
+/** What the engine decided to render for the submitted query (docs/ARCHITECTURE.md
+ *  "Auto mode"): a streaming AI answer or a note list. There is no user-facing
+ *  mode toggle — the ask router judges the intent per query. */
+export type ResultKind = "answer" | "list";
+/** "streaming" = answer tokens arriving (answer results only); "done" = complete. */
 export type RecallPhase = "idle" | "searching" | "streaming" | "done";
 
 /** Product-defining connection language (design: green online / amber connecting / orange offline). */

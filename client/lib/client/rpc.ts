@@ -125,11 +125,24 @@ export async function rpc<T = unknown>(
   return rpcAt<T>(endpoint(), method, params);
 }
 
-/** Terminal metadata of a streaming answer (the `done` frame). */
+/** Source metadata of a streaming answer (the `sources` and `done` frames). */
 export interface AskStreamResult {
   citations: { path: string; title: string }[];
   hits?: unknown[];
 }
+
+/**
+ * Terminal outcome of a streaming ask (docs/ARCHITECTURE.md "Auto mode"):
+ * either a completed answer (`done` frame) or — with `auto: true` and a router
+ * "no answer wanted" decision — the routed note list (`results` frame).
+ */
+export type AskStreamOutcome =
+  | ({ kind: "answer" } & AskStreamResult)
+  | {
+      kind: "list";
+      hits: unknown[];
+      route?: { docType?: string; enumerate: boolean };
+    };
 
 function parseSseFrame(raw: string): { event: string; data: string } {
   let event = "";
@@ -143,10 +156,12 @@ function parseSseFrame(raw: string): { event: string; data: string } {
 
 /**
  * Streaming kb.ask (docs/ARCHITECTURE.md "Streaming answer channel"): POSTs to the
- * `/rpc/stream` endpoint and consumes `sources`/`delta`/`done`/`error` SSE frames.
- * `onSources` fires once right after retrieval (before the first token) with the citation
- * metadata so the UI can render the source list immediately; `onDelta` fires per
- * answer-text chunk; resolves with the terminal `done` metadata (identical to sources).
+ * `/rpc/stream` endpoint and consumes `sources`/`delta`/`done`/`results`/`error` SSE
+ * frames. `onSources` fires once right after retrieval (before the first token) with the
+ * citation metadata so the UI can render the source list immediately; `onDelta` fires per
+ * answer-text chunk; resolves with the terminal outcome — the `done` metadata, or the
+ * `results` note list when `auto: true` and the engine's router judged that no synthesized
+ * answer is wanted (an engine predating `auto` ignores it and always answers).
  * Any `error` frame — or an early close — rejects with a RelayError.
  */
 export async function rpcAskStream(
@@ -154,16 +169,21 @@ export async function rpcAskStream(
   opts: {
     onDelta: (text: string) => void;
     onSources?: (sources: AskStreamResult) => void;
+    /** Let the engine decide answer-vs-list (docs "Auto mode"). Off = always answer. */
+    auto?: boolean;
     signal?: AbortSignal;
   },
-): Promise<AskStreamResult> {
+): Promise<AskStreamOutcome> {
   const ep = endpoint();
   let res: Response;
   try {
     res = await fetch(ep.streamUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...ep.headers },
-      body: JSON.stringify({ method: "kb.ask", params: { query } }),
+      body: JSON.stringify({
+        method: "kb.ask",
+        params: { query, ...(opts.auto ? { auto: true } : {}) },
+      }),
       signal: opts.signal,
     });
   } catch {
@@ -188,7 +208,7 @@ export async function rpcAskStream(
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buf = "";
-  let done: AskStreamResult | null = null;
+  let done: AskStreamOutcome | null = null;
 
   const handleFrame = (raw: string) => {
     const { event, data } = parseSseFrame(raw);
@@ -199,7 +219,14 @@ export async function rpcAskStream(
     } else if (event === "sources") {
       opts.onSources?.(JSON.parse(data) as AskStreamResult);
     } else if (event === "done") {
-      done = JSON.parse(data) as AskStreamResult;
+      done = { kind: "answer", ...(JSON.parse(data) as AskStreamResult) };
+    } else if (event === "results") {
+      // Auto list short-circuit: one terminal frame, no sources/delta/done.
+      const parsed = JSON.parse(data) as {
+        hits?: unknown[];
+        route?: { docType?: string; enumerate: boolean };
+      };
+      done = { kind: "list", hits: parsed.hits ?? [], route: parsed.route };
     } else if (event === "error") {
       const { code, message } = JSON.parse(data) as { code?: string; message?: string };
       throw new RelayError(code ?? "ask_failed", message ?? "Answer failed");

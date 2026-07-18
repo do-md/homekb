@@ -528,6 +528,9 @@ fn ask_event_frame(ev: AskStreamEvent) -> String {
         AskStreamEvent::Done { citations, hits } => {
             ask_frame("done", &json!({ "citations": citations, "hits": hits }))
         }
+        AskStreamEvent::Results { hits, route } => {
+            ask_frame("results", &json!({ "hits": hits, "route": route }))
+        }
     }
 }
 
@@ -547,6 +550,9 @@ fn handle_ask_stream(
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
+    // Auto mode (docs/ARCHITECTURE.md "Auto mode"): the router decides
+    // answer-vs-list; a list decision short-circuits into one `results` frame.
+    let auto = params.get("auto").and_then(|v| v.as_bool()).unwrap_or(false);
     let client = client.clone();
     let config = config.clone();
     let ask_url = format!("{}/api/relay/tunnel/ask/{}", relay.url, id);
@@ -558,7 +564,7 @@ fn handle_ask_stream(
         let (err_tx, err_rx) = tokio::sync::oneshot::channel::<Option<(String, String)>>();
         let cfg = config.clone();
         tokio::spawn(async move {
-            let result = homekb_core::ask_stream(&cfg, &query, &tx).await;
+            let result = homekb_core::ask_stream(&cfg, &query, auto, &tx).await;
             let _ = err_tx.send(result.err().map(|e| ("ask_failed".to_string(), format!("{e:#}"))));
         });
 

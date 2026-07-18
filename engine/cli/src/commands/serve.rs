@@ -210,6 +210,9 @@ fn sse_ask_event(ev: AskStreamEvent) -> Event {
         AskStreamEvent::Done { citations, hits } => {
             sse_frame("done", json!({ "citations": citations, "hits": hits }))
         }
+        AskStreamEvent::Results { hits, route } => {
+            sse_frame("results", json!({ "hits": hits, "route": route }))
+        }
     }
 }
 
@@ -237,6 +240,9 @@ async fn rpc_stream_handler(
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
+    // Auto mode (docs/ARCHITECTURE.md "Auto mode"): the router decides
+    // answer-vs-list; a list decision short-circuits into one `results` frame.
+    let auto = params.get("auto").and_then(|v| v.as_bool()).unwrap_or(false);
 
     // ask_stream sends Delta/Done on `tx`; its terminal Result becomes the trailing
     // `error` frame (if any) once the event channel drains.
@@ -244,7 +250,7 @@ async fn rpc_stream_handler(
     let (err_tx, err_rx) = tokio::sync::oneshot::channel::<Option<(String, String)>>();
     let config = state.config.clone();
     tokio::spawn(async move {
-        let result = homekb_core::ask_stream(&config, &query, &tx).await;
+        let result = homekb_core::ask_stream(&config, &query, auto, &tx).await;
         let _ = err_tx.send(result.err().map(|e| ("ask_failed".to_string(), format!("{e:#}"))));
     });
 
