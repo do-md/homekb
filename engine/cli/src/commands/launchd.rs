@@ -87,10 +87,40 @@ fn xml_escape(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
+/// launchd `ProcessType` for a daemon plist. This decides the scheduling band —
+/// and it bit us hard once: `Background` clamps the process to darwin's
+/// background band (priority ~4 vs the normal 31, E-cores + throttled disk IO
+/// on Apple Silicon), which made the tunnel's synchronous work (sqlite-vec KNN,
+/// retrieval) run 10-50x slower than the same binary from a shell. A daemon
+/// that answers interactive requests must NOT be `Background`.
+#[derive(Clone, Copy)]
+pub enum ProcessType {
+    /// Default scheduling — for daemons serving interactive requests (tunnel).
+    Standard,
+    /// Deliberately-yielding batch work (compile/watch): embedding passes may
+    /// crawl, but they never compete with the user's foreground apps.
+    Background,
+}
+
+impl ProcessType {
+    fn as_str(self) -> &'static str {
+        match self {
+            ProcessType::Standard => "Standard",
+            ProcessType::Background => "Background",
+        }
+    }
+}
+
 /// Generates the plist text for a KeepAlive-only LaunchAgent. `program_args` is the full argv
 /// (starting with the binary path). Used for both the tunnel and the compile agents.
-pub fn daemon_plist(label: &str, program_args: &[&str], log_path: &str) -> String {
+pub fn daemon_plist(
+    label: &str,
+    program_args: &[&str],
+    log_path: &str,
+    process_type: ProcessType,
+) -> String {
     let log = xml_escape(log_path);
+    let ptype = process_type.as_str();
     let args_xml: String = program_args
         .iter()
         .map(|a| format!("    <string>{}</string>\n", xml_escape(a)))
@@ -106,7 +136,7 @@ pub fn daemon_plist(label: &str, program_args: &[&str], log_path: &str) -> Strin
 {args_xml}  </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>ProcessType</key><string>Background</string>
+  <key>ProcessType</key><string>{ptype}</string>
   <key>ThrottleInterval</key><integer>10</integer>
   <key>StandardOutPath</key><string>{log}</string>
   <key>StandardErrorPath</key><string>{log}</string>

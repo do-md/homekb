@@ -358,13 +358,17 @@ pub async fn ask_stream(
             infer_route(&cli, &config, &question, &refs).await
         })
     };
+    let t_embed = std::time::Instant::now();
     let vec = embed_search_query(config, question)
         .await
         .context("embed question")?;
+    tracing::info!("ask_stream: query embedding took {}ms", t_embed.elapsed().as_millis());
 
     // First paint: unrouted grouped doc-level KNN on the ready vector — pure
     // local math, typically sub-second end to end.
+    let t_knn = std::time::Instant::now();
     let early = grouped_knn(config, question, None, &vec)?;
+    tracing::info!("ask_stream: first-paint knn took {}ms", t_knn.elapsed().as_millis());
     let _ = tx.send(AskStreamEvent::Hits {
         hits: early.results.clone(),
     });

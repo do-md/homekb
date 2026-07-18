@@ -20,6 +20,8 @@ pub fn run_install(interval: u64) -> Result<()> {
         launchd::COMPILE_LABEL,
         &[&bin, "watch", "--interval", &interval_s],
         &log,
+        // Batch compile work: deliberately yield to the user's foreground apps.
+        launchd::ProcessType::Background,
     );
     launchd::install(launchd::COMPILE_LABEL, &body)?;
     println!("compile service installed and started (reindex every {interval}s, auto-restart on crash)");

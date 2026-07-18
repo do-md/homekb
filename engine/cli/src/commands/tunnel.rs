@@ -23,6 +23,9 @@ pub fn run_install(interval: u64) -> Result<()> {
         launchd::TUNNEL_LABEL,
         &[&bin, "tunnel", "--interval", &interval_s],
         &log,
+        // Standard, NOT Background: the tunnel answers interactive asks — the
+        // background band's CPU/IO clamp made KNN + retrieval 10-50x slower.
+        launchd::ProcessType::Standard,
     );
     launchd::install(launchd::TUNNEL_LABEL, &body)?;
     let compile_note = if interval == 0 {
@@ -642,6 +645,7 @@ async fn post_ask_chunk(
         if attempt > 0 {
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
+        let started = std::time::Instant::now();
         let mut req = client
             .post(url)
             .bearer_auth(secret)
@@ -653,13 +657,28 @@ async fn post_ask_chunk(
         if fin {
             req = req.header("X-Ask-Fin", "1");
         }
-        match req.body(body.clone()).send().await {
-            Ok(res) if res.status().is_success() => return Ok(()),
+        let outcome = req.body(body.clone()).send().await;
+        let ms = started.elapsed().as_millis();
+        match outcome {
+            Ok(res) if res.status().is_success() => {
+                tracing::info!(
+                    "ask chunk {seq}{} posted: {} bytes, attempt {attempt}, {ms}ms",
+                    if fin { " (fin)" } else { "" },
+                    body.len(),
+                );
+                return Ok(());
+            }
             Ok(res) if res.status() == reqwest::StatusCode::CONFLICT => {
                 return Err("relay NACKed the chunk (409: pending gone or bad seq)".to_string());
             }
-            Ok(res) => last = format!("HTTP {}", res.status()),
-            Err(e) => last = format!("{e:?}"),
+            Ok(res) => {
+                last = format!("HTTP {} after {ms}ms", res.status());
+                tracing::warn!("ask chunk {seq} attempt {attempt} failed: {last}");
+            }
+            Err(e) => {
+                last = format!("{e:?} after {ms}ms");
+                tracing::warn!("ask chunk {seq} attempt {attempt} failed: {last}");
+            }
         }
     }
     Err(last)
