@@ -523,9 +523,11 @@ export class KbStore extends ZenithStore<KbState> {
           });
         },
         // Sources arrive before the first token (docs "Streaming answer
-        // channel"): the authoritative source list replaces the early batch
-        // (keyed by path — unchanged notes don't re-render) and the answer
-        // dock mounts while tokens cook.
+        // channel"): mount the answer dock (its citation chips render from
+        // d.answer) while tokens cook. The note list itself is NOT touched —
+        // it stays the first-paint vector batch. Only the vector search
+        // (`hits`) and the router's list refinement (`results`) ever drive
+        // the list; the answer path never reshuffles it.
         onSources: (sources) => {
           this.produce((d) => {
             d.resultKind = "answer";
@@ -535,13 +537,13 @@ export class KbStore extends ZenithStore<KbState> {
               citations: sources.citations ?? [],
               hits: (sources.hits as KbHit[] | undefined) ?? [],
             };
-            d.hits = (sources.hits as KbHit[] | undefined) ?? [];
             d.phase = "streaming";
           });
         },
         onDelta: (t) => this.appendAnswerDelta(t),
       });
       if (outcome.kind === "list") {
+        // Auto list path: the router's refinement IS the list — apply it.
         this.produce((d) => {
           d.resultKind = "list";
           d.stage = null;
@@ -551,6 +553,8 @@ export class KbStore extends ZenithStore<KbState> {
         return;
       }
       this.flushDelta();
+      // Answer path terminal: finalize the dock only — the list keeps the
+      // first-paint vector batch (see onSources).
       this.produce((d) => {
         d.resultKind = "answer";
         d.stage = null;
@@ -559,7 +563,6 @@ export class KbStore extends ZenithStore<KbState> {
           citations: outcome.citations ?? [],
           hits: (outcome.hits as KbHit[] | undefined) ?? [],
         };
-        d.hits = (outcome.hits as KbHit[] | undefined) ?? [];
         d.answerMs = Date.now() - startedAt;
         d.phase = "done";
       });
