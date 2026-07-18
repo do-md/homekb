@@ -2,17 +2,19 @@
 
 /**
  * Search / ask views (design 2a entry, 3c list, 4a empty states) with progressive
- * delivery (docs/ARCHITECTURE.md "First-paint batch"): the note list is ALWAYS the
- * top surface and paints as soon as the vector search lands (the early `hits`
- * frame — no LLM in that path); a three-stage strip (search → analyze → answer)
- * tracks the pipeline; when the engine decides to answer, the answer streams into
- * a compact fixed-height dock above the composer (no auto-scroll) with an expand
- * control that opens the full answer as a `#answer=1` hash overlay (system back
- * closes it). "Answer with AI instead" on list/empty results is the misroute
- * escape hatch.
+ * delivery (docs/ARCHITECTURE.md "First-paint batch"), laid out feed-style: one
+ * AI slot sits at the TOP and the note list paints right below it as soon as the
+ * vector search lands (the early `hits` frame — no LLM in that path). The slot
+ * narrates the pipeline as plain text ("Searching your notes…" →
+ * "Analyzing your question…"); when the engine decides to answer, the streamed
+ * Markdown replaces the status text in place, growing with the content up to a
+ * clamp — beyond that a "Show more" fade opens the full answer as a `#answer=1`
+ * hash overlay (system back closes it). When the engine routes to a plain list,
+ * the slot resolves to a "no AI answer needed" line carrying the "Answer anyway"
+ * misroute escape hatch.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { type AiStatus, isDesktop } from "@/lib/client/desktop";
 import { closeHashOverlay, pushHash, useHashParam } from "@/lib/client/hash-route";
@@ -115,50 +117,15 @@ function ListSkeleton() {
   );
 }
 
-const STAGES = [
-  ["searching", "Search"],
-  ["thinking", "Analyze"],
-  ["answering", "Answer"],
-] as const;
-
-/** Progressive-pipeline indicator (docs "First-paint batch"): which stage the
- *  submit is in — vector search → query analysis (LLM router) → answer
- *  synthesis. Hidden once the terminal frame lands (results speak). */
-function StageStrip() {
-  const stage = useKbStore((s) => s.state.stage);
-  if (!stage) return null;
-  const activeIdx = STAGES.findIndex(([key]) => key === stage);
-  return (
-    <div className="flex items-center gap-2 text-[12px]">
-      {STAGES.map(([key, label], i) => {
-        const state = i < activeIdx ? "done" : i === activeIdx ? "active" : "pending";
-        return (
-          <span key={key} className="flex items-center gap-2">
-            {i > 0 && <span className="h-px w-4 bg-base-300" />}
-            <span
-              className={`flex items-center gap-1.5 font-medium ${
-                state === "active"
-                  ? "text-primary"
-                  : state === "done"
-                    ? "text-base-content/60"
-                    : "text-base-content/35"
-              }`}
-            >
-              {state === "done" ? (
-                <IconCheck size={11} strokeWidth={2.5} />
-              ) : state === "active" ? (
-                <Spinner size={11} />
-              ) : (
-                <span className="h-1 w-1 rounded-full bg-current" />
-              )}
-              {label}
-            </span>
-          </span>
-        );
-      })}
-    </div>
-  );
-}
+/** Plain-text pipeline narration inside the AI slot (docs "First-paint batch"):
+ *  the stage a submit is in, told as one quiet line rather than a widget. The
+ *  streamed answer overwrites it in place; a list verdict resolves it to the
+ *  no-answer line. */
+const STAGE_TEXT: Record<string, string> = {
+  searching: "Searching your notes…",
+  thinking: "Analyzing your question…",
+  answering: "Writing an answer…",
+};
 
 /**
  * Wrap inline `[n]` citation markers (n within the citation count) in clickable
@@ -222,14 +189,34 @@ function citationChipOf(target: EventTarget | null): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/** True while `ref`'s content is taller than its clamp. A ResizeObserver on the
+ *  clamp container AND its content keeps this live during streaming: the
+ *  container stops resizing once it hits max-height, but the DOMD content
+ *  inside keeps growing below the fold. */
+function useOverflowing(ref: React.RefObject<HTMLDivElement | null>) {
+  const [overflowing, setOverflowing] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const check = () => setOverflowing(el.scrollHeight > el.clientHeight + 1);
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    if (el.firstElementChild) ro.observe(el.firstElementChild);
+    return () => ro.disconnect();
+  }, [ref]);
+  return overflowing;
+}
+
 /**
- * Compact answer dock, pinned above the composer: the answer streams here as real
- * Markdown (store → DOMD insertText) inside a FIXED max height with no auto-scroll
- * — the text quietly grows below the fold; the user scrolls if they want to. The
- * top-right expand control opens the full answer as a `#answer=1` hash overlay.
- * Inline [n] chips (post-stream) open the cited note directly.
+ * Inline answer card at the top of the results feed: the answer streams here as
+ * real Markdown (store → DOMD insertText), growing the card line by line up to a
+ * clamp (feed-style — the list below never waits for it). Past the clamp the
+ * text keeps accumulating below the fold behind a fade with a "Show more" pill;
+ * that and the header expand control open the full answer as a `#answer=1` hash
+ * overlay. Inline [n] chips (post-stream) open the cited note directly.
  */
-function AnswerDock() {
+function AnswerPanel() {
   const answer = useKbStore((s) => s.state.answer);
   const answerMs = useKbStore((s) => s.state.answerMs);
   const phase = useKbStore((s) => s.state.phase);
@@ -237,6 +224,7 @@ function AnswerDock() {
   const writing = phase === "streaming";
   const citationCount = answer?.citations?.length ?? 0;
   useCitationChips(bodyRef, writing, citationCount);
+  const overflowing = useOverflowing(bodyRef);
 
   const openCited = (target: EventTarget | null) => {
     const n = citationChipOf(target);
@@ -247,36 +235,36 @@ function AnswerDock() {
   const secs = answerMs != null ? `${(answerMs / 1000).toFixed(1)}s` : null;
 
   return (
-    <div className="px-4">
-      <div className="shadow-sm mx-auto w-full max-w-2xl rounded-2xl border border-base-300 bg-base-200">
-        <div className="flex items-center gap-1.5 px-4 pt-3 text-[12px] font-semibold tracking-wide text-primary uppercase">
-          {writing ? (
-            <>
-              <Spinner size={12} />
-              Writing…
-            </>
-          ) : (
-            <>
-              <IconSpark size={13} strokeWidth={1.5} />
-              Answer
-            </>
-          )}
-          {!writing && secs && (
-            <span className="ml-1 font-normal tracking-normal text-base-content/35 normal-case">
-              from {citationCount} {citationCount === 1 ? "note" : "notes"} · {secs}
-            </span>
-          )}
-          <button
-            onClick={() => pushHash("answer", "1")}
-            aria-label="Expand answer"
-            className="btn btn-ghost btn-xs ml-auto -mr-2 text-base-content/45 hover:text-base-content"
-          >
-            <IconExpand size={14} />
-          </button>
-        </div>
+    <div className="shadow-sm rounded-2xl border border-base-300 bg-base-200">
+      <div className="flex items-center gap-1.5 px-4 pt-3 text-[12px] font-semibold tracking-wide text-primary uppercase">
+        {writing ? (
+          <>
+            <Spinner size={12} />
+            Writing…
+          </>
+        ) : (
+          <>
+            <IconSpark size={13} strokeWidth={1.5} />
+            Answer
+          </>
+        )}
+        {!writing && secs && (
+          <span className="ml-1 font-normal tracking-normal text-base-content/35 normal-case">
+            from {citationCount} {citationCount === 1 ? "note" : "notes"} · {secs}
+          </span>
+        )}
+        <button
+          onClick={() => pushHash("answer", "1")}
+          aria-label="Expand answer"
+          className="btn btn-ghost btn-xs ml-auto -mr-2 text-base-content/45 hover:text-base-content"
+        >
+          <IconExpand size={14} />
+        </button>
+      </div>
+      <div className="relative">
         <div
           ref={bodyRef}
-          className="hk-answer max-h-44 overflow-y-auto px-4 pb-3"
+          className="hk-answer max-h-44 overflow-hidden px-4 pb-3"
           onClick={(e) => openCited(e.target)}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") openCited(e.target);
@@ -284,9 +272,64 @@ function AnswerDock() {
         >
           <KbStreamingAnswer className="mt-1.5" />
         </div>
+        {overflowing && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center rounded-b-2xl bg-gradient-to-t from-base-200 via-base-200/85 to-transparent pt-9 pb-2">
+            <button
+              onClick={() => pushHash("answer", "1")}
+              className="btn btn-xs pointer-events-auto rounded-full border-base-300 bg-base-100 font-medium text-base-content/70 shadow-sm"
+            >
+              Show more
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
+}
+
+/**
+ * The AI slot at the top of the results feed — one card that morphs in place:
+ * pipeline status text while the engine works, then either the streaming answer
+ * (AnswerPanel) or a "no AI answer needed" verdict carrying the "Answer anyway"
+ * misroute escape hatch. Renders nothing on error (the error box speaks) and on
+ * a zero-hit list (NoResults owns that screen, escape hatch included).
+ */
+function AskPanel() {
+  const api = useKbStoreApi();
+  const stage = useKbStore((s) => s.state.stage);
+  const phase = useKbStore((s) => s.state.phase);
+  const resultKind = useKbStore((s) => s.state.resultKind);
+  const answer = useKbStore((s) => s.state.answer);
+  const hasHits = useKbStore((s) => s.state.hits.length > 0);
+
+  if (resultKind === "answer" && answer != null) return <AnswerPanel />;
+
+  const statusText = stage ? STAGE_TEXT[stage] : null;
+  if (statusText) {
+    return (
+      <div className="flex items-center gap-2.5 rounded-2xl border border-base-300 bg-base-200 px-4 py-3 text-[13px] text-base-content/60">
+        <Spinner size={13} />
+        {statusText}
+      </div>
+    );
+  }
+
+  if (resultKind === "list" && phase === "done" && hasHits) {
+    return (
+      <div className="flex items-center gap-2.5 rounded-2xl border border-base-300 bg-base-200 px-4 py-2.5 text-[13px] text-base-content/60">
+        <IconSpark size={13} strokeWidth={1.5} className="shrink-0 text-base-content/35" />
+        <span className="min-w-0 flex-1">No AI answer needed — these notes match directly.</span>
+        <button
+          onClick={() => api.answerInstead()}
+          className="btn btn-ghost btn-xs -mr-2 shrink-0 font-semibold text-primary"
+        >
+          Answer anyway
+        </button>
+      </div>
+    );
+  }
+
+  return null;
 }
 
 /**
@@ -391,19 +434,16 @@ function AnswerOverlay() {
   );
 }
 
-/** The note list (design 3c): docType chips + count + document cards — ALWAYS
- *  the top surface, painted from the first-paint batch and refined by the
+/** The note list (design 3c): docType chips + count + document cards — paints
+ *  right below the AI slot from the first-paint batch and is refined by the
  *  routed outcome (replaced wholesale; cards key by path so unchanged notes
- *  don't re-render). "Answer with AI" appears only on a terminal list — the
- *  escape hatch when the user actually wanted a synthesized answer. */
+ *  don't re-render). The answer-instead escape hatch lives in the AI slot's
+ *  no-answer line (AskPanel), not here. */
 function ListResult() {
   const api = useKbStoreApi();
   const hits = useKbStore((s) => s.state.hits);
   const filtered = useKbStore((s) => s.filteredHits);
   const typeFilter = useKbStore((s) => s.state.typeFilter);
-  const resultKind = useKbStore((s) => s.state.resultKind);
-  const phase = useKbStore((s) => s.state.phase);
-  const terminalList = resultKind === "list" && phase === "done";
 
   const types = Array.from(new Set(hits.map((h) => h.docType ?? "other")));
   const maxScore = hits.reduce((m, h) => Math.max(m, h.score), 0);
@@ -430,18 +470,8 @@ function ListResult() {
           })}
         </div>
       )}
-      <div className="flex items-center justify-between text-xs text-base-content/35">
-        <span>
-          {filtered.length} {filtered.length === 1 ? "note" : "notes"} · By relevance
-        </span>
-        {terminalList && (
-          <button
-            onClick={() => api.answerInstead()}
-            className="btn btn-ghost btn-xs gap-1 font-semibold text-primary"
-          >
-            <IconSpark size={12} strokeWidth={1.5} /> Answer with AI
-          </button>
-        )}
+      <div className="text-xs text-base-content/35">
+        {filtered.length} {filtered.length === 1 ? "note" : "notes"} · By relevance
       </div>
       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
         {filtered.map((h) => (
@@ -799,8 +829,9 @@ export function RecallView() {
     phase === "done" && (resultKind === "answer" ? answer != null : hits.length > 0);
   const noResults =
     phase === "done" && !searchError && !hasResults && submittedQuery.length > 0;
-  // The answer rides above the composer (dock), or full-screen when expanded —
-  // exactly one of the two mounts (a single live DOMD editor at a time).
+  // The answer lives in the top AI slot (AskPanel), or full-screen when expanded —
+  // exactly one of the two mounts (a single live DOMD editor at a time; a
+  // mid-stream expand remounts it and the store backfills the text so far).
   const answerVisible = resultKind === "answer" && answer != null;
 
   return (
@@ -821,7 +852,10 @@ export function RecallView() {
                 </button>
               </div>
 
-              <StageStrip />
+              {/* The AI slot: status narration → streaming answer OR the
+                  no-answer verdict, morphing in place at the top of the feed.
+                  Unmounted while the full-screen overlay owns the live DOMD. */}
+              {!answerExpanded && <AskPanel />}
 
               {searchError && (
                 <div className="rounded-xl border border-base-300 bg-base-200 px-4 py-3 text-[13.5px] text-hk-orange-text">
@@ -829,7 +863,7 @@ export function RecallView() {
                 </div>
               )}
 
-              {/* The note list is ALWAYS the top surface: first paint from the
+              {/* The note list paints below the AI slot: first paint from the
                   early hits frame, refined in place by the routed outcome. */}
               {hits.length > 0 ? (
                 <ListResult />
@@ -845,7 +879,7 @@ export function RecallView() {
           )}
         </div>
       </div>
-      {answerVisible && (answerExpanded ? <AnswerOverlay /> : <AnswerDock />)}
+      {answerVisible && answerExpanded && <AnswerOverlay />}
       <Composer
         variant={submittedQuery ? "followup" : "entry"}
         muted={emptyLibrary}
