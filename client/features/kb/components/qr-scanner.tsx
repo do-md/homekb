@@ -7,7 +7,7 @@
  * downscaled canvas at rAF cadence. Requires a secure context (HTTPS or
  * localhost); callers gate on `canScanQr()` before rendering.
  *
- * Visual: coral corner brackets + the `homekb-scan` line + a faint QR glyph hint,
+ * Visual: primary corner brackets + the `homekb-scan` line + a faint QR glyph hint,
  * per the design handoff. Decodes the pairing-link payload contract
  * (docs/ARCHITECTURE.md "Pairing link (QR payload)").
  */
@@ -46,7 +46,7 @@ function cameraErrorMessage(e: unknown): string {
 function Bracket({ className }: { className: string }) {
   return (
     <span
-      className={`pointer-events-none absolute h-7 w-7 rounded-tl-[10px] border-t-2 border-l-2 border-hk-coral ${className}`}
+      className={`pointer-events-none absolute h-7 w-7 rounded-tl-[10px] border-t-2 border-l-2 border-primary ${className}`}
       aria-hidden
     />
   );
@@ -148,7 +148,7 @@ export function QrScanner({
         <span className="absolute inset-0 flex items-center justify-center text-white/25">
           <IconQr size={64} strokeWidth={1.2} />
         </span>
-        {/* Coral corner brackets */}
+        {/* Primary corner brackets */}
         <Bracket className="top-3 left-3" />
         <Bracket className="top-3 right-3 rotate-90" />
         <Bracket className="bottom-3 right-3 rotate-180" />
@@ -156,13 +156,13 @@ export function QrScanner({
         {/* Animated scan line */}
         {!starting && (
           <span
-            className="hk-scan absolute top-1/2 right-6 left-6 h-[2px] rounded-full bg-hk-coral/80"
+            className="hk-scan absolute top-1/2 right-6 left-6 h-[2px] rounded-full bg-primary/80"
             style={{ "--hk-scan-amp": "84px" } as React.CSSProperties}
             aria-hidden
           />
         )}
       </div>
-      <p className="mt-4 max-w-[260px] text-center text-[13px] leading-relaxed text-hk-text-2">
+      <p className="mt-4 max-w-[260px] text-center text-[13px] leading-relaxed text-base-content/60">
         Point your camera at the QR code shown in HomeKB on your home computer.
       </p>
       {hint && (

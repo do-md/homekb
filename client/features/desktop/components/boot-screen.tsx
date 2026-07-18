@@ -17,14 +17,14 @@ export function BootScreen() {
   return (
     <main className="fixed inset-0 flex items-center justify-center overflow-hidden px-8">
       <div className="flex max-w-sm flex-col items-center gap-4 text-center">
-        <div className="text-2xl font-bold tracking-tight text-hk-heading">HomeKB</div>
+        <div className="text-2xl font-bold tracking-tight text-base-content">HomeKB</div>
         {phase === "error" ? (
           <>
-            <div className="rounded-xl border border-hk-border bg-hk-card px-4 py-3 text-[13.5px] text-hk-orange-text">
+            <div className="rounded-xl border border-base-300 bg-base-200 px-4 py-3 text-[13.5px] text-hk-orange-text">
               {bootError}
             </div>
             <button
-              className="rounded-xl bg-hk-coral px-4 py-2 text-[13.5px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover"
+              className="rounded-xl bg-primary px-4 py-2 text-[13.5px] font-semibold text-primary-content transition-colors hover:bg-primary/90"
               onClick={() => void api.bootstrap()}
             >
               Retry
@@ -32,10 +32,10 @@ export function BootScreen() {
           </>
         ) : (
           <>
-            <span className="text-hk-coral-text">
+            <span className="text-primary">
               <Spinner size={20} />
             </span>
-            <p className="text-[13.5px] text-hk-text-2">{PHASE_TEXT[phase] ?? "Starting…"}</p>
+            <p className="text-[13.5px] text-base-content/60">{PHASE_TEXT[phase] ?? "Starting…"}</p>
           </>
         )}
       </div>

@@ -51,20 +51,20 @@ import { PairScreen } from "./pair-screen";
 function ConnBadge() {
   const connState = useKbStore((s) => s.connState);
   const bg: Record<ConnState, string> = {
-    online: "bg-hk-green",
-    connecting: "bg-hk-amber animate-pulse",
+    online: "bg-success",
+    connecting: "bg-warning animate-pulse",
     offline: "bg-hk-orange",
   };
   return (
     <span
-      className={`absolute -right-[3px] -top-[3px] h-[7px] w-[7px] rounded-full ring-2 ring-hk-bg ${bg[connState]}`}
+      className={`absolute -right-[3px] -top-[3px] h-[7px] w-[7px] rounded-full ring-2 ring-base-100 ${bg[connState]}`}
       aria-hidden
     />
   );
 }
 
 /**
- * Coral dot on the Settings tab while the engine still lacks a required AI key
+ * Primary dot on the Settings tab while the engine still lacks a required AI key
  * ([embedding] or [summary]) — the quiet nudge that pairs with the full
  * "Add your AI keys" guide on the Search screen. Desktop only: it is rendered
  * solely for the Settings tab, which itself only exists in desktop mode, so the
@@ -75,7 +75,7 @@ function SettingsBadge() {
   if (!needsSetup) return null;
   return (
     <span
-      className="absolute -right-[3px] -top-[3px] h-[7px] w-[7px] rounded-full bg-hk-coral ring-2 ring-hk-bg"
+      className="absolute -right-[3px] -top-[3px] h-[7px] w-[7px] rounded-full bg-primary ring-2 ring-base-100"
       aria-hidden
     />
   );
@@ -124,8 +124,8 @@ function Header() {
   };
 
   return (
-    <header className="bg-hk-bg pt-safe-top border-b border-hk-hairline">
-      <div className="mx-auto flex h-12 max-w-3xl items-center gap-1 px-3">
+    <header className="bg-base-100 pt-safe-top">
+      <div className="mx-auto flex h-16 max-w-3xl items-center gap-1 px-3">
         <nav className="flex items-center gap-1.5" aria-label="Main">
           {items.map(({ href, label, icon: Icon }) => {
             const isActive = active === href;
@@ -140,8 +140,8 @@ function Header() {
                 aria-current={isActive ? "page" : undefined}
                 className={`flex items-center rounded-full py-2 text-[13px] font-semibold transition-[background-color,padding] duration-300 ${
                   isActive
-                    ? "bg-hk-pill px-3 text-hk-heading"
-                    : "bg-hk-card px-3.5 text-hk-weak hover:bg-hk-card-strong hover:text-hk-text-2"
+                    ? "bg-base-200 px-3 text-base-content"
+                    : "bg-base-200/60 px-3.5 text-base-content/45 hover:bg-base-200 hover:text-base-content/60"
                 }`}
                 title={label}
               >
@@ -166,7 +166,7 @@ function Header() {
         {/* New note lives apart from the tabs: its surface is a focused mode with its own header. */}
         <button
           onClick={goCompose}
-          className="ml-auto flex shrink-0 items-center gap-1.5 rounded-full bg-hk-coral px-3 py-2 text-[12.5px] leading-4 font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover"
+          className="ml-auto btn btn-primary btn-sm rounded-full"
           title="New note"
         >
           <IconPlus size={15} strokeWidth={2} />
@@ -183,7 +183,7 @@ function Notice() {
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-24 z-30 flex justify-center px-4">
       <div
-        className="rounded-full border border-hk-hairline bg-hk-composer px-4 py-2 text-[13px] text-hk-text backdrop-blur-md"
+        className="rounded-full border border-base-200 bg-hk-composer px-4 py-2 text-[13px] text-base-content backdrop-blur-md"
         style={{ boxShadow: "0 4px 16px rgba(0,0,0,0.25)" }}
       >
         {notice}

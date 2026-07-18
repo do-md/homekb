@@ -34,7 +34,7 @@ export function ReaderView() {
       <div className="mx-auto w-full max-w-2xl px-4 py-3 pb-[max(env(safe-area-inset-bottom),32px)]">
         <div className="flex items-center justify-between gap-2">
           <button
-            className="-ml-2 flex items-center gap-0.5 rounded-lg p-1.5 pr-2.5 text-[13.5px] font-medium text-hk-text-2 transition-colors hover:text-hk-text"
+            className="-ml-2 flex items-center gap-0.5 rounded-lg p-1.5 pr-2.5 text-[13.5px] font-medium text-base-content/60 transition-colors hover:text-base-content"
             onClick={() => closeHashOverlay()}
           >
             <IconChevronLeft size={16} /> Back
@@ -42,14 +42,14 @@ export function ReaderView() {
           {!editMode ? (
             <div className="flex items-center gap-2">
               <button
-                className="flex items-center gap-1.5 rounded-xl border border-hk-border px-3.5 py-1.5 text-[13px] font-semibold text-hk-text-2 transition-colors hover:bg-hk-card"
+                className="flex items-center gap-1.5 rounded-xl border border-base-300 px-3.5 py-1.5 text-[13px] font-semibold text-base-content/60 transition-colors hover:bg-base-200"
                 onClick={() => setShareOpen(true)}
                 disabled={loading || !!error}
               >
                 <IconShare size={13} /> Share
               </button>
               <button
-                className="rounded-xl border border-hk-border px-3.5 py-1.5 text-[13px] font-semibold text-hk-text-2 transition-colors hover:bg-hk-card"
+                className="rounded-xl border border-base-300 px-3.5 py-1.5 text-[13px] font-semibold text-base-content/60 transition-colors hover:bg-base-200"
                 onClick={() => api.startEdit()}
                 disabled={loading || !!error}
               >
@@ -59,13 +59,13 @@ export function ReaderView() {
           ) : (
             <div className="flex items-center gap-2">
               <button
-                className="rounded-xl px-3.5 py-1.5 text-[13px] font-semibold text-hk-weak transition-colors hover:text-hk-text-2"
+                className="rounded-xl px-3.5 py-1.5 text-[13px] font-semibold text-base-content/45 transition-colors hover:text-base-content/60"
                 onClick={() => api.cancelEdit()}
               >
                 Cancel
               </button>
               <button
-                className="flex items-center gap-1.5 rounded-xl bg-hk-coral px-3.5 py-1.5 text-[13px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover disabled:opacity-60"
+                className="flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-1.5 text-[13px] font-semibold text-primary-content transition-colors hover:bg-primary/90 disabled:opacity-60"
                 onClick={save}
                 disabled={saveBusy}
               >
@@ -76,15 +76,15 @@ export function ReaderView() {
           )}
         </div>
 
-        <div className="mt-1 truncate font-mono text-[11px] text-hk-faint">{path}</div>
+        <div className="mt-1 truncate font-mono text-[11px] text-base-content/35">{path}</div>
 
         {loading && (
-          <div className="flex justify-center py-16 text-hk-coral-text">
+          <div className="flex justify-center py-16 text-primary">
             <Spinner size={22} />
           </div>
         )}
         {error && (
-          <div className="mt-4 rounded-xl border border-hk-border bg-hk-card px-4 py-3 text-[13.5px] text-hk-orange-text">
+          <div className="mt-4 rounded-xl border border-base-300 bg-base-200 px-4 py-3 text-[13.5px] text-hk-orange-text">
             {error}
           </div>
         )}
@@ -99,7 +99,7 @@ export function ReaderView() {
           </article>
         )}
         {!loading && !error && editMode && (
-          <div className="mt-4 rounded-2xl border border-hk-input-border bg-hk-card-soft p-4 focus-within:border-hk-input-focus">
+          <div className="mt-4 rounded-2xl border border-base-300 bg-base-200 p-4 focus-within:border-base-content/30">
             <KbEditor
               key={`edit:${path}#${version}`}
               seed={content}

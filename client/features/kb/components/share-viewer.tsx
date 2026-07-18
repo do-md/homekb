@@ -155,21 +155,21 @@ export function ShareViewer() {
     <main className="min-h-dvh">
       <div className="mx-auto w-full max-w-2xl px-4 py-8 pb-[max(env(safe-area-inset-bottom),48px)]">
         {phase.kind === "loading" && (
-          <div className="flex justify-center py-24 text-hk-coral-text">
+          <div className="flex justify-center py-24 text-primary">
             <Spinner size={22} />
           </div>
         )}
 
         {phase.kind === "password" && (
           <form
-            className="mx-auto mt-16 max-w-sm rounded-2xl border border-hk-border bg-hk-card p-6"
+            className="mx-auto mt-16 max-w-sm rounded-2xl border border-base-300 bg-base-200 p-6"
             onSubmit={(e) => {
               e.preventDefault();
               if (passwordInput) void load(passwordInput);
             }}
           >
-            <h1 className="text-[17px] font-semibold text-hk-text">This note is protected</h1>
-            <p className="mt-1 text-[13.5px] text-hk-text-2">
+            <h1 className="text-[17px] font-semibold text-base-content">This note is protected</h1>
+            <p className="mt-1 text-[13.5px] text-base-content/60">
               Enter the password the author gave you.
             </p>
             <input
@@ -177,7 +177,7 @@ export function ShareViewer() {
               autoFocus
               value={passwordInput}
               onChange={(e) => setPasswordInput(e.target.value)}
-              className="mt-4 w-full rounded-xl border border-hk-input-border bg-hk-card-soft px-3.5 py-2.5 text-[14px] text-hk-text outline-none focus:border-hk-input-focus"
+              className="mt-4 w-full rounded-xl border border-base-300 bg-base-200 px-3.5 py-2.5 text-[14px] text-base-content outline-none focus:border-base-content/30"
               placeholder="Password"
             />
             {phase.error && (
@@ -186,7 +186,7 @@ export function ShareViewer() {
             <button
               type="submit"
               disabled={busy || !passwordInput}
-              className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-xl bg-hk-coral px-3.5 py-2.5 text-[13.5px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover disabled:opacity-60"
+              className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-xl bg-primary px-3.5 py-2.5 text-[13.5px] font-semibold text-primary-content transition-colors hover:bg-primary/90 disabled:opacity-60"
             >
               {busy && <Spinner size={12} />}
               Open note
@@ -238,7 +238,7 @@ export function ShareViewer() {
                 <DOMD />
               </DOMDProvider>
             </article>
-            <footer className="mt-12 border-t border-hk-border pt-4 text-center text-[12px] text-hk-faint">
+            <footer className="mt-12 border-t border-base-300 pt-4 text-center text-[12px] text-base-content/35">
               Served live from the author&apos;s own computer ·{" "}
               <span className="font-semibold">HomeKB</span>
             </footer>
@@ -259,13 +259,13 @@ function StatusCard({
   retry?: () => void;
 }) {
   return (
-    <div className="mx-auto mt-16 max-w-sm rounded-2xl border border-hk-border bg-hk-card p-6 text-center">
-      <h1 className="text-[17px] font-semibold text-hk-text">{title}</h1>
-      <p className="mt-2 text-[13.5px] leading-relaxed text-hk-text-2">{body}</p>
+    <div className="mx-auto mt-16 max-w-sm rounded-2xl border border-base-300 bg-base-200 p-6 text-center">
+      <h1 className="text-[17px] font-semibold text-base-content">{title}</h1>
+      <p className="mt-2 text-[13.5px] leading-relaxed text-base-content/60">{body}</p>
       {retry && (
         <button
           onClick={retry}
-          className="mt-4 rounded-xl border border-hk-border px-3.5 py-1.5 text-[13px] font-semibold text-hk-text-2 transition-colors hover:bg-hk-card-soft"
+          className="mt-4 rounded-xl border border-base-300 px-3.5 py-1.5 text-[13px] font-semibold text-base-content/60 transition-colors hover:bg-base-200"
         >
           Try again
         </button>

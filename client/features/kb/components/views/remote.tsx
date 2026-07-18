@@ -29,7 +29,7 @@ function Card({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-2xl border border-hk-border bg-hk-card p-4">
+    <section className="rounded-2xl bg-base-200 p-4">
       {title && <div className="hk-label">{title}</div>}
       <div className={title ? "mt-3" : ""}>{children}</div>
     </section>
@@ -39,8 +39,8 @@ function Card({
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-4 py-1 text-[13.5px]">
-      <span className="shrink-0 text-hk-weak">{label}</span>
-      <span className="truncate font-mono text-[12px] text-hk-text-2">{value}</span>
+      <span className="shrink-0 text-base-content/45">{label}</span>
+      <span className="truncate font-mono text-[12px] text-base-content/60">{value}</span>
     </div>
   );
 }
@@ -61,7 +61,7 @@ function Toggle({
       disabled={disabled}
       onClick={onChange}
       className={`relative h-6 w-10 shrink-0 rounded-full transition-colors ${
-        checked ? "bg-hk-coral" : "bg-hk-pill"
+        checked ? "bg-primary" : "bg-base-300"
       } ${disabled ? "opacity-50" : ""}`}
     >
       <span
@@ -158,27 +158,27 @@ function PairingCard() {
               <img src={qr} alt="Pairing QR code" className="h-40 w-40" />
             </div>
           ) : (
-            <div className="flex h-40 w-40 items-center justify-center rounded-2xl bg-hk-card-strong text-hk-coral-text">
+            <div className="flex h-40 w-40 items-center justify-center rounded-2xl bg-base-300 text-primary">
               <Spinner size={20} />
             </div>
           )}
           <button
             onClick={copy}
-            className="flex items-center gap-2 font-mono text-[26px] font-bold tracking-[0.25em] text-hk-heading"
+            className="flex items-center gap-2 font-mono text-[26px] font-bold tracking-[0.25em] text-base-content"
             title="Copy code"
           >
             {pair.code}
-            <span className="text-hk-weak">
+            <span className="text-base-content/45">
               <IconCopy size={15} />
             </span>
           </button>
-          <div className="text-xs text-hk-faint">
+          <div className="text-xs text-base-content/35">
             {copied ? "Copied" : `Expires in ${remain}`} · scan with your phone, or enter the
             code on the connect screen
           </div>
         </div>
       ) : (
-        <p className="text-[13px] leading-relaxed text-hk-text-2">
+        <p className="text-[13px] leading-relaxed text-base-content/60">
           {pair ? "The code expired. " : ""}
           Generate a code, then scan the QR with your phone — or type the code into the
           HomeKB connect screen or Claude&apos;s connector authorization page.
@@ -186,7 +186,7 @@ function PairingCard() {
       )}
       {error && <p className="mt-2 text-xs text-hk-orange-text">{error}</p>}
       <button
-        className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-hk-coral px-4 py-2.5 text-[14px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover disabled:opacity-60"
+        className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-[14px] font-semibold text-primary-content transition-colors hover:bg-primary/90 disabled:opacity-60"
         disabled={busy}
         onClick={() => void api.newPairCode()}
       >
@@ -222,26 +222,26 @@ function DeviceRow({
 
   return (
     <div
-      className={`flex items-center gap-3 py-2.5 ${border ? "border-t border-hk-hairline" : ""}`}
+      className={`flex items-center gap-3 py-2.5 ${border ? "border-t border-base-200" : ""}`}
     >
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13.5px] font-medium text-hk-text">
+        <span className="block truncate text-[13.5px] font-medium text-base-content">
           {grant.label || "Unnamed device"}
         </span>
-        <span className="block text-xs text-hk-faint">
+        <span className="block text-xs text-base-content/35">
           Paired {new Date(grant.createdAt).toLocaleDateString()} · {agoLabel(grant.lastUsedAt)}
         </span>
       </span>
       {confirming ? (
         <span className="flex shrink-0 items-center gap-2">
           <button
-            className="text-[12.5px] font-medium text-hk-weak transition-colors hover:text-hk-text-2"
+            className="text-[12.5px] font-medium text-base-content/45 transition-colors hover:text-base-content/60"
             onClick={() => setConfirming(false)}
           >
             Keep
           </button>
           <button
-            className="flex items-center gap-1 rounded-lg bg-hk-coral px-2.5 py-1 text-[12.5px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover disabled:opacity-60"
+            className="flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1 text-[12.5px] font-semibold text-primary-content transition-colors hover:bg-primary/90 disabled:opacity-60"
             disabled={busy}
             onClick={() => void api.revokeDevice(grant.id)}
           >
@@ -251,7 +251,7 @@ function DeviceRow({
         </span>
       ) : (
         <button
-          className="shrink-0 text-[12.5px] font-medium text-hk-weak transition-colors hover:text-hk-orange-text"
+          className="shrink-0 text-[12.5px] font-medium text-base-content/45 transition-colors hover:text-hk-orange-text"
           onClick={() => setConfirming(true)}
         >
           Unpair
@@ -281,11 +281,11 @@ function PairedDevicesCard() {
       {error ? (
         <p className="text-xs text-hk-orange-text">{error}</p>
       ) : !loaded ? (
-        <div className="flex justify-center py-3 text-hk-coral-text">
+        <div className="flex justify-center py-3 text-primary">
           <Spinner size={16} />
         </div>
       ) : grants.length === 0 ? (
-        <p className="text-[13px] leading-relaxed text-hk-text-2">
+        <p className="text-[13px] leading-relaxed text-base-content/60">
           Nothing is paired yet — generate a code above and scan it with your phone, or
           authorize Claude&apos;s connector with it.
         </p>
@@ -301,15 +301,15 @@ function PairedDevicesCard() {
 }
 
 const addInputCls =
-  "min-w-0 flex-1 rounded-xl border border-hk-input-border bg-transparent px-3 py-2 font-mono text-[12.5px] text-hk-text outline-none placeholder:text-hk-weak focus:border-hk-input-focus";
+  "min-w-0 flex-1 rounded-xl border border-base-300 bg-transparent px-3 py-2 font-mono text-[12.5px] text-base-content outline-none placeholder:text-base-content/45 focus:border-base-content/30";
 
 /** Reachability dot + latency for one service entry. */
 function ProbeBadge({ probe }: { probe: { ok: boolean; ms: number | null } | undefined }) {
   if (!probe) {
-    return <span className="text-[11.5px] text-hk-faint">checking…</span>;
+    return <span className="text-[11.5px] text-base-content/35">checking…</span>;
   }
   return probe.ok ? (
-    <span className="flex items-center gap-1 text-[11.5px] text-hk-green">
+    <span className="flex items-center gap-1 text-[11.5px] text-success">
       <StatusDot /> {probe.ms} ms
     </span>
   ) : (
@@ -349,7 +349,7 @@ function ServicePicker({ onSelected }: { onSelected?: () => void }) {
   return (
     <div className="flex flex-col gap-3">
       {services.length === 0 ? (
-        <p className="text-[12.5px] leading-relaxed text-hk-faint">
+        <p className="text-[12.5px] leading-relaxed text-base-content/35">
           No services available yet — official ones will appear here in a future update.
           Add one you host (or someone shared with you), or start this machine&apos;s own
           service below.
@@ -359,23 +359,23 @@ function ServicePicker({ onSelected }: { onSelected?: () => void }) {
           {services.map((e, i) => (
             <div
               key={e.url}
-              className={`flex items-center gap-3 py-2 ${i > 0 ? "border-t border-hk-hairline" : ""}`}
+              className={`flex items-center gap-3 py-2 ${i > 0 ? "border-t border-base-200" : ""}`}
             >
               <span className="min-w-0 flex-1">
-                <span className="block truncate font-mono text-[12px] text-hk-text">
+                <span className="block truncate font-mono text-[12px] text-base-content">
                   {e.url}
                 </span>
-                <span className="flex items-center gap-2 text-[11px] text-hk-faint">
+                <span className="flex items-center gap-2 text-[11px] text-base-content/35">
                   {e.builtin && <span>Built-in</span>}
                   {e.thisMachine && <span>This machine</span>}
                   <ProbeBadge probe={probes[e.url]} />
                 </span>
               </span>
               {e.url === currentUrl ? (
-                <span className="shrink-0 text-[12px] font-medium text-hk-green">In use</span>
+                <span className="shrink-0 text-[12px] font-medium text-success">In use</span>
               ) : (
                 <button
-                  className="shrink-0 rounded-lg bg-hk-coral px-2.5 py-1 text-[12.5px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover disabled:opacity-60"
+                  className="shrink-0 rounded-lg bg-primary px-2.5 py-1 text-[12.5px] font-semibold text-primary-content transition-colors hover:bg-primary/90 disabled:opacity-60"
                   disabled={registerBusy || !probes[e.url]?.ok}
                   onClick={() => void use(e.url)}
                 >
@@ -384,7 +384,7 @@ function ServicePicker({ onSelected }: { onSelected?: () => void }) {
               )}
               {!e.builtin && e.url !== currentUrl && (
                 <button
-                  className="shrink-0 text-[12px] text-hk-weak transition-colors hover:text-hk-orange-text"
+                  className="shrink-0 text-[12px] text-base-content/45 transition-colors hover:text-hk-orange-text"
                   onClick={() => api.removeService(e.url)}
                   title="Remove from the list"
                 >
@@ -415,20 +415,20 @@ function ServicePicker({ onSelected }: { onSelected?: () => void }) {
         />
         <button
           type="submit"
-          className="shrink-0 rounded-xl border border-hk-border px-3 py-2 text-[13px] font-semibold text-hk-text-2 transition-colors hover:bg-hk-card-soft disabled:opacity-50"
+          className="shrink-0 rounded-xl border border-base-300 px-3 py-2 text-[13px] font-semibold text-base-content/60 transition-colors hover:bg-base-200 disabled:opacity-50"
           disabled={!draft.trim()}
         >
           Add
         </button>
       </form>
-      <p className="text-[11.5px] leading-relaxed text-hk-faint">
+      <p className="text-[11.5px] leading-relaxed text-base-content/35">
         A service address must be publicly reachable over{" "}
         <span className="font-mono">https://</span> — it is what your phone connects to.
       </p>
 
       {services.length > 0 && (
         <button
-          className="flex items-center justify-center gap-2 rounded-xl bg-hk-coral px-4 py-2.5 text-[14px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover disabled:opacity-60"
+          className="flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-[14px] font-semibold text-primary-content transition-colors hover:bg-primary/90 disabled:opacity-60"
           disabled={registerBusy || probing}
           onClick={() => void api.autoSelectService()}
         >
@@ -456,7 +456,7 @@ function ServiceCard() {
   if (!engine?.relay) {
     return (
       <Card title="Connection service">
-        <p className="text-[13px] leading-relaxed text-hk-text-2">
+        <p className="text-[13px] leading-relaxed text-base-content/60">
           Connect this computer to a service so your phone and Claude can reach it from
           anywhere. The service only forwards traffic — it never stores your notes.
         </p>
@@ -486,10 +486,10 @@ function ServiceCard() {
           </p>
         )}
         <Row label="This device" value={engine.relay.name} />
-        <div className="mt-2 flex items-center justify-between gap-4 border-t border-hk-hairline pt-3">
-          <span className="text-[13.5px] text-hk-text-2">
+        <div className="mt-2 flex items-center justify-between gap-4 border-t border-base-200 pt-3">
+          <span className="text-[13.5px] text-base-content/60">
             Keep tunnel alive
-            <span className="block text-xs text-hk-faint">Required for mobile / remote MCP</span>
+            <span className="block text-xs text-base-content/35">Required for mobile / remote MCP</span>
           </span>
           <Toggle
             checked={tunnelRunning}
@@ -497,15 +497,15 @@ function ServiceCard() {
             onChange={() => void api.toggleTunnel()}
           />
         </div>
-        <div className="mt-3 flex items-center gap-4 border-t border-hk-hairline pt-3">
+        <div className="mt-3 flex items-center gap-4 border-t border-base-200 pt-3">
           <button
-            className="text-[12.5px] font-medium text-hk-weak transition-colors hover:text-hk-text-2"
+            className="text-[12.5px] font-medium text-base-content/45 transition-colors hover:text-base-content/60"
             onClick={() => setChanging((v) => !v)}
           >
             {changing ? "Hide service list" : "Change service…"}
           </button>
           <button
-            className="text-[12.5px] font-medium text-hk-weak transition-colors hover:text-hk-orange-text disabled:opacity-50"
+            className="text-[12.5px] font-medium text-base-content/45 transition-colors hover:text-hk-orange-text disabled:opacity-50"
             disabled={registerBusy}
             onClick={() => void api.disconnectService()}
           >
@@ -515,7 +515,7 @@ function ServiceCard() {
         {changing && (
           <div className="mt-3">
             <ServicePicker onSelected={() => setChanging(false)} />
-            <p className="mt-2 text-[11.5px] leading-relaxed text-hk-faint">
+            <p className="mt-2 text-[11.5px] leading-relaxed text-base-content/35">
               Switching services re-registers this computer — devices paired through the old
               service will need to pair again.
             </p>
@@ -547,17 +547,17 @@ function LocalServiceCard() {
   return (
     <Card title="Service on this machine">
       <div className="flex items-center justify-between gap-4">
-        <span className="text-[13.5px] text-hk-text-2">
+        <span className="text-[13.5px] text-base-content/60">
           Run a connection service here
-          <span className="block text-xs text-hk-faint">
+          <span className="block text-xs text-base-content/35">
             Phones connect straight to this computer — no third party
           </span>
         </span>
         <Toggle checked={running} disabled={busy} onChange={() => void api.toggleLocalRelay()} />
       </div>
       {running && (
-        <div className="mt-3 border-t border-hk-hairline pt-3">
-          <p className="text-[12.5px] leading-relaxed text-hk-text-2">
+        <div className="mt-3 border-t border-base-200 pt-3">
+          <p className="text-[12.5px] leading-relaxed text-base-content/60">
             The service is running on port 8787. To use it, this machine needs a public{" "}
             <span className="font-mono text-[11.5px]">https://</span> domain pointing at it
             (reverse proxy or a Cloudflare-style tunnel — your setup). Then add that domain
@@ -582,7 +582,7 @@ function LocalServiceCard() {
             />
             <button
               type="submit"
-              className="shrink-0 rounded-xl border border-hk-border px-3 py-2 text-[13px] font-semibold text-hk-text-2 transition-colors hover:bg-hk-card-soft disabled:opacity-50"
+              className="shrink-0 rounded-xl border border-base-300 px-3 py-2 text-[13px] font-semibold text-base-content/60 transition-colors hover:bg-base-200 disabled:opacity-50"
               disabled={!domainDraft.trim()}
             >
               Add as service
@@ -621,13 +621,13 @@ function WebRemote() {
       <Card title="This device">
         <Row label="Connected to" value={homeName || "Home"} />
         {conn && <Row label="Service" value={conn.relayUrl} />}
-        <div className="mt-2 flex items-center gap-2 border-t border-hk-hairline pt-3 text-[13px] text-hk-text-2">
+        <div className="mt-2 flex items-center gap-2 border-t border-base-200 pt-3 text-[13px] text-base-content/60">
           <span
             className={
               connState === "online"
-                ? "text-hk-green"
+                ? "text-success"
                 : connState === "connecting"
-                  ? "text-hk-amber"
+                  ? "text-warning"
                   : "text-hk-orange"
             }
           >
@@ -642,20 +642,20 @@ function WebRemote() {
       </Card>
 
       <Card>
-        <p className="text-[13px] leading-relaxed text-hk-text-2">
+        <p className="text-[13px] leading-relaxed text-base-content/60">
           Disconnecting removes this device&apos;s access token. You can pair again anytime
           with a fresh code from your home computer.
         </p>
         {confirming ? (
           <div className="mt-3 flex gap-2">
             <button
-              className="flex-1 rounded-xl border border-hk-border px-4 py-2.5 text-[14px] font-semibold text-hk-text-2 transition-colors hover:bg-hk-card"
+              className="flex-1 rounded-xl border border-base-300 px-4 py-2.5 text-[14px] font-semibold text-base-content/60 transition-colors hover:bg-base-200"
               onClick={() => setConfirming(false)}
             >
               Keep connected
             </button>
             <button
-              className="flex-1 rounded-xl bg-hk-coral px-4 py-2.5 text-[14px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover"
+              className="flex-1 rounded-xl bg-primary px-4 py-2.5 text-[14px] font-semibold text-primary-content transition-colors hover:bg-primary/90"
               onClick={() => api.unpair()}
             >
               Disconnect
@@ -663,7 +663,7 @@ function WebRemote() {
           </div>
         ) : (
           <button
-            className="mt-3 w-full rounded-xl border border-hk-border px-4 py-2.5 text-[14px] font-semibold text-hk-text-2 transition-colors hover:bg-hk-card"
+            className="mt-3 w-full btn btn-soft btn-outline"
             onClick={() => setConfirming(true)}
           >
             Disconnect this device…
@@ -679,12 +679,12 @@ export function RemoteView() {
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-xl px-4 py-5 pb-[max(env(safe-area-inset-bottom),24px)]">
         <div className="flex items-center gap-2.5">
-          <span className="text-hk-weak">
+          <span className="text-base-content/45">
             <IconPhoneSignal size={18} strokeWidth={1.5} />
           </span>
-          <h1 className="text-[21px] font-bold tracking-tight text-hk-heading">Remote</h1>
+          <h1 className="text-[21px] font-bold tracking-tight text-base-content">Remote</h1>
         </div>
-        <p className="mt-1.5 text-[13px] leading-relaxed text-hk-text-2">
+        <p className="mt-1.5 text-[13px] leading-relaxed text-base-content/60">
           Connect your phone or Claude to this home. The connection service only forwards
           traffic — it never stores your notes.
         </p>

@@ -3,7 +3,7 @@
 /**
  * Status dashboard (design 6a, compiling state 6b): knowledge-base health +
  * index pipeline. Big tabular-num stats; green dots only for "all good";
- * the index.db box in the data flow is coral — the read-only snapshot is the
+ * the index.db box in the data flow is primary — the read-only snapshot is the
  * "your data stays local" story.
  */
 
@@ -28,9 +28,9 @@ function StatCard({
   sub?: string;
 }) {
   const dotCls =
-    dot === "green" ? "text-hk-green" : dot === "amber" ? "text-hk-amber" : "text-hk-orange";
+    dot === "green" ? "text-success" : dot === "amber" ? "text-warning" : "text-hk-orange";
   return (
-    <div className="rounded-2xl border border-hk-border bg-hk-card p-4">
+    <div className="rounded-2xl bg-base-200 p-4">
       <div className="hk-label flex items-center gap-1.5">
         {label}
         {dot && (
@@ -39,10 +39,10 @@ function StatCard({
           </span>
         )}
       </div>
-      <div className="mt-1.5 text-[27px] leading-none font-bold text-hk-heading tabular-nums">
+      <div className="mt-1.5 text-[27px] leading-none font-bold text-base-content tabular-nums">
         {value}
       </div>
-      {sub && <div className="mt-1.5 text-xs text-hk-faint">{sub}</div>}
+      {sub && <div className="mt-1.5 text-xs text-base-content/35">{sub}</div>}
     </div>
   );
 }
@@ -64,10 +64,10 @@ function SchedulerCard() {
 
   const active = managed && running;
   return (
-    <div className="rounded-2xl border border-hk-border bg-hk-card p-4">
+    <div className="rounded-2xl border border-base-300 bg-base-200 p-4">
       <div className="flex items-center justify-between gap-3">
-        <span className="flex items-center gap-2 text-[14px] font-semibold text-hk-text">
-          <span className={active ? "text-hk-green" : "text-hk-amber"}>
+        <span className="flex items-center gap-2 text-[14px] font-semibold text-base-content">
+          <span className={active ? "text-success" : "text-warning"}>
             <StatusDot />
           </span>
           {active ? "Scheduler running" : "Scheduler stopped"}
@@ -77,15 +77,15 @@ function SchedulerCard() {
           disabled={busy}
           className={
             active
-              ? "flex items-center gap-1.5 rounded-xl border border-hk-border px-3.5 py-2 text-[13px] font-semibold text-hk-text-2 transition-colors hover:bg-hk-card disabled:opacity-60"
-              : "flex items-center gap-1.5 rounded-xl bg-hk-coral px-3.5 py-2 text-[13px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover disabled:opacity-60"
+              ? "flex items-center gap-1.5 rounded-xl border border-base-300 px-3.5 py-2 text-[13px] font-semibold text-base-content/60 transition-colors hover:bg-base-200 disabled:opacity-60"
+              : "flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-[13px] font-semibold text-primary-content transition-colors hover:bg-primary/90 disabled:opacity-60"
           }
         >
           {busy && <Spinner size={12} />}
           {active ? "Stop scheduler" : "Start scheduler"}
         </button>
       </div>
-      <p className="mt-2 text-xs leading-relaxed text-hk-faint">
+      <p className="mt-2 text-xs leading-relaxed text-base-content/35">
         <code className="font-mono">com.homekb.compile</code> · launchd — recompiles your
         notes on a schedule while it runs.
       </p>
@@ -103,21 +103,21 @@ function PathsCard() {
     ["Config", engine.configPath, "toml"],
   ];
   return (
-    <div className="rounded-2xl border border-hk-border bg-hk-card-soft p-4">
+    <div className="rounded-2xl border border-base-300 bg-base-200 p-4">
       <div className="hk-label">Paths</div>
       <div className="mt-2 flex flex-col">
         {rows.map(([label, path, tag], i) => (
           <div
             key={label}
             className={`flex items-center gap-3 py-2 text-[13px] ${
-              i > 0 ? "border-t border-hk-hairline" : ""
+              i > 0 ? "border-t border-base-200" : ""
             }`}
           >
-            <span className="w-20 shrink-0 text-hk-weak">{label}</span>
-            <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-hk-text-2">
+            <span className="w-20 shrink-0 text-base-content/45">{label}</span>
+            <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-base-content/60">
               {path}
             </span>
-            <span className="shrink-0 rounded-[7px] border border-hk-hairline bg-hk-card-strong px-2 py-0.5 text-[11px] font-medium text-hk-weak">
+            <span className="shrink-0 rounded-[7px] border border-base-200 bg-base-300 px-2 py-0.5 text-[11px] font-medium text-base-content/45">
               {tag}
             </span>
           </div>
@@ -132,8 +132,8 @@ function FlowBox({ label, highlight = false }: { label: string; highlight?: bool
     <span
       className={`rounded-lg border px-2.5 py-1.5 font-mono text-[11.5px] whitespace-nowrap ${
         highlight
-          ? "border-hk-coral-chip-border bg-hk-coral-chip font-semibold text-hk-coral-text"
-          : "border-hk-hairline bg-hk-card-soft text-hk-text-2"
+          ? "border-primary/20 bg-primary/10 font-semibold text-primary"
+          : "border-base-200 bg-base-200 text-base-content/60"
       }`}
     >
       {label}
@@ -168,13 +168,13 @@ export function StatusView() {
       <div className="mx-auto w-full max-w-2xl px-4 py-5 pb-[max(env(safe-area-inset-bottom),24px)]">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h1 className="text-[21px] font-bold tracking-tight text-hk-heading">Index status</h1>
+            <h1 className="text-[21px] font-bold tracking-tight text-base-content">Index status</h1>
             {metaBits.length > 0 && (
-              <p className="mt-1 text-[12.5px] text-hk-weak">{metaBits.join(" · ")}</p>
+              <p className="mt-1 text-[12.5px] text-base-content/45">{metaBits.join(" · ")}</p>
             )}
           </div>
           <button
-            className="flex shrink-0 items-center gap-1.5 rounded-xl border border-hk-border px-3.5 py-2 text-[13px] font-semibold text-hk-text-2 transition-colors hover:bg-hk-card"
+            className="btn rounded-lg btn-md"
             onClick={() => void api.reindex()}
           >
             <IconRefresh size={13} /> Reindex now
@@ -182,7 +182,7 @@ export function StatusView() {
         </div>
 
         {loading && !status ? (
-          <div className="flex justify-center py-16 text-hk-coral-text">
+          <div className="flex justify-center py-16 text-primary">
             <Spinner size={22} />
           </div>
         ) : status ? (
@@ -192,20 +192,20 @@ export function StatusView() {
 
             {/* Compiling state (6b) */}
             {compiling && (
-              <div className="rounded-2xl border border-hk-border bg-hk-card p-4">
-                <div className="flex items-center gap-2 text-[14px] font-semibold text-hk-text">
-                  <span className="text-hk-coral-text">
+              <div className="rounded-2xl border border-base-300 bg-base-200 p-4">
+                <div className="flex items-center gap-2 text-[14px] font-semibold text-base-content">
+                  <span className="text-primary">
                     <Spinner size={14} />
                   </span>
                   Vectorizing chunks…
                 </div>
-                <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-hk-pill">
+                <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-base-300">
                   <div
-                    className="h-full rounded-full bg-hk-coral transition-[width] duration-500"
+                    className="h-full rounded-full bg-primary transition-[width] duration-500"
                     style={{ width: `${pct}%` }}
                   />
                 </div>
-                <div className="mt-2 flex items-center justify-between text-xs text-hk-faint">
+                <div className="mt-2 flex items-center justify-between text-xs text-base-content/35">
                   <span className="tabular-nums">
                     {vectorized}/{chunks} · ~{Math.max(chunks - vectorized, pending)} left
                   </span>
@@ -215,24 +215,24 @@ export function StatusView() {
             )}
 
             {/* Hero CHUNKS card */}
-            <div className="rounded-2xl border border-hk-border bg-hk-card p-4">
+            <div className="rounded-2xl bg-base-200 p-4">
               <div className="hk-label flex items-center gap-1.5">
                 Chunks
                 {allVectorized && (
-                  <span className="text-hk-green">
+                  <span className="text-success">
                     <StatusDot className="h-1.5! w-1.5!" />
                   </span>
                 )}
               </div>
               <div className="mt-1.5 flex items-baseline gap-2">
-                <span className="text-[33px] leading-none font-bold text-hk-heading tabular-nums">
+                <span className="text-[33px] leading-none font-bold text-base-content tabular-nums">
                   {vectorized}
                 </span>
-                <span className="text-[15px] text-hk-weak tabular-nums">/ {chunks} vectorized</span>
+                <span className="text-[15px] text-base-content/45 tabular-nums">/ {chunks} vectorized</span>
               </div>
-              <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-hk-pill">
+              <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-base-300">
                 <div
-                  className="h-full rounded-full bg-hk-coral"
+                  className="h-full rounded-full bg-primary/65"
                   style={{ width: `${pct}%` }}
                 />
               </div>
@@ -257,19 +257,19 @@ export function StatusView() {
               />
             </div>
 
-            {/* Data flow: the coral index.db box = read-only snapshot, data stays local */}
-            <div className="rounded-2xl border border-hk-border bg-hk-card-soft p-4">
+            {/* Data flow: the primary index.db box = read-only snapshot, data stays local */}
+            <div className="rounded-2xl bg-base-200 p-4">
               <div className="hk-label">Data flow</div>
               <div className="mt-3 flex flex-wrap items-center gap-1.5">
                 <FlowBox label="*.md" />
-                <span className="text-hk-faint">→</span>
+                <span className="text-base-content/35">→</span>
                 <FlowBox label="live.db" />
-                <span className="text-hk-faint">→</span>
+                <span className="text-base-content/35">→</span>
                 <FlowBox label="index.db" highlight />
-                <span className="text-hk-faint">→</span>
+                <span className="text-base-content/35">→</span>
                 <FlowBox label="homekb query" />
               </div>
-              <p className="mt-2.5 text-xs leading-relaxed text-hk-faint">
+              <p className="mt-2.5 text-xs leading-relaxed text-base-content/35">
                 Notes compile into a read-only snapshot on your computer — search runs
                 against it locally; nothing is uploaded.
               </p>
@@ -279,10 +279,10 @@ export function StatusView() {
             {isDesktop() && <PathsCard />}
 
             {/* Failures section */}
-            <div className="flex items-center gap-2 rounded-2xl border border-hk-border bg-hk-card-soft px-4 py-3 text-[13px] text-hk-text-2">
+            <div className="flex items-center gap-2 rounded-2xl bg-base-200 px-4 py-3 text-[13px] text-base-content/60">
               {failures === 0 ? (
                 <>
-                  <span className="text-hk-green">
+                  <span className="text-success">
                     <IconCheck size={14} strokeWidth={2} />
                   </span>
                   No failures · every chunk vectorized
@@ -299,7 +299,7 @@ export function StatusView() {
             </div>
           </div>
         ) : (
-          <p className="py-14 text-center text-[13.5px] text-hk-weak">
+          <p className="py-14 text-center text-[13.5px] text-base-content/45">
             No status data available
           </p>
         )}

@@ -19,7 +19,7 @@ const EMBEDDING_PROVIDERS = ["openai", "gemini", "voyage", "cohere", "qwen", "cu
 const CHAT_PROVIDERS = ["openai", "gemini", "deepseek", "qwen", "custom"] as const;
 
 const inputCls =
-  "min-w-0 flex-1 rounded-xl border border-hk-input-border bg-transparent px-3 py-2 font-mono text-[13px] text-hk-text outline-none placeholder:text-hk-weak focus:border-hk-input-focus";
+  "min-w-0 flex-1 rounded-xl border border-base-300 bg-transparent px-3 py-2 font-mono text-[13px] text-base-content outline-none placeholder:text-base-content/45 focus:border-base-content/30";
 
 /** One [embedding]/[summary]/[ask] editor: provider select + key/model (+ custom fields). */
 function AiEndpointEditor({ section, title, note }: { section: AiSection; title: string; note?: string }) {
@@ -49,7 +49,7 @@ function AiEndpointEditor({ section, title, note }: { section: AiSection; title:
             "Uses the Summary endpoint"
           ) : current?.keyPresent ? (
             <span className="inline-flex items-center gap-1.5">
-              <span className="text-hk-green">
+              <span className="text-success">
                 <StatusDot className="h-1.5! w-1.5!" />
               </span>
               {current.provider} · {current.model}
@@ -114,9 +114,9 @@ function AiEndpointEditor({ section, title, note }: { section: AiSection; title:
           </>
         )}
         <div className="flex items-center justify-between gap-2">
-          {note ? <p className="text-xs leading-relaxed text-hk-faint">{note}</p> : <span />}
+          {note ? <p className="text-xs leading-relaxed text-base-content/35">{note}</p> : <span />}
           <button
-            className="flex shrink-0 items-center gap-1.5 rounded-xl bg-hk-coral px-4 py-2 text-[13.5px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover disabled:opacity-50"
+            className="flex shrink-0 items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-[13.5px] font-semibold text-primary-content transition-colors hover:bg-primary/90 disabled:opacity-50"
             disabled={busy || (fallbackActive ? !current?.configured : !dirty)}
             onClick={() => void (fallbackActive ? api.resetAsk() : api.saveAiEndpoint(section))}
           >
@@ -131,7 +131,7 @@ function AiEndpointEditor({ section, title, note }: { section: AiSection; title:
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-2xl border border-hk-border bg-hk-card p-4">
+    <section className="rounded-2xl border border-base-300 bg-base-200 p-4">
       <div className="hk-label">{title}</div>
       <div className="mt-3 flex flex-col gap-1.5">{children}</div>
     </section>
@@ -141,8 +141,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-4 text-[13.5px]">
-      <span className="shrink-0 text-hk-weak">{label}</span>
-      <span className="truncate text-right font-mono text-[12px] text-hk-text-2">{value}</span>
+      <span className="shrink-0 text-base-content/45">{label}</span>
+      <span className="truncate text-right font-mono text-[12px] text-base-content/60">{value}</span>
     </div>
   );
 }
@@ -199,7 +199,7 @@ function RebuildIndexCard() {
         <Row label="Size" value={`${stats.docs} docs · ${stats.chunks} chunks`} />
       )}
       {drift && (
-        <p className="mt-1 rounded-lg bg-hk-coral/10 px-3 py-2 text-xs leading-relaxed text-hk-coral">
+        <p className="mt-1 rounded-lg bg-primary/10 px-3 py-2 text-xs leading-relaxed text-primary">
           Config now uses{" "}
           <b>
             {embedding.provider} · {embedding.model}
@@ -207,7 +207,7 @@ function RebuildIndexCard() {
           , but the index was built with <b>{built}</b>. Rebuild to apply the new model.
         </p>
       )}
-      <p className="mt-1 text-xs leading-relaxed text-hk-faint">
+      <p className="mt-1 text-xs leading-relaxed text-base-content/35">
         Embedding vectors are model-specific and can’t be reused — changing the model requires
         re-embedding every note. Your Markdown files are untouched.
         {cost && (
@@ -220,7 +220,7 @@ function RebuildIndexCard() {
       </p>
       <div className="mt-2 flex justify-end">
         <button
-          className="flex items-center gap-1.5 rounded-xl bg-hk-coral px-4 py-2 text-[13.5px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover disabled:opacity-50"
+          className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-[13.5px] font-semibold text-primary-content transition-colors hover:bg-primary/90 disabled:opacity-50"
           disabled={rebuilding}
           onClick={() => void api.rebuildReindex()}
         >
@@ -248,13 +248,13 @@ function AppUpdatesCard() {
     <Section title="App updates">
       <Row label="Version" value={appVersion ?? "–"} />
       {updateReady && <Row label="Ready" value={`${updateReady} — restart to apply`} />}
-      <p className="mt-1 text-xs leading-relaxed text-hk-faint">
+      <p className="mt-1 text-xs leading-relaxed text-base-content/35">
         Updates download and install in the background; HomeKB switches to the new
         version the next time it starts.
       </p>
       <div className="mt-2 flex justify-end">
         <button
-          className="flex items-center gap-1.5 rounded-xl bg-hk-coral px-4 py-2 text-[13.5px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover disabled:opacity-50"
+          className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-[13.5px] font-semibold text-primary-content transition-colors hover:bg-primary/90 disabled:opacity-50"
           disabled={busy}
           onClick={() => void (updateReady ? api.restartToUpdate() : api.checkForUpdate(true))}
         >
@@ -286,7 +286,7 @@ function EngineCard() {
         value={
           engine?.serveRunning ? (
             <span className="inline-flex items-center gap-1.5">
-              <span className="text-hk-green">
+              <span className="text-success">
                 <StatusDot className="h-1.5! w-1.5!" />
               </span>
               Running · 127.0.0.1:8765
@@ -299,7 +299,7 @@ function EngineCard() {
       {engineLatest && <Row label="Available" value={engineLatest} />}
       <div className="mt-2 flex justify-end">
         <button
-          className="flex items-center gap-1.5 rounded-xl bg-hk-coral px-4 py-2 text-[13.5px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover disabled:opacity-50"
+          className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-[13.5px] font-semibold text-primary-content transition-colors hover:bg-primary/90 disabled:opacity-50"
           disabled={busy}
           onClick={() => void (engineLatest ? api.updateEngine() : api.checkEngineUpdate())}
         >
@@ -329,7 +329,7 @@ export function SettingsView() {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto flex w-full max-w-xl flex-col gap-3 px-4 py-5 pb-[max(env(safe-area-inset-bottom),24px)]">
-        <h1 className="text-[21px] font-bold tracking-tight text-hk-heading">Settings</h1>
+        <h1 className="text-[21px] font-bold tracking-tight text-base-content">Settings</h1>
 
         <EngineCard />
 
@@ -359,7 +359,7 @@ export function SettingsView() {
 
         <Section title="Appearance">
           <Row label="Theme" value="Follows your system" />
-          <p className="text-xs leading-relaxed text-hk-faint">
+          <p className="text-xs leading-relaxed text-base-content/35">
             Light and dark switch automatically with the OS — there is no manual toggle.
           </p>
         </Section>

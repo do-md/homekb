@@ -18,7 +18,7 @@ export default function Home() {
   return (
     <main className="fixed inset-0 flex items-center justify-center">
       <span
-        className="hk-spin inline-block h-5 w-5 rounded-full border-2 border-current border-t-transparent text-hk-coral-text"
+        className="hk-spin inline-block h-5 w-5 rounded-full border-2 border-current border-t-transparent text-primary"
         aria-label="Loading"
       />
     </main>

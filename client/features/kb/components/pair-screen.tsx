@@ -10,7 +10,7 @@
  *
  * Phone (coarse pointer + camera): scan-first (8b) — camera viewfinder decoding the
  * home machine's pairing QR; "Enter code manually" reveals the code form.
- * Desktop (8a): manual-first + a coral "On your phone? Scan the QR instead" link.
+ * Desktop (8a): manual-first + a primary "On your phone? Scan the QR instead" link.
  *
  * Supports the pairing-link contract (docs/ARCHITECTURE.md "Pairing link (QR payload)"):
  * `/?relay=<url>&code=<code>` prefill + auto-claim, params stripped immediately.
@@ -23,7 +23,7 @@ import { Spinner } from "./icons";
 import { canScanQr, isCoarsePointer, QrScanner } from "./qr-scanner";
 
 const inputCls =
-  "w-full rounded-xl border border-hk-input-border bg-hk-card-soft px-3.5 py-2.5 text-[14px] text-hk-text outline-none placeholder:text-hk-weak focus:border-hk-input-focus";
+  "w-full rounded-xl border border-base-300 bg-base-200 px-3.5 py-2.5 text-[14px] text-base-content outline-none placeholder:text-base-content/45 focus:border-base-content/30";
 
 /** Pairing link in the address bar (auto-claim path) — skip the scanner then. */
 function hasLinkParams(): boolean {
@@ -76,10 +76,10 @@ export function PairScreen() {
     return (
       <div className="fixed inset-0 overflow-y-auto">
         <main className="mx-auto flex min-h-full w-full max-w-sm flex-col justify-center px-5 pt-[max(env(safe-area-inset-top),24px)] pb-[max(env(safe-area-inset-bottom),24px)]">
-          <h1 className="text-center text-[30px] font-bold tracking-tight text-hk-heading">
+          <h1 className="text-center text-[30px] font-bold tracking-tight text-base-content">
             HomeKB
           </h1>
-          <p className="mt-2 text-center text-[14px] text-hk-text-2">
+          <p className="mt-2 text-center text-[14px] text-base-content/60">
             Your knowledge base lives on your own computer.
           </p>
           <div className="mt-8 flex flex-col items-center">
@@ -93,7 +93,7 @@ export function PairScreen() {
             <button
               type="button"
               onClick={() => setScanning(false)}
-              className="mt-6 text-[14px] font-semibold text-hk-coral-text transition-colors hover:text-hk-coral-hover"
+              className="mt-6 text-[14px] font-semibold text-primary transition-colors hover:text-primary"
             >
               Enter code manually
             </button>
@@ -106,10 +106,10 @@ export function PairScreen() {
   return (
     <div className="fixed inset-0 overflow-y-auto">
       <main className="mx-auto flex min-h-full w-full max-w-sm flex-col justify-center px-5 pt-[max(env(safe-area-inset-top),24px)] pb-[max(env(safe-area-inset-bottom),24px)]">
-        <h1 className="text-center text-[30px] font-bold tracking-tight text-hk-heading">
+        <h1 className="text-center text-[30px] font-bold tracking-tight text-base-content">
           HomeKB
         </h1>
-        <p className="mt-2 text-center text-[14px] text-hk-text-2">
+        <p className="mt-2 text-center text-[14px] text-base-content/60">
           Your knowledge base lives on your own computer.
         </p>
         {cameraNote && (
@@ -123,12 +123,12 @@ export function PairScreen() {
             if (ready) void api.pairRelay(serviceUrl.trim(), code.trim());
           }}
         >
-          <p className="text-[12.5px] leading-relaxed text-hk-weak">
+          <p className="text-[12.5px] leading-relaxed text-base-content/45">
             Get a pairing code from HomeKB on your home computer (the Remote tab), or run{" "}
-            <code className="font-mono text-[11.5px] text-hk-text-2">homekb pair</code>.
+            <code className="font-mono text-[11.5px] text-base-content/60">homekb pair</code>.
           </p>
           <label className="flex flex-col gap-1.5">
-            <span className="text-[12px] font-medium text-hk-weak">Pairing code</span>
+            <span className="text-[12px] font-medium text-base-content/45">Pairing code</span>
             <input
               value={code}
               onChange={(e) => setCode(e.target.value.toUpperCase())}
@@ -140,7 +140,7 @@ export function PairScreen() {
             />
           </label>
           <label className="flex flex-col gap-1.5">
-            <span className="text-[12px] font-medium text-hk-weak">Service address</span>
+            <span className="text-[12px] font-medium text-base-content/45">Service address</span>
             <input
               value={serviceUrl}
               onChange={(e) => setServiceUrl(e.target.value)}
@@ -149,7 +149,7 @@ export function PairScreen() {
               autoCapitalize="none"
               autoCorrect="off"
             />
-            <span className="text-[11.5px] leading-relaxed text-hk-faint">
+            <span className="text-[11.5px] leading-relaxed text-base-content/35">
               The service your home computer is connected to — shown next to the pairing
               code in its Remote tab. Scanning the QR fills everything in automatically.
             </span>
@@ -158,12 +158,12 @@ export function PairScreen() {
           <button
             type="submit"
             disabled={busy || !ready}
-            className="mt-1 flex items-center justify-center gap-2 rounded-xl bg-hk-coral px-4 py-3 text-[15px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover disabled:opacity-50"
+            className="mt-1 flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-[15px] font-semibold text-primary-content transition-colors hover:bg-primary/90 disabled:opacity-50"
           >
             {busy && <Spinner size={15} />}
             Connect
           </button>
-          <p className="text-center text-[11.5px] leading-relaxed text-hk-faint">
+          <p className="text-center text-[11.5px] leading-relaxed text-base-content/35">
             Nothing is stored in between — the service only moves data between you and
             your computer.
           </p>
@@ -176,7 +176,7 @@ export function PairScreen() {
               setCameraNote(null);
               setScanning(true);
             }}
-            className="mt-5 text-center text-[13.5px] font-semibold text-hk-coral-text transition-colors hover:text-hk-coral-hover"
+            className="mt-5 text-center text-[13.5px] font-semibold text-primary transition-colors hover:text-primary"
           >
             {isCoarsePointer() ? "Scan the QR code instead" : "On your phone? Scan the QR instead"}
           </button>

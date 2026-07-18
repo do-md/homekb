@@ -1,4 +1,7 @@
 import type { Metadata, Viewport } from "next";
+// DOMD ships its rendering CSS (.DOMD-* rules: heading sizes, marker hiding, code
+// blocks) as a separate export; import it before globals so .hk-domd can override.
+import "@do-md/core-react/style.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -19,8 +22,9 @@ export const viewport: Viewport = {
   userScalable: false,
   viewportFit: "cover",
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#F5F4F0" },
-    { media: "(prefers-color-scheme: dark)", color: "#0C0D10" },
+    // Match the daisyUI theme's base-100 canvas so the iOS status-bar band blends in
+    { media: "(prefers-color-scheme: light)", color: "#fcfcfc" },
+    { media: "(prefers-color-scheme: dark)", color: "#1e1e1e" },
   ],
 };
 

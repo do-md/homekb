@@ -42,10 +42,10 @@ function dateLabel(mtimeSec: number): string {
 
 function DocGlyph() {
   return (
-    <span className="mt-0.5 flex h-[34px] w-[34px] shrink-0 flex-col justify-center gap-[3px] rounded-[9px] bg-hk-glyph px-2">
-      <span className="h-[2px] rounded-full bg-hk-weak" />
-      <span className="h-[2px] w-2/3 rounded-full bg-hk-faint" />
-      <span className="h-[2px] w-5/6 rounded-full bg-hk-faint" />
+    <span className="mt-0.5 flex h-[34px] w-[34px] shrink-0 flex-col justify-center gap-[3px] rounded-[9px] bg-base-200 px-2">
+      <span className="h-[2px] rounded-full bg-base-content/40" />
+      <span className="h-[2px] w-2/3 rounded-full bg-base-content/30" />
+      <span className="h-[2px] w-5/6 rounded-full bg-base-content/30" />
     </span>
   );
 }
@@ -56,35 +56,35 @@ function NoteItem({ hit, maxScore }: { hit: KbHit; maxScore: number }) {
   return (
     <button
       onClick={() => pushHash("doc", hit.path)}
-      className="flex w-full flex-col gap-2.5 rounded-2xl border border-hk-border bg-hk-card p-4 text-left transition-colors hover:bg-hk-card-strong"
+      className="flex w-full flex-col gap-2.5 rounded-2xl border border-base-300 bg-base-200 p-4 text-left transition-colors hover:bg-base-300"
     >
       <div className="flex items-start gap-3">
         <DocGlyph />
         <span className="min-w-0 flex-1">
-          <span className="block text-[15px] leading-tight font-semibold tracking-tight text-hk-text">
+          <span className="block text-[15px] leading-tight font-semibold tracking-tight text-base-content">
             {hit.title || hit.path}
           </span>
-          <span className="mt-0.5 block truncate text-xs text-hk-weak">{hit.path}</span>
+          <span className="mt-0.5 block truncate text-xs text-base-content/45">{hit.path}</span>
         </span>
-        <span className="shrink-0 rounded-full border border-hk-coral-chip-border bg-hk-coral-chip px-2 py-0.5 text-[11.5px] font-semibold text-hk-coral-text tabular-nums">
+        <span className="shrink-0 rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[11.5px] font-semibold text-primary tabular-nums">
           {pct}%
         </span>
       </div>
-      <p className="line-clamp-2 text-[13.5px] leading-relaxed text-hk-text-2">{hit.content}</p>
-      <div className="flex items-center gap-2 text-xs text-hk-faint">
+      <p className="line-clamp-2 text-[13.5px] leading-relaxed text-base-content/60">{hit.content}</p>
+      <div className="flex items-center gap-2 text-xs text-base-content/35">
         {hit.docType && (
-          <span className="rounded-[7px] border border-hk-hairline bg-hk-card-strong px-2 py-0.5 font-medium text-hk-text-2">
+          <span className="rounded-[7px] border border-base-200 bg-base-300 px-2 py-0.5 font-medium text-base-content/60">
             {hit.docType}
           </span>
         )}
         <span>{dateLabel(hit.mtime)}</span>
         {(hit.matches ?? 0) > 1 && (
           <>
-            <span className="h-[3px] w-[3px] rounded-full bg-hk-faint" />
+            <span className="h-[3px] w-[3px] rounded-full bg-base-content/30" />
             <span>{hit.matches} matching sections</span>
           </>
         )}
-        <span className="ml-auto flex items-center gap-1 font-medium text-hk-weak">
+        <span className="ml-auto flex items-center gap-1 font-medium text-base-content/45">
           Open <IconArrowRight size={13} />
         </span>
       </div>
@@ -96,18 +96,18 @@ function NoteItem({ hit, maxScore }: { hit: KbHit; maxScore: number }) {
 function AnswerSkeleton() {
   return (
     <div>
-      <div className="flex items-center gap-2 text-[13px] text-hk-text-2">
-        <span className="text-hk-coral-text">
+      <div className="flex items-center gap-2 text-[13px] text-base-content/60">
+        <span className="text-primary">
           <Spinner size={14} />
         </span>
         Reading your notes to write your answer…
       </div>
-      <div className="mt-3 rounded-2xl border border-hk-border bg-hk-card p-4">
+      <div className="mt-3 rounded-2xl border border-base-300 bg-base-200 p-4">
         <div className="flex flex-col gap-2.5">
           {[100, 92, 96, 60].map((w, i) => (
             <span
               key={i}
-              className="hk-shimmer block h-3 rounded bg-hk-pill"
+              className="hk-shimmer block h-3 rounded bg-base-300"
               style={{ width: `${w}%`, animationDelay: `${i * 0.12}s` }}
             />
           ))}
@@ -119,7 +119,7 @@ function AnswerSkeleton() {
 
 /**
  * Wrap inline `[n]` citation markers (n within the citation count) in clickable
- * coral chips after DOMD has rendered. DOM post-processing: the read-only DOMD
+ * primary chips after DOMD has rendered. DOM post-processing: the read-only DOMD
  * renders once per mount (remounted per answer), so the mutation is stable.
  */
 function decorateCitationRefs(root: HTMLElement, citationCount: number) {
@@ -158,7 +158,7 @@ function decorateCitationRefs(root: HTMLElement, citationCount: number) {
 }
 
 /**
- * Answer result (design 3a, streaming state 3b): flat neutral card; coral only on
+ * Answer result (design 3a, streaming state 3b): flat neutral card; primary only on
  * the label + chips. The answer renders as real Markdown *while it streams* — the
  * KB store feeds token chunks straight into a persistent DOMD editor via insertText.
  * On completion the inline `[n]` markers upgrade to clickable citation chips.
@@ -197,8 +197,8 @@ function AnswerResult() {
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="rounded-2xl border border-hk-border bg-hk-card p-4">
-        <div className="flex items-center gap-1.5 text-[12px] font-semibold tracking-wide text-hk-coral-text uppercase">
+      <div className="rounded-2xl border border-base-300 bg-base-200 p-4">
+        <div className="flex items-center gap-1.5 text-[12px] font-semibold tracking-wide text-primary uppercase">
           {writing ? (
             <>
               <Spinner size={12} />
@@ -222,7 +222,7 @@ function AnswerResult() {
           <KbStreamingAnswer className="mt-2" />
         </div>
         {!writing && (
-          <div className="mt-3 border-t border-hk-hairline pt-2.5 text-xs text-hk-faint">
+          <div className="mt-3 border-t border-base-200 pt-2.5 text-xs text-base-content/35">
             from {citationCount} of your notes
             {secs ? ` · ${secs}` : ""}
           </div>
@@ -238,20 +238,20 @@ function AnswerResult() {
                 key={c.path}
                 id={`answer-cite-${i + 1}`}
                 onClick={() => pushHash("doc", c.path)}
-                className={`flex items-center gap-3 rounded-lg px-1 py-2.5 text-left transition-colors hover:bg-hk-card-soft ${
-                  i > 0 ? "border-t border-hk-hairline" : ""
+                className={`flex items-center gap-3 rounded-lg px-1 py-2.5 text-left transition-colors hover:bg-base-200 ${
+                  i > 0 ? "border-t border-base-200" : ""
                 }`}
               >
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-hk-coral-chip text-[11px] font-semibold text-hk-coral-text">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-semibold text-primary">
                   {i + 1}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[14px] font-medium text-hk-text">
+                  <span className="block truncate text-[14px] font-medium text-base-content">
                     {c.title || c.path}
                   </span>
-                  <span className="block truncate text-xs text-hk-weak">{c.path}</span>
+                  <span className="block truncate text-xs text-base-content/45">{c.path}</span>
                 </span>
-                <IconChevronRight size={14} className="shrink-0 text-hk-weak" />
+                <IconChevronRight size={14} className="shrink-0 text-base-content/45" />
               </button>
             ))}
           </div>
@@ -283,8 +283,8 @@ function ListResult() {
                 onClick={() => api.setTypeFilter(t)}
                 className={`rounded-full px-3 py-1 text-[12.5px] font-medium transition-colors ${
                   active
-                    ? "bg-hk-pill font-semibold text-hk-heading"
-                    : "border border-hk-hairline text-hk-weak hover:text-hk-text-2"
+                    ? "bg-base-300 font-semibold text-base-content"
+                    : "border border-base-200 text-base-content/45 hover:text-base-content/60"
                 }`}
               >
                 {t ?? "All"}
@@ -293,7 +293,7 @@ function ListResult() {
           })}
         </div>
       )}
-      <div className="text-xs text-hk-faint">
+      <div className="text-xs text-base-content/35">
         {filtered.length} {filtered.length === 1 ? "note" : "notes"} · By relevance
       </div>
       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
@@ -312,16 +312,16 @@ function NoResults() {
   const mode = useKbStore((s) => s.state.mode);
   return (
     <div className="flex flex-col items-center py-14 text-center">
-      <IconSearch size={26} className="text-hk-faint" />
-      <div className="mt-3 text-[16px] font-semibold text-hk-heading">No notes matched</div>
-      <p className="mt-1.5 max-w-xs text-[13.5px] leading-relaxed text-hk-text-2">
+      <IconSearch size={26} className="text-base-content/35" />
+      <div className="mt-3 text-[16px] font-semibold text-base-content">No notes matched</div>
+      <p className="mt-1.5 max-w-xs text-[13.5px] leading-relaxed text-base-content/60">
         Nothing in your library matches &ldquo;{q}&rdquo; — try different words
         {mode === "list" ? ", or ask it as a question." : "."}
       </p>
       {mode === "list" && (
         <button
           onClick={() => api.setMode("answer")}
-          className="mt-4 text-[14px] font-semibold text-hk-coral-text hover:text-hk-coral-hover"
+          className="mt-4 text-[14px] font-semibold text-primary hover:text-primary"
         >
           Ask as a question instead
         </button>
@@ -343,7 +343,7 @@ function DesktopOpenFolder() {
   return (
     <button
       onClick={() => void api.openNotesDir()}
-      className="mt-2.5 w-full rounded-xl border border-hk-border px-4 py-3 text-[15px] font-semibold text-hk-text-2 transition-colors hover:bg-hk-card"
+      className="mt-2.5 w-full rounded-xl border border-base-300 px-4 py-3 text-[15px] font-semibold text-base-content/60 transition-colors hover:bg-base-200"
     >
       Open HomeKB folder
     </button>
@@ -373,23 +373,23 @@ function EmptyLibrary() {
   ];
   return (
     <div className="mx-auto flex w-full max-w-md flex-col items-center px-2 py-10 text-center">
-      <span className="flex h-14 w-14 items-center justify-center rounded-2xl border border-hk-border bg-hk-card text-hk-weak">
+      <span className="flex h-14 w-14 items-center justify-center rounded-2xl border border-base-300 bg-base-200 text-base-content/45">
         <IconDocPlus size={24} strokeWidth={1.4} />
       </span>
-      <h1 className="mt-5 text-[22px] font-bold tracking-tight text-hk-heading">
+      <h1 className="mt-5 text-[22px] font-bold tracking-tight text-base-content">
         Your knowledge base is empty
       </h1>
-      <p className="mt-2 text-[14.5px] text-hk-text-2">Three ways to add your first notes:</p>
-      <div className="mt-5 w-full rounded-2xl border border-hk-border bg-hk-card p-4 text-left">
+      <p className="mt-2 text-[14.5px] text-base-content/60">Three ways to add your first notes:</p>
+      <div className="mt-5 w-full rounded-2xl border border-base-300 bg-base-200 p-4 text-left">
         <div className="flex flex-col gap-3.5">
           {paths.map(([title, desc], i) => (
             <div key={i} className="flex items-start gap-3">
-              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-hk-coral-chip text-[11px] font-semibold text-hk-coral-text">
+              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-semibold text-primary">
                 {i + 1}
               </span>
               <span>
-                <span className="block text-[14px] font-semibold text-hk-text">{title}</span>
-                <span className="mt-0.5 block text-[13px] leading-relaxed text-hk-text-2">
+                <span className="block text-[14px] font-semibold text-base-content">{title}</span>
+                <span className="mt-0.5 block text-[13px] leading-relaxed text-base-content/60">
                   {desc}
                 </span>
               </span>
@@ -402,7 +402,7 @@ function EmptyLibrary() {
           api.composeNew();
           router.push("/new");
         }}
-        className="mt-5 w-full rounded-xl bg-hk-coral px-4 py-3 text-[15px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover"
+        className="mt-5 w-full rounded-xl bg-primary px-4 py-3 text-[15px] font-semibold text-primary-content transition-colors hover:bg-primary/90"
       >
         New note
       </button>
@@ -434,37 +434,37 @@ function AiSetupGuide({ ai }: { ai: AiStatus }) {
   ];
   return (
     <div className="mx-auto flex w-full max-w-md flex-col items-center px-2 py-10 text-center">
-      <span className="flex h-14 w-14 items-center justify-center rounded-2xl border border-hk-border bg-hk-card text-hk-coral-text">
+      <span className="flex h-14 w-14 items-center justify-center rounded-2xl border border-base-300 bg-base-200 text-primary">
         <IconSpark size={24} strokeWidth={1.5} />
       </span>
-      <h1 className="mt-5 text-[22px] font-bold tracking-tight text-hk-heading">
+      <h1 className="mt-5 text-[22px] font-bold tracking-tight text-base-content">
         Add your AI keys to get started
       </h1>
-      <p className="mt-2 text-[14.5px] text-hk-text-2">
+      <p className="mt-2 text-[14.5px] text-base-content/60">
         HomeKB uses AI to make your notes searchable. It needs two keys before it can index
         anything — both stay on this computer.
       </p>
-      <div className="mt-5 w-full rounded-2xl border border-hk-border bg-hk-card p-4 text-left">
+      <div className="mt-5 w-full rounded-2xl border border-base-300 bg-base-200 p-4 text-left">
         <div className="flex flex-col gap-3.5">
           {items.map(({ title, desc, ok }) => (
             <div key={title} className="flex items-start gap-3">
               <span
                 className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
-                  ok ? "bg-hk-green/15 text-hk-green" : "bg-hk-coral-chip text-hk-coral-text"
+                  ok ? "bg-success/15 text-success" : "bg-primary/10 text-primary"
                 }`}
               >
                 {ok ? <IconCheck size={12} strokeWidth={2.5} /> : <StatusDot className="h-1.5! w-1.5!" />}
               </span>
               <span>
-                <span className="flex items-center gap-2 text-[14px] font-semibold text-hk-text">
+                <span className="flex items-center gap-2 text-[14px] font-semibold text-base-content">
                   {title}
                   <span
-                    className={`text-[11px] font-medium ${ok ? "text-hk-green" : "text-hk-weak"}`}
+                    className={`text-[11px] font-medium ${ok ? "text-success" : "text-base-content/45"}`}
                   >
                     {ok ? "Configured" : "Required"}
                   </span>
                 </span>
-                <span className="mt-0.5 block text-[13px] leading-relaxed text-hk-text-2">
+                <span className="mt-0.5 block text-[13px] leading-relaxed text-base-content/60">
                   {desc}
                 </span>
               </span>
@@ -472,13 +472,13 @@ function AiSetupGuide({ ai }: { ai: AiStatus }) {
           ))}
         </div>
       </div>
-      <p className="mt-4 text-[12.5px] leading-relaxed text-hk-faint">
+      <p className="mt-4 text-[12.5px] leading-relaxed text-base-content/35">
         Your keys live in <code className="font-mono text-[12px]">config.toml</code> on this
         machine. Nothing — keys or notes — ever leaves your computer.
       </p>
       <button
         onClick={() => router.push("/settings")}
-        className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-hk-coral px-4 py-3 text-[15px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover"
+        className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-[15px] font-semibold text-primary-content transition-colors hover:bg-primary/90"
       >
         <IconSliders size={16} strokeWidth={1.8} /> Set up in Settings
       </button>
@@ -518,22 +518,22 @@ function HealthStrip() {
   const vectorized = status.chunksWithVectors ?? 0;
   const pct = chunks > 0 ? Math.round((vectorized / chunks) * 100) : 0;
   return (
-    <div className="flex items-center gap-4 rounded-2xl border border-hk-border bg-hk-card-soft px-4 py-3">
-      <span className="text-[13px] text-hk-text-2">
-        <span className="font-semibold text-hk-text tabular-nums">{status.docs}</span> docs
+    <div className="flex items-center gap-4 rounded-2xl bg-base-200 px-4 py-3">
+      <span className="text-[13px] text-base-content/60">
+        <span className="font-semibold text-base-content tabular-nums">{status.docs}</span> docs
       </span>
-      <span className="text-[13px] text-hk-text-2">
-        <span className="font-semibold text-hk-text tabular-nums">{chunks}</span> chunks ·{" "}
+      <span className="text-[13px] text-base-content/60">
+        <span className="font-semibold text-base-content tabular-nums">{chunks}</span> chunks ·{" "}
         <span className="tabular-nums">{pct}%</span> vectorized
       </span>
       {status.lastCompileAt ? (
-        <span className="hidden text-[13px] text-hk-faint sm:inline">
+        <span className="hidden text-[13px] text-base-content/35 sm:inline">
           indexed {dateLabel(status.lastCompileAt)}
         </span>
       ) : null}
       <button
         onClick={() => void api.reindex()}
-        className="ml-auto flex shrink-0 items-center gap-1 text-[12.5px] font-medium text-hk-weak transition-colors hover:text-hk-text-2"
+        className="ml-auto flex shrink-0 items-center gap-1 text-[12.5px] font-medium text-base-content/45 transition-colors hover:text-base-content/60"
       >
         <IconRefresh size={12} /> Reindex
       </button>
@@ -558,18 +558,18 @@ function EntryBody() {
               <button
                 key={s.path}
                 onClick={() => api.askSuggestion(s.question)}
-                className="flex items-center gap-3 rounded-2xl border border-hk-border bg-hk-card px-4 py-3 text-left transition-colors hover:bg-hk-card-strong"
+                className="flex items-center gap-3 rounded-2xl bg-base-200 px-4 py-3 text-left transition-colors hover:bg-base-300"
               >
-                <span className="text-hk-coral-text">
+                <span className="text-primary">
                   <IconSpark size={14} strokeWidth={1.5} />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[14px] text-hk-text">{s.question}</span>
-                  <span className="mt-0.5 block truncate text-xs text-hk-weak">
+                  <span className="block truncate text-[14px] text-base-content">{s.question}</span>
+                  <span className="mt-0.5 block truncate text-xs text-base-content/45">
                     {s.title || s.path}
                   </span>
                 </span>
-                <IconChevronRight size={14} className="shrink-0 text-hk-weak" />
+                <IconChevronRight size={14} className="shrink-0 text-base-content/45" />
               </button>
             ))}
           </div>
@@ -597,15 +597,15 @@ function EntryBody() {
               <button
                 key={doc.path}
                 onClick={() => pushHash("doc", doc.path)}
-                className={`flex items-center gap-3 px-1 py-2.5 text-left transition-colors hover:bg-hk-card-soft ${
-                  i > 0 ? "border-t border-hk-hairline" : ""
+                className={`flex items-center gap-3 px-1 py-2.5 text-left transition-colors hover:bg-base-200 ${
+                  i > 0 ? "border-t border-base-200" : ""
                 }`}
               >
-                <IconDoc size={15} className="shrink-0 text-hk-weak" strokeWidth={1.5} />
-                <span className="min-w-0 flex-1 truncate text-[14px] text-hk-text">
+                <IconDoc size={15} className="shrink-0 text-base-content/45" strokeWidth={1.5} />
+                <span className="min-w-0 flex-1 truncate text-[14px] text-base-content">
                   {doc.title || doc.path}
                 </span>
-                <span className="shrink-0 text-xs text-hk-faint">
+                <span className="shrink-0 text-xs text-base-content/35">
                   {dateLabel(doc.mtimeSec)}
                 </span>
               </button>
@@ -657,12 +657,12 @@ export function RecallView() {
             <div className="flex flex-col gap-4">
               <div>
                 <div className="flex items-start justify-between gap-3">
-                  <h1 className="text-[21px] leading-snug font-bold tracking-tight text-hk-heading">
+                  <h1 className="text-[21px] leading-snug font-bold tracking-tight text-base-content">
                     {submittedQuery}
                   </h1>
                   <button
                     onClick={() => api.clearSearch()}
-                    className="mt-1 shrink-0 text-xs font-medium text-hk-weak transition-colors hover:text-hk-text-2"
+                    className="mt-1 shrink-0 text-xs font-medium text-base-content/45 transition-colors hover:text-base-content/60"
                   >
                     Clear
                   </button>
@@ -673,7 +673,7 @@ export function RecallView() {
               </div>
 
               {searchError && (
-                <div className="rounded-xl border border-hk-border bg-hk-card px-4 py-3 text-[13.5px] text-hk-orange-text">
+                <div className="rounded-xl border border-base-300 bg-base-200 px-4 py-3 text-[13.5px] text-hk-orange-text">
                   {searchError}
                 </div>
               )}
@@ -686,7 +686,7 @@ export function RecallView() {
                     {[0, 1, 2].map((i) => (
                       <span
                         key={i}
-                        className="hk-shimmer block h-24 rounded-2xl bg-hk-card"
+                        className="hk-shimmer block h-24 rounded-2xl bg-base-200"
                         style={{ animationDelay: `${i * 0.12}s` }}
                       />
                     ))}

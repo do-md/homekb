@@ -53,34 +53,34 @@ function DraftItem({ draft }: { draft: Draft }) {
   const preview = previewText(draft.text);
 
   return (
-    <div className="flex items-start gap-3 rounded-2xl border border-hk-border bg-hk-card p-4">
-      <span className="mt-0.5 flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[9px] bg-hk-glyph text-hk-coral-text">
+    <div className="flex items-start gap-3 rounded-2xl border border-base-300 bg-base-200 p-4">
+      <span className="mt-0.5 flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[9px] bg-base-200 text-primary">
         <IconPencil size={15} strokeWidth={1.5} />
       </span>
       <button
         className="min-w-0 flex-1 text-left"
         onClick={() => router.push(`/new${hashHref("draft", draft.id)}`)}
       >
-        <span className="block truncate text-[15px] font-semibold tracking-tight text-hk-text">
+        <span className="block truncate text-[15px] font-semibold tracking-tight text-base-content">
           {title}
         </span>
         {preview && (
-          <span className="mt-1 line-clamp-2 block text-[13px] leading-relaxed text-hk-text-2">
+          <span className="mt-1 line-clamp-2 block text-[13px] leading-relaxed text-base-content/60">
             {preview}
           </span>
         )}
-        <span className="mt-1.5 flex items-center gap-2 text-xs text-hk-faint">
+        <span className="mt-1.5 flex items-center gap-2 text-xs text-base-content/35">
           <span>edited {agoLabel(draft.editedAt)}</span>
-          <span className="h-[3px] w-[3px] rounded-full bg-hk-faint" />
+          <span className="h-[3px] w-[3px] rounded-full bg-base-content/30" />
           <span>{wordCount(draft.text)} words</span>
-          <span className="ml-auto flex items-center gap-0.5 font-semibold text-hk-coral-text">
+          <span className="ml-auto flex items-center gap-0.5 font-semibold text-primary">
             Resume <IconChevronRight size={13} />
           </span>
         </span>
       </button>
       {confirming ? (
         <button
-          className="shrink-0 rounded-lg bg-hk-coral px-2.5 py-1 text-[12px] font-semibold text-hk-on-coral"
+          className="shrink-0 rounded-lg bg-primary px-2.5 py-1 text-[12px] font-semibold text-primary-content"
           onClick={() => api.deleteDraft(draft.id)}
           onBlur={() => setConfirming(false)}
         >
@@ -88,7 +88,7 @@ function DraftItem({ draft }: { draft: Draft }) {
         </button>
       ) : (
         <button
-          className="shrink-0 rounded-lg p-1 text-hk-faint transition-colors hover:text-hk-text-2"
+          className="shrink-0 rounded-lg p-1 text-base-content/35 transition-colors hover:text-base-content/60"
           onClick={() => setConfirming(true)}
           aria-label="Delete draft"
         >
@@ -106,10 +106,10 @@ export function DraftsView() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="bg-hk-bg pt-safe-top border-b border-hk-hairline">
-        <div className="mx-auto flex h-12 max-w-3xl items-center gap-2 px-3">
+      <header className="bg-base-100 pt-safe-top">
+        <div className="mx-auto flex h-16 max-w-3xl items-center gap-2 px-3">
           <button
-            className="-ml-1 flex items-center rounded-lg p-1.5 text-hk-text-2 transition-colors hover:text-hk-text"
+            className="-ml-1 flex items-center rounded-lg p-1.5 text-base-content/60 transition-colors hover:text-base-content"
             onClick={() => {
               api.composeResume();
               router.push("/new");
@@ -118,14 +118,14 @@ export function DraftsView() {
           >
             <IconChevronLeft size={18} />
           </button>
-          <span className="text-[15px] font-semibold text-hk-heading">Drafts</span>
+          <span className="text-[15px] font-semibold text-base-content">Drafts</span>
           {drafts.length > 0 && (
-            <span className="rounded-full bg-hk-pill px-2 py-0.5 text-[11.5px] font-semibold text-hk-text-2 tabular-nums">
+            <span className="rounded-full bg-base-300 px-2 py-0.5 text-[11.5px] font-semibold text-base-content/60 tabular-nums">
               {drafts.length}
             </span>
           )}
           <button
-            className="ml-auto flex items-center gap-1.5 rounded-xl bg-hk-coral px-3 py-1.5 text-[13px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover"
+            className="ml-auto flex items-center gap-1.5 rounded-xl bg-primary px-3 py-1.5 text-[13px] font-semibold text-primary-content transition-colors hover:bg-primary/90"
             onClick={() => {
               api.composeNew();
               router.push("/new");
@@ -138,15 +138,15 @@ export function DraftsView() {
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-xl px-4 py-4 pb-[max(env(safe-area-inset-bottom),24px)]">
-          <p className="text-[12.5px] text-hk-weak">
+          <p className="text-[12.5px] text-base-content/45">
             Kept on your computer and shared across your devices until you save
             them to your library.
           </p>
           {drafts.length === 0 ? (
             <div className="flex flex-col items-center py-14 text-center">
-              <IconPencil size={22} className="text-hk-faint" />
-              <p className="mt-3 text-[14px] text-hk-text-2">No drafts yet</p>
-              <p className="mt-1 text-[12.5px] text-hk-faint">
+              <IconPencil size={22} className="text-base-content/35" />
+              <p className="mt-3 text-[14px] text-base-content/60">No drafts yet</p>
+              <p className="mt-1 text-[12.5px] text-base-content/35">
                 Anything you write but don&apos;t save shows up here.
               </p>
             </div>

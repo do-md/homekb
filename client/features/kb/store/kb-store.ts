@@ -425,7 +425,7 @@ export class KbStore extends ZenithStore<KbState> {
     if (!this.state.draftsLoaded) void this.loadDrafts();
   }
 
-  /** Offline screen's coral Retry button: back to amber "connecting", then re-probe. */
+  /** Offline screen's primary Retry button: back to amber "connecting", then re-probe. */
   public retryConnection() {
     // Re-arm the one-shot silent auto-reconnect so a manual tap also gets the
     // second-probe grace before falling back to the offline screen.

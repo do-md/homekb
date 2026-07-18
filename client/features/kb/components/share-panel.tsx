@@ -37,7 +37,7 @@ function CopyLinkButton({ url }: { url: string }) {
   };
   return (
     <button
-      className="flex shrink-0 items-center gap-1.5 rounded-xl bg-hk-coral px-3 py-1.5 text-[12.5px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover"
+      className="flex shrink-0 items-center gap-1.5 rounded-xl bg-primary px-3 py-1.5 text-[12.5px] font-semibold text-primary-content transition-colors hover:bg-primary/90"
       onClick={copy}
     >
       <IconCopy size={12} /> {copied ? "Copied" : "Copy link"}
@@ -83,16 +83,16 @@ export function SharePanel({ path, onClose }: { path: string; onClose: () => voi
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
       {/* Backdrop click closes — same dismissal contract as the system back gesture. */}
       <button className="absolute inset-0 bg-black/30" aria-label="Close" onClick={onClose} />
-      <div className="relative w-full max-w-md rounded-t-3xl border border-hk-border bg-hk-bg p-5 pb-[max(env(safe-area-inset-bottom),20px)] sm:rounded-3xl sm:pb-5">
+      <div className="relative w-full max-w-md rounded-t-3xl border border-base-300 bg-base-100 p-5 pb-[max(env(safe-area-inset-bottom),20px)] sm:rounded-3xl sm:pb-5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="text-[17px] font-bold tracking-tight text-hk-heading">
+            <h2 className="text-[17px] font-bold tracking-tight text-base-content">
               Share this note
             </h2>
-            <p className="mt-0.5 truncate font-mono text-[11px] text-hk-faint">{path}</p>
+            <p className="mt-0.5 truncate font-mono text-[11px] text-base-content/35">{path}</p>
           </div>
           <button
-            className="rounded-lg p-1 text-hk-faint transition-colors hover:text-hk-text-2"
+            className="rounded-lg p-1 text-base-content/35 transition-colors hover:text-base-content/60"
             onClick={onClose}
             aria-label="Close"
           >
@@ -102,21 +102,21 @@ export function SharePanel({ path, onClose }: { path: string; onClose: () => voi
 
         {created ? (
           <div className="mt-4">
-            <div className="rounded-2xl border border-hk-border bg-hk-card p-4">
+            <div className="rounded-2xl border border-base-300 bg-base-200 p-4">
               <div className="hk-label">Anyone with this link can read the note</div>
               <div className="mt-2 flex items-center gap-2">
-                <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-hk-text">
+                <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-base-content">
                   {created.url}
                 </span>
                 <CopyLinkButton url={created.url} />
               </div>
             </div>
-            <p className="mt-3 text-[12px] leading-relaxed text-hk-weak">
+            <p className="mt-3 text-[12px] leading-relaxed text-base-content/45">
               Served live from your home machine — the link works while it&apos;s online, and
               revoking it (Shares tab) kills it instantly.
             </p>
             <button
-              className="mt-4 w-full rounded-xl border border-hk-border px-3.5 py-2 text-[13.5px] font-semibold text-hk-text-2 transition-colors hover:bg-hk-card"
+              className="mt-4 w-full rounded-xl border border-base-300 px-3.5 py-2 text-[13.5px] font-semibold text-base-content/60 transition-colors hover:bg-base-200"
               onClick={onClose}
             >
               Done
@@ -131,7 +131,7 @@ export function SharePanel({ path, onClose }: { path: string; onClose: () => voi
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Leave empty for link-only access"
               autoComplete="off"
-              className="mt-1.5 w-full rounded-xl border border-hk-border bg-hk-card px-3 py-2 text-[13.5px] text-hk-text placeholder:text-hk-faint focus:outline-none focus:ring-2 focus:ring-hk-coral/40"
+              className="mt-1.5 w-full rounded-xl border border-base-300 bg-base-200 px-3 py-2 text-[13.5px] text-base-content placeholder:text-base-content/35 focus:outline-none focus:ring-2 focus:ring-primary/40"
             />
 
             <div className="mt-3.5 hk-label">Expires</div>
@@ -142,8 +142,8 @@ export function SharePanel({ path, onClose }: { path: string; onClose: () => voi
                   onClick={() => setExpiryIdx(i)}
                   className={`rounded-full px-3 py-1.5 text-[12.5px] font-semibold transition-colors ${
                     i === expiryIdx
-                      ? "bg-hk-coral text-hk-on-coral"
-                      : "bg-hk-pill text-hk-text-2 hover:text-hk-text"
+                      ? "bg-primary text-primary-content"
+                      : "bg-base-300 text-base-content/60 hover:text-base-content"
                   }`}
                 >
                   {c.label}
@@ -152,13 +152,13 @@ export function SharePanel({ path, onClose }: { path: string; onClose: () => voi
             </div>
 
             {error && (
-              <div className="mt-3.5 rounded-xl border border-hk-border bg-hk-card px-3 py-2.5 text-[12.5px] text-hk-orange-text">
+              <div className="mt-3.5 rounded-xl border border-base-300 bg-base-200 px-3 py-2.5 text-[12.5px] text-hk-orange-text">
                 {error}
               </div>
             )}
 
             <button
-              className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-xl bg-hk-coral px-3.5 py-2.5 text-[13.5px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover disabled:opacity-60"
+              className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-xl bg-primary px-3.5 py-2.5 text-[13.5px] font-semibold text-primary-content transition-colors hover:bg-primary/90 disabled:opacity-60"
               onClick={() => void create()}
               disabled={busy}
             >
@@ -167,16 +167,16 @@ export function SharePanel({ path, onClose }: { path: string; onClose: () => voi
             </button>
 
             {existing.length > 0 && (
-              <div className="mt-4 border-t border-hk-hairline pt-3.5">
+              <div className="mt-4 border-t border-base-200 pt-3.5">
                 <div className="hk-label">Existing links for this note</div>
                 <div className="mt-2 flex flex-col gap-2">
                   {existing.map((s) => (
                     <div key={s.shareId} className="flex items-center gap-2">
-                      <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-hk-weak">
+                      <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-base-content/45">
                         {s.url ?? s.shareId}
                       </span>
                       {s.hasPassword && (
-                        <span className="shrink-0 rounded-full bg-hk-pill px-1.5 py-0.5 text-[10.5px] font-semibold text-hk-text-2">
+                        <span className="shrink-0 rounded-full bg-base-300 px-1.5 py-0.5 text-[10.5px] font-semibold text-base-content/60">
                           password
                         </span>
                       )}
@@ -184,7 +184,7 @@ export function SharePanel({ path, onClose }: { path: string; onClose: () => voi
                     </div>
                   ))}
                 </div>
-                <p className="mt-2 text-[11.5px] text-hk-faint">
+                <p className="mt-2 text-[11.5px] text-base-content/35">
                   Manage or revoke them in the Shares tab.
                 </p>
               </div>

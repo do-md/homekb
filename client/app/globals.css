@@ -3,127 +3,93 @@
 /* Copied packages (.packages/) are excluded by .gitignore; explicit @source forces Tailwind v4 to scan them */
 @source "../.packages";
 
+/*
+ * HomeKB rides daisyUI's color + theme system (no bespoke palette). Two custom
+ * themes mirror apps/domd: `light` (default) and `dark` (prefersdark). HomeKB
+ * sets NO data-theme — it follows the system theme entirely via daisyUI's
+ * prefersdark (prefers-color-scheme only, no in-app toggle).
+ *
+ * Components use daisyUI semantic colors (base-100/200/300, base-content,
+ * primary, success, warning, …). Only the handful of things daisyUI has no
+ * slot for survive as --hk-* below: the "offline" orange (daisyUI has a single
+ * warning; amber = connecting maps to it, orange = offline must stay distinct
+ * and must never be red) and the translucent composer/scrim overlays (derived
+ * from the active theme's base-100).
+ */
 @plugin "daisyui" {
-    themes:
-        light --default,
-        dark --prefersdark;
+    themes: false;
 }
 
-/*
- * HomeKB design system (Claude design handoff, dark theme delivered; light derived
- * from the same rules). Flat aesthetic: translucent fills + 1px hairline borders,
- * no gradients except the composer scrim, at most one light shadow on floaters.
- *
- * Semantic accents (keep straight):
- * - Coral  = brand / primary actions / relevance. Never used for status.
- * - Green  = online / connected / success ONLY. Never a general accent.
- * - Amber  = connecting / paused. Orange = offline / needs attention. Never red.
- *
- * HomeKB does not set data-theme; it follows the system theme entirely
- * (prefers-color-scheme only, no in-app toggle).
- */
+@plugin "daisyui/theme" {
+    name: "light";
+    default: true;
+    --color-accent: "#1f2937";
+    --color-accent-content: #ffffff;
+    --color-base-100: rgb(252, 252, 252);
+    --color-base-200: #f5f6f7;
+    --color-base-300: #ebebeb;
+    --color-base-content: rgba(20, 20, 20, 1);
+    --color-primary:#ff8000;
+    --color-primary-content: #ffffff;
+    --color-neutral: #e5e7eb;
+    --color-neutral-content: #414751;
+    --color-info: #2563eb;
+    --color-info-content: #3c7cab;
+    --color-warning: #f59e0b;
+    --color-warning-content: oklch(27% 0.077 45.635);
+    --color-success: #10b981;
+    --color-success-content: oklch(26% 0.051 172.552);
+    --color-error: #ef4444;
+    --color-error-content: oklch(0% 0 0);
+    --depth: 0;
+}
 
+@plugin "daisyui/theme" {
+    name: "dark";
+    prefersdark: true;
+    --color-accent: #1f2937;
+    --color-accent-content: #ffffff;
+    --color-base-100: #1e1e1e;
+    --color-base-200: #181818;
+    --color-base-300: #131313;
+    --color-base-content: #bcbec4;
+    --color-primary: #ff8000;
+    --color-primary-content: #ffffff;
+    --color-neutral: #2e3034;
+    --color-neutral-content: #aaaaaa;
+    --color-info: #2563eb;
+    --color-info-content: #3c7cab;
+    --color-warning: #f59e0b;
+    --color-warning-content: oklch(27% 0.077 45.635);
+    --color-success: #10b981;
+    --color-success-content: oklch(26% 0.051 172.552);
+    --color-error: #ef4444;
+    --color-error-content: oklch(0% 0 0);
+    --depth: 0;
+}
+
+/* The only surviving HomeKB tokens — no daisyUI slot exists for these. */
 :root {
-    /* Light theme — derived: warm paper canvas, dark-ink translucent fills */
-    --hk-bg: #f5f4f0;
-    --hk-card: rgba(24, 22, 16, 0.045);
-    --hk-card-soft: rgba(24, 22, 16, 0.03);
-    --hk-card-strong: rgba(24, 22, 16, 0.055);
-    --hk-border: rgba(24, 22, 16, 0.09);
-    --hk-hairline: rgba(24, 22, 16, 0.07);
-    --hk-input-border: rgba(24, 22, 16, 0.14);
-    --hk-input-focus: rgba(24, 22, 16, 0.26);
-    --hk-heading: rgba(20, 19, 16, 0.95);
-    --hk-text: rgba(20, 19, 16, 0.92);
-    --hk-text-2: rgba(20, 19, 16, 0.58);
-    --hk-weak: rgba(20, 19, 16, 0.42);
-    --hk-faint: rgba(20, 19, 16, 0.36);
-    --hk-pill: rgba(24, 22, 16, 0.08);
-    --hk-glyph: rgba(24, 22, 16, 0.06);
-
-    --hk-coral: #ec4e62;
-    --hk-coral-text: #d63b50;
-    --hk-coral-hover: #c13648;
-    --hk-coral-chip-bg: rgba(236, 78, 98, 0.1);
-    --hk-coral-chip-border: rgba(236, 78, 98, 0.22);
-
-    --hk-green: #1f9e69;
-    --hk-amber: #b57f1c;
-    --hk-amber-text: #96690f;
+    /* Orange = offline / needs attention (distinct from warning/amber, never red) */
     --hk-orange: #c76f1c;
     --hk-orange-text: #a65c14;
-
-    --hk-composer: rgba(255, 255, 255, 0.92);
-    --hk-scrim: rgba(245, 244, 240, 0.92);
-    --hk-on-coral: #ffffff;
+    /* Translucent overlays, derived from the active theme so they flip automatically */
+    --hk-composer: color-mix(in srgb, var(--color-base-100) 90%, transparent);
+    --hk-scrim: color-mix(in srgb, var(--color-base-100) 92%, transparent);
 }
 
 @media (prefers-color-scheme: dark) {
     :root {
-        /* Dark theme — exact handoff tokens */
-        --hk-bg: #0c0d10;
-        --hk-card: rgba(255, 255, 255, 0.045);
-        --hk-card-soft: rgba(255, 255, 255, 0.03);
-        --hk-card-strong: rgba(255, 255, 255, 0.05);
-        --hk-border: rgba(255, 255, 255, 0.07);
-        --hk-hairline: rgba(255, 255, 255, 0.055);
-        --hk-input-border: rgba(255, 255, 255, 0.11);
-        --hk-input-focus: rgba(255, 255, 255, 0.2);
-        --hk-heading: rgba(255, 255, 255, 0.95);
-        --hk-text: rgba(255, 255, 255, 0.92);
-        --hk-text-2: rgba(255, 255, 255, 0.55);
-        --hk-weak: rgba(255, 255, 255, 0.4);
-        --hk-faint: rgba(255, 255, 255, 0.35);
-        --hk-pill: rgba(255, 255, 255, 0.1);
-        --hk-glyph: rgba(255, 255, 255, 0.06);
-
-        --hk-coral: #f0576a;
-        --hk-coral-text: #f26e7e;
-        --hk-coral-hover: #f58a97;
-        --hk-coral-chip-bg: rgba(240, 87, 106, 0.14);
-        --hk-coral-chip-border: rgba(240, 87, 106, 0.2);
-
-        --hk-green: #3ec08a;
-        --hk-amber: #e0a93e;
-        --hk-amber-text: #ebc46e;
         --hk-orange: #e8913e;
         --hk-orange-text: #f0b36a;
-
-        --hk-composer: rgba(26, 27, 32, 0.9);
-        --hk-scrim: rgba(12, 13, 16, 0.92);
-        --hk-on-coral: #ffffff;
     }
 }
 
-/* Map tokens into Tailwind utilities (bg-hk-card, text-hk-text-2, border-hk-border, …) */
+/* Expose the surviving tokens as Tailwind utilities (bg-hk-composer, text-hk-orange, …) */
 @theme inline {
-    --color-hk-bg: var(--hk-bg);
-    --color-hk-card: var(--hk-card);
-    --color-hk-card-soft: var(--hk-card-soft);
-    --color-hk-card-strong: var(--hk-card-strong);
-    --color-hk-border: var(--hk-border);
-    --color-hk-hairline: var(--hk-hairline);
-    --color-hk-input-border: var(--hk-input-border);
-    --color-hk-input-focus: var(--hk-input-focus);
-    --color-hk-heading: var(--hk-heading);
-    --color-hk-text: var(--hk-text);
-    --color-hk-text-2: var(--hk-text-2);
-    --color-hk-weak: var(--hk-weak);
-    --color-hk-faint: var(--hk-faint);
-    --color-hk-pill: var(--hk-pill);
-    --color-hk-glyph: var(--hk-glyph);
-    --color-hk-coral: var(--hk-coral);
-    --color-hk-coral-text: var(--hk-coral-text);
-    --color-hk-coral-hover: var(--hk-coral-hover);
-    --color-hk-coral-chip: var(--hk-coral-chip-bg);
-    --color-hk-coral-chip-border: var(--hk-coral-chip-border);
-    --color-hk-green: var(--hk-green);
-    --color-hk-amber: var(--hk-amber);
-    --color-hk-amber-text: var(--hk-amber-text);
     --color-hk-orange: var(--hk-orange);
     --color-hk-orange-text: var(--hk-orange-text);
     --color-hk-composer: var(--hk-composer);
-    --color-hk-on-coral: var(--hk-on-coral);
 }
 
 /* Safe-area spacing utilities (pt-safe-top, pb-safe-bottom, …) */
@@ -143,14 +109,14 @@
  */
 html {
     color-scheme: light dark;
-    background-color: var(--hk-bg);
+    background-color: var(--color-base-100);
 }
 
 body {
     min-height: 100vh;
     overscroll-behavior: none;
     -webkit-tap-highlight-color: transparent;
-    color: var(--hk-text);
+    color: var(--color-base-content);
     font-family:
         -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
         system-ui, sans-serif;
@@ -228,29 +194,37 @@ body {
     font-weight: 600;
     letter-spacing: 0.07em;
     text-transform: uppercase;
-    color: var(--hk-weak);
+    color: color-mix(in oklab, var(--color-base-content) 45%, transparent);
 }
 
-/* DOMD theming: ride the design tokens inside any .hk-domd container */
+/* DOMD theming: ride the daisyUI theme inside any .hk-domd container */
 .hk-domd {
-    --domd-text: var(--hk-text);
-    --domd-blockquote-text: var(--hk-text-2);
-    --domd-blockquote-border: var(--hk-coral);
-    --domd-link-text: var(--hk-coral-text);
-    --domd-placeholder-text: var(--hk-weak);
-    --domd-border: var(--hk-border);
-    --domd-hr-bg: var(--hk-border);
-    --domd-hr-active: var(--hk-coral);
-    --domd-code-bg: var(--hk-card-strong);
-    --domd-pre-bg: var(--hk-card-soft);
-    --domd-pre-topbar-bg: var(--hk-card-strong);
+    --domd-text: var(--color-base-content);
+    --domd-blockquote-text: color-mix(
+        in oklab,
+        var(--color-base-content) 60%,
+        transparent
+    );
+    --domd-blockquote-border: var(--color-primary);
+    --domd-link-text: var(--color-primary);
+    --domd-placeholder-text: color-mix(
+        in oklab,
+        var(--color-base-content) 45%,
+        transparent
+    );
+    --domd-border: var(--color-base-300);
+    --domd-hr-bg: var(--color-base-300);
+    --domd-hr-active: var(--color-primary);
+    --domd-code-bg: var(--color-base-200);
+    --domd-pre-bg: var(--color-base-200);
+    --domd-pre-topbar-bg: var(--color-base-300);
     --domd-font-size-h1: 1.5rem;
     --domd-font-size-h2: 1.25rem;
     --domd-font-size-h3: 1.1rem;
     --domd-font-size-base: 0.96875rem; /* 15.5px */
     font-size: 15.5px;
     line-height: 1.65;
-    color: var(--hk-text);
+    color: var(--color-base-content);
 }
 
 @media (min-width: 640px) {
@@ -263,13 +237,13 @@ body {
     }
 }
 
-/* Bullet lists carry coral markers (design 5a editor + consistent reading view) */
+/* Bullet lists carry primary markers (design 5a editor + consistent reading view) */
 .hk-domd :where(ul) > li::marker {
-    color: var(--hk-coral);
+    color: var(--color-primary);
 }
 
 /*
- * Answer card numbered points (design 3a): ordered-list markers become coral
+ * Answer card numbered points (design 3a): ordered-list markers become primary
  * number chips. Scoped to .hk-answer so ordinary notes keep normal numbering.
  */
 .hk-answer .hk-domd ol {
@@ -296,14 +270,14 @@ body {
     width: 20px;
     height: 20px;
     border-radius: 9999px;
-    background: var(--hk-coral-chip-bg);
-    color: var(--hk-coral-text);
+    background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+    color: var(--color-primary);
     font-size: 11px;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
 }
 
-/* Inline [n] citation markers upgraded into clickable coral chips (design 3a) */
+/* Inline [n] citation markers upgraded into clickable primary chips (design 3a) */
 .hk-cite-ref {
     display: inline-flex;
     align-items: center;
@@ -313,8 +287,8 @@ body {
     padding: 0 4px;
     margin: 0 2px;
     border-radius: 9999px;
-    background: var(--hk-coral-chip-bg);
-    color: var(--hk-coral-text);
+    background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+    color: var(--color-primary);
     font-size: 10.5px;
     font-weight: 600;
     line-height: 1;
@@ -324,13 +298,17 @@ body {
 }
 
 .hk-cite-ref:hover {
-    background: var(--hk-coral-chip-border);
+    background: color-mix(in srgb, var(--color-primary) 22%, transparent);
 }
 
 /* Citation row flash after jumping from an inline [n] chip */
 @keyframes homekb-cite-flash {
     0% {
-        background-color: var(--hk-coral-chip-bg);
+        background-color: color-mix(
+            in srgb,
+            var(--color-primary) 12%,
+            transparent
+        );
     }
     100% {
         background-color: transparent;

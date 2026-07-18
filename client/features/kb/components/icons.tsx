@@ -194,7 +194,7 @@ export function IconX(p: IconProps) {
   );
 }
 
-/** Loading ring (homekb-spin). Coral by default via currentColor. */
+/** Loading ring (homekb-spin). Primary by default via currentColor. */
 export function Spinner({ size = 16, className = "" }: { size?: number; className?: string }) {
   return (
     <span
@@ -205,7 +205,7 @@ export function Spinner({ size = 16, className = "" }: { size?: number; classNam
   );
 }
 
-/** Connection dot; color supplied by text-hk-green / text-hk-amber / text-hk-orange on the parent. */
+/** Connection dot; color supplied by text-success / text-warning / text-hk-orange on the parent. */
 export function StatusDot({ className = "" }: { className?: string }) {
   return (
     <span

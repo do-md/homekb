@@ -8,7 +8,7 @@ export function DesktopNotice() {
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-8 z-30 flex justify-center px-4">
       <div
-        className="rounded-full border border-hk-hairline bg-hk-composer px-4 py-2 text-[13px] text-hk-text backdrop-blur-md"
+        className="rounded-full border border-base-200 bg-hk-composer px-4 py-2 text-[13px] text-base-content backdrop-blur-md"
         style={{ boxShadow: "0 4px 16px rgba(0,0,0,0.25)" }}
       >
         {notice}

@@ -2,8 +2,8 @@
 
 /**
  * Offline action screen (design 4b): offline is not just a color change — it
- * escalates to an explanation + a "How to wake it up" checklist + a coral Retry.
- * Note: the retry/primary action is coral, never green; offline accent is orange.
+ * escalates to an explanation + a "How to wake it up" checklist + a primary Retry.
+ * Note: the retry/primary action is primary, never green; offline accent is orange.
  */
 
 import { useState } from "react";
@@ -29,9 +29,9 @@ const WAKE_STEPS = [
 /** Deeper checklist behind the "Connection help" link (design 4b). */
 function ConnectionHelp() {
   return (
-    <div className="mt-4 w-full rounded-2xl border border-hk-border bg-hk-card-soft p-4 text-left">
+    <div className="mt-4 w-full rounded-2xl border border-base-300 bg-base-200 p-4 text-left">
       <div className="hk-label">Connection help</div>
-      <ul className="mt-3 flex flex-col gap-2.5 text-[13px] leading-relaxed text-hk-text-2">
+      <ul className="mt-3 flex flex-col gap-2.5 text-[13px] leading-relaxed text-base-content/60">
         <li>
           On your home computer, run{" "}
           <code className="font-mono text-[12px]">homekb tunnel --status</code> — it
@@ -62,26 +62,26 @@ export function OfflineScreen() {
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-col items-center px-4 py-12 text-center">
-      <span className="flex h-14 w-14 items-center justify-center rounded-full border border-hk-border bg-hk-card text-hk-orange">
+      <span className="flex h-14 w-14 items-center justify-center rounded-full border border-base-300 bg-base-200 text-hk-orange">
         <StatusDot className="h-3.5! w-3.5!" />
       </span>
-      <h1 className="mt-5 text-[22px] font-bold tracking-tight text-hk-heading">
+      <h1 className="mt-5 text-[22px] font-bold tracking-tight text-base-content">
         Home is offline
       </h1>
-      <p className="mt-2 text-[15px] leading-relaxed text-hk-text-2">
+      <p className="mt-2 text-[15px] leading-relaxed text-base-content/60">
         Your home computer isn&apos;t reachable right now. Your notes are safe on it —
         they just can&apos;t be searched from here until it comes back.
       </p>
 
-      <div className="mt-6 w-full rounded-2xl border border-hk-border bg-hk-card p-4 text-left">
+      <div className="mt-6 w-full rounded-2xl border border-base-300 bg-base-200 p-4 text-left">
         <div className="hk-label">How to wake it up</div>
         <ol className="mt-3 flex flex-col gap-2.5">
           {WAKE_STEPS.map((step, i) => (
             <li key={i} className="flex items-start gap-3">
-              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-hk-coral-chip text-[11px] font-semibold text-hk-coral-text">
+              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-semibold text-primary">
                 {i + 1}
               </span>
-              <span className="text-[13.5px] leading-relaxed text-hk-text-2">{step}</span>
+              <span className="text-[13.5px] leading-relaxed text-base-content/60">{step}</span>
             </li>
           ))}
         </ol>
@@ -90,7 +90,7 @@ export function OfflineScreen() {
       <button
         onClick={() => api.retryConnection()}
         disabled={retrying}
-        className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-hk-coral px-4 py-3 text-[15px] font-semibold text-hk-on-coral transition-colors hover:bg-hk-coral-hover disabled:opacity-60"
+        className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-[15px] font-semibold text-primary-content transition-colors hover:bg-primary/90 disabled:opacity-60"
       >
         {retrying && <Spinner size={15} />}
         {retrying ? "Retrying…" : "Retry connection"}
@@ -98,7 +98,7 @@ export function OfflineScreen() {
 
       <button
         onClick={() => setHelpOpen((v) => !v)}
-        className="mt-4 text-[13.5px] font-semibold text-hk-coral-text transition-colors hover:text-hk-coral-hover"
+        className="mt-4 text-[13.5px] font-semibold text-primary transition-colors hover:text-primary"
       >
         Connection help
       </button>
@@ -108,12 +108,12 @@ export function OfflineScreen() {
           e.g. after the home switched services, this pairing can never recover. */}
       <button
         onClick={() => api.unpair()}
-        className="mt-5 text-[13px] font-medium text-hk-weak transition-colors hover:text-hk-text-2"
+        className="mt-5 text-[13px] font-medium text-base-content/45 transition-colors hover:text-base-content/60"
       >
         Disconnect &amp; pair again with a new code
       </button>
 
-      {ago && <p className="mt-4 text-xs text-hk-faint">Last connected · {ago}</p>}
+      {ago && <p className="mt-4 text-xs text-base-content/35">Last connected · {ago}</p>}
     </div>
   );
 }
