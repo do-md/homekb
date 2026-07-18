@@ -27,22 +27,36 @@ const HIT = {
 };
 
 /**
- * Streaming answer channel (docs/ARCHITECTURE.md): chunk the canned answer into
- * `delta` frames, then a terminal `done` frame, and POST them as the SSE body to
- * /api/relay/tunnel/ask/<id>. Mirrors the real engine's streaming synthesize.
+ * Streaming answer channel (docs/ARCHITECTURE.md): deliver the canned answer over
+ * the **chunked** ask channel — ordered POSTs to /api/relay/tunnel/ask/<id> with
+ * X-Ask-Seq (+ X-Ask-Fin on the last), mirroring the real engine's chunked
+ * delivery. Delta frames split across chunks so smoke tests see true increments.
  */
 async function serveAskStream(id, params) {
   const answer = `About "${params.query}": this is a synthesized streaming answer from the fake home, for link testing only.`;
   const parts = answer.match(/.{1,12}/g) ?? [answer];
-  let body = "";
-  for (const p of parts) body += `event: delta\ndata: ${JSON.stringify({ text: p })}\n\n`;
-  body += `event: done\ndata: ${JSON.stringify({ citations: [{ path: "test-note.md", title: "Test Note" }], hits: [HIT] })}\n\n`;
+  const frames = parts.map((p) => `event: delta\ndata: ${JSON.stringify({ text: p })}\n\n`);
+  const doneFrame = `event: done\ndata: ${JSON.stringify({ citations: [{ path: "test-note.md", title: "Test Note" }], hits: [HIT] })}\n\n`;
+  const mid = Math.ceil(frames.length / 2);
+  const chunks = [frames.slice(0, mid).join(""), frames.slice(mid).join("") + doneFrame];
   console.log("[fake-home] ask-stream:", JSON.stringify(params));
-  await fetch(`${BASE}/api/relay/tunnel/ask/${id}`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${SECRET}`, "Content-Type": "text/event-stream" },
-    body,
-  });
+  for (let seq = 0; seq < chunks.length; seq++) {
+    const fin = seq === chunks.length - 1;
+    const res = await fetch(`${BASE}/api/relay/tunnel/ask/${id}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${SECRET}`,
+        "Content-Type": "text/event-stream",
+        "X-Ask-Seq": String(seq),
+        ...(fin ? { "X-Ask-Fin": "1" } : {}),
+      },
+      body: chunks[seq],
+    });
+    if (!res.ok) {
+      console.log(`[fake-home] ask chunk ${seq} NACKed: HTTP ${res.status}`);
+      return;
+    }
+  }
 }
 
 /**

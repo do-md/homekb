@@ -104,6 +104,27 @@ grep -q "event: delta" "$TMP/ask.out" && grep -q '"text":"world"' "$TMP/ask.out"
 test "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/relay/rpc/stream" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"method":"kb.query","params":{}}')" = "400" && echo "non-streamable method rejected (400) OK"
 test "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/relay/rpc/stream" -d '{"method":"kb.ask","params":{}}')" = "401" && echo "stream 401 without token OK"
 
+echo "== 6.7 Chunked ask channel (X-Ask-Seq/X-Ask-Fin — the engine's current shape) =="
+curl -sN -X POST "$BASE/api/relay/rpc/stream" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"method":"kb.ask","params":{"query":"chunked streaming test"}}' > "$TMP/ask2.out" &
+ASK_PID=$!
+sleep 2
+ASK_ID=$(grep '"stream":true' "$TMP/sse.log" | grep -o '"id":"[^"]*"' | tail -1 | cut -d'"' -f4)
+echo "home received ask-stream id: $ASK_ID"
+printf 'event: delta\ndata: {"text":"chunk-A "}\n\n' | curl -s -X POST "$BASE/api/relay/tunnel/ask/$ASK_ID" \
+  -H "Authorization: Bearer $SECRET" -H 'Content-Type: text/event-stream' -H 'X-Ask-Seq: 0' \
+  --data-binary @- -o /dev/null -w "chunk 0 HTTP %{http_code}\n"
+printf 'event: delta\ndata: {"text":"chunk-B"}\n\nevent: done\ndata: {"citations":[],"hits":[]}\n\n' | curl -s -X POST "$BASE/api/relay/tunnel/ask/$ASK_ID" \
+  -H "Authorization: Bearer $SECRET" -H 'Content-Type: text/event-stream' -H 'X-Ask-Seq: 1' -H 'X-Ask-Fin: 1' \
+  --data-binary @- -o /dev/null -w "chunk 1 (fin) HTTP %{http_code}\n"
+wait $ASK_PID
+grep -q '"text":"chunk-A ' "$TMP/ask2.out" && grep -q '"text":"chunk-B"' "$TMP/ask2.out" && grep -q "event: done" "$TMP/ask2.out" \
+  && echo "chunked ask frames OK" || { echo "chunked ask failed:"; cat "$TMP/ask2.out"; exit 1; }
+test "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/relay/tunnel/ask/$ASK_ID" -H "Authorization: Bearer $SECRET" -H 'X-Ask-Seq: 2' -d 'late')" = "409" \
+  && echo "chunk after fin NACKed (409) OK"
+test "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/relay/tunnel/ask/nonexistent-id" -H "Authorization: Bearer $SECRET" -H 'X-Ask-Seq: 0' -d 'x')" = "409" \
+  && echo "chunk seq 0 on unknown id NACKed (409) OK"
+
 echo "== 6.8 Grants list + revoke (paired devices) =="
 GRANTS=$(curl -s "$BASE/api/relay/grants" -H "Authorization: Bearer $SECRET")
 echo "$GRANTS" | grep -q 'smoke-phone' && echo "grants list OK"

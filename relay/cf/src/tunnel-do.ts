@@ -69,6 +69,22 @@ interface UploadSource {
   readable: ReadableStream<Uint8Array>;
 }
 
+/**
+ * An in-flight chunked ask stream (docs/ARCHITECTURE.md "Streaming answer channel"):
+ * the home delivers the answer as ordered chunk POSTs (X-Ask-Seq/X-Ask-Fin) because
+ * Cloudflare's edge buffers a request body until complete — a single long streaming
+ * POST would deliver nothing incrementally. Seq 0 resolves the pending client stream;
+ * later chunks append through `writer`; fin (or the idle timer) closes it.
+ */
+interface AskSession {
+  writer: WritableStreamDefaultWriter<Uint8Array>;
+  nextSeq: number;
+  idleTimer: number;
+}
+
+/** Inter-chunk idle timeout: GC an ask session whose home went silent mid-stream. */
+const ASK_CHUNK_IDLE_TIMEOUT = 120_000;
+
 interface Conn {
   /** Random id minted at registration; sent in `hello`, reported by /online —
    *  the engine's out-of-band liveness verification compares against it
@@ -78,6 +94,8 @@ interface Conn {
   pending: Map<string, Pending>;
   /** Pending upload bodies, keyed by the same request id as `pending`. */
   uploads: Map<string, UploadSource>;
+  /** In-flight chunked ask streams, keyed by the same request id as `pending`. */
+  askStreams: Map<string, AskSession>;
   pingTimer: number;
 }
 
@@ -125,7 +143,14 @@ export class HomeTunnelDO {
 
     const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
     const writer = writable.getWriter();
-    const conn: Conn = { id: randomId(12), writer, pending: new Map(), uploads: new Map(), pingTimer: 0 };
+    const conn: Conn = {
+      id: randomId(12),
+      writer,
+      pending: new Map(),
+      uploads: new Map(),
+      askStreams: new Map(),
+      pingTimer: 0,
+    };
     this.conn = conn;
 
     // Ping keeps intermediaries from idling the stream out AND detects a dead home:
@@ -166,6 +191,11 @@ export class HomeTunnelDO {
     conn.pending.clear();
     for (const [, u] of conn.uploads) u.readable.cancel().catch(() => {});
     conn.uploads.clear();
+    for (const [, s] of conn.askStreams) {
+      clearTimeout(s.idleTimer);
+      s.writer.abort().catch(() => {});
+    }
+    conn.askStreams.clear();
     conn.writer.abort().catch(() => {});
     if (this.conn === conn) this.conn = null;
   }
@@ -343,12 +373,20 @@ export class HomeTunnelDO {
   }
 
   /**
-   * Home's upstream POST for an asset/ask channel: resolve the pending client request
-   * with a stream, pipe the body through, and ACK 204 only once fully piped
-   * (server.ts handleTunnelAssetPost/handleTunnelAskPost parity).
+   * Home's upstream POST for an asset/ask channel. Two shapes (docs/ARCHITECTURE.md
+   * "Streaming answer channel"):
+   * - Chunked ask (X-Ask-Seq header): seq 0 resolves the pending client request with a
+   *   stream; later chunks append; X-Ask-Fin (or the idle timer) closes it. Each chunk
+   *   ACKs 204 immediately — mandatory on Workers, where the edge buffers a request
+   *   body until complete (a single streaming POST delivers nothing incrementally).
+   * - Legacy single POST (assets + old engines): resolve pending, pipe the whole body,
+   *   ACK 204 once fully piped (server.ts parity).
    */
   private async handleUpstream(request: Request, id: string): Promise<Response> {
     const conn = this.conn;
+    if (conn && request.headers.get("x-ask-seq") !== null) {
+      return this.handleAskChunk(conn, request, id);
+    }
     const p = conn?.pending.get(id);
     if (!conn || !p) {
       // No pending request (timed out or duplicate) — drain and NACK so the home can log it.
@@ -383,6 +421,68 @@ export class HomeTunnelDO {
     } catch {
       await writable.abort().catch(() => {});
     }
+    return new Response(null, { status: 204 });
+  }
+
+  /** One chunk of a chunked ask stream (X-Ask-Seq present). */
+  private async handleAskChunk(conn: Conn, request: Request, id: string): Promise<Response> {
+    const seq = Number(request.headers.get("x-ask-seq"));
+    const fin = request.headers.get("x-ask-fin") === "1";
+    // The edge has buffered the body anyway and chunks are small (batched SSE text).
+    const bytes = new Uint8Array(await request.arrayBuffer().catch(() => new ArrayBuffer(0)));
+
+    const endSession = (s: AskSession, abort: boolean) => {
+      clearTimeout(s.idleTimer);
+      conn.askStreams.delete(id);
+      (abort ? s.writer.abort() : s.writer.close()).catch(() => {});
+    };
+    const armIdle = (s: AskSession) => {
+      clearTimeout(s.idleTimer);
+      s.idleTimer = setTimeout(() => {
+        const cur = conn.askStreams.get(id);
+        if (cur === s) endSession(s, true);
+      }, ASK_CHUNK_IDLE_TIMEOUT) as unknown as number;
+    };
+
+    let session = conn.askStreams.get(id);
+    if (!session) {
+      // First chunk: must be seq 0 against a still-pending client request.
+      const p = conn.pending.get(id);
+      if (!p || seq !== 0) {
+        return Response.json(
+          { ok: false, error: p ? "bad_seq" : "no_pending" },
+          { status: 409 },
+        );
+      }
+      conn.pending.delete(id);
+      clearTimeout(p.timer);
+      const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+      p.resolve({
+        contentType: request.headers.get("content-type") ?? "text/event-stream",
+        readable,
+      } satisfies Delivery);
+      session = { writer: writable.getWriter(), nextSeq: 0, idleTimer: 0 };
+      conn.askStreams.set(id, session);
+    }
+
+    if (seq !== session.nextSeq) {
+      // Out of order (lost ACK + replay, or a bug): kill the stream so the client
+      // fails fast instead of hanging on a hole.
+      endSession(session, true);
+      return Response.json({ ok: false, error: "bad_seq" }, { status: 409 });
+    }
+    session.nextSeq += 1;
+
+    try {
+      if (bytes.byteLength > 0) await session.writer.write(bytes);
+    } catch {
+      // Client went away — tell the home to abandon the remainder.
+      endSession(session, true);
+      return Response.json({ ok: false, error: "no_pending" }, { status: 409 });
+    }
+
+    if (fin) endSession(session, false);
+    else armIdle(session);
     return new Response(null, { status: 204 });
   }
 }

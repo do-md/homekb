@@ -5,13 +5,11 @@
 //! lockstep (thundering herd on a weak-CPU relay).
 
 use anyhow::{Context, Result, anyhow};
-use futures::StreamExt;
 use homekb_core::{AskStreamEvent, Config};
 use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use tokio_stream::wrappers::UnboundedReceiverStream;
 
 // ---- launchd daemon management (macOS only) ----
 
@@ -537,8 +535,15 @@ fn ask_event_frame(ev: AskStreamEvent) -> String {
 
 /// Streaming ask: run the pipeline and stream `delta`* → `done` (or a trailing `error`)
 /// as the POST body to /api/relay/tunnel/ask/<id>, which the relay pipes to the client.
-/// The body streams lazily from ask_stream's channel, so the relay (and client) start
-/// receiving as soon as the first token is produced.
+/// Streaming ask over the **chunked** ask channel (docs/ARCHITECTURE.md "Streaming
+/// answer channel"): frames go out as an ordered series of short POSTs
+/// (`X-Ask-Seq`/`X-Ask-Fin`) instead of one long streaming request body. The old
+/// single-POST shape is structurally broken through the Workers relay — Cloudflare's
+/// edge buffers a request body until complete, so nothing reached the client until
+/// synthesis finished (dead spinner), and the long-lived POST intermittently died
+/// mid-flight leaving the client with zero frames. Each chunk completes immediately;
+/// frames are batched on a short flush window so token deltas don't become one POST
+/// each. Chunks are awaited in order (inherent sequencing) with one retry each.
 fn handle_ask_stream(
     id: String,
     params: Value,
@@ -561,7 +566,7 @@ fn handle_ask_stream(
 
     tokio::spawn(async move {
         tracing::info!("rpc kb.ask (stream)");
-        let (tx, rx) = mpsc::unbounded_channel::<AskStreamEvent>();
+        let (tx, mut rx) = mpsc::unbounded_channel::<AskStreamEvent>();
         let (err_tx, err_rx) = tokio::sync::oneshot::channel::<Option<(String, String)>>();
         let cfg = config.clone();
         tokio::spawn(async move {
@@ -569,35 +574,93 @@ fn handle_ask_stream(
             let _ = err_tx.send(result.err().map(|e| ("ask_failed".to_string(), format!("{e:#}"))));
         });
 
-        // Frame stream: Delta/Done from the channel, then a trailing `error` frame if
-        // synthesis failed. String frames satisfy reqwest's Into<Bytes> body bound.
-        let events =
-            UnboundedReceiverStream::new(rx).map(|ev| Ok::<String, std::io::Error>(ask_event_frame(ev)));
-        let tail = futures::stream::once(async move {
-            match err_rx.await {
-                Ok(Some((code, message))) => Some(Ok::<String, std::io::Error>(ask_frame(
-                    "error",
-                    &json!({ "code": code, "message": message }),
-                ))),
-                _ => None,
-            }
-        })
-        .filter_map(|opt| async move { opt });
-        let body = reqwest::Body::wrap_stream(events.chain(tail));
+        /// Flush window: long enough to coalesce a burst of token deltas into one
+        /// chunk, short enough to keep the answer visibly live on the client.
+        const FLUSH_WINDOW: Duration = Duration::from_millis(150);
+        const MAX_CHUNK_BYTES: usize = 64 * 1024;
 
-        match client
-            .post(&ask_url)
-            .bearer_auth(&secret)
-            .header("Content-Type", "text/event-stream")
-            .body(body)
-            .send()
-            .await
-        {
-            Ok(res) if !res.status().is_success() => {
-                tracing::warn!("ask stream upload rejected: HTTP {}", res.status());
+        let mut seq: u64 = 0;
+        let mut buf = String::new();
+        let mut closed = false;
+
+        while !closed {
+            // Block for the next frame, then coalesce everything that arrives
+            // within the flush window (or until the chunk is big enough).
+            match rx.recv().await {
+                Some(ev) => buf.push_str(&ask_event_frame(ev)),
+                None => break,
             }
-            Ok(_) => {}
-            Err(e) => tracing::warn!("failed to post ask stream: {e}"),
+            let deadline = tokio::time::Instant::now() + FLUSH_WINDOW;
+            while buf.len() < MAX_CHUNK_BYTES {
+                match tokio::time::timeout_at(deadline, rx.recv()).await {
+                    Ok(Some(ev)) => buf.push_str(&ask_event_frame(ev)),
+                    Ok(None) => {
+                        closed = true;
+                        break;
+                    }
+                    Err(_) => break, // window elapsed — flush what we have
+                }
+            }
+            if closed {
+                break; // merge the tail (and a possible error frame) into the fin chunk
+            }
+            if let Err(e) =
+                post_ask_chunk(&client, &ask_url, &secret, seq, false, std::mem::take(&mut buf)).await
+            {
+                tracing::warn!("ask stream chunk {seq} failed; abandoning stream: {e}");
+                return;
+            }
+            seq += 1;
+        }
+
+        // Channel closed = ask_stream returned, so err_rx resolves immediately:
+        // append a trailing `error` frame if synthesis failed.
+        if let Ok(Some((code, message))) = err_rx.await {
+            buf.push_str(&ask_frame("error", &json!({ "code": code, "message": message })));
+        }
+        if let Err(e) = post_ask_chunk(&client, &ask_url, &secret, seq, true, buf).await {
+            tracing::warn!("ask stream final chunk {seq} failed: {e}");
         }
     });
+}
+
+/// POST one chunk of the ask stream. Success = 2xx. A 409 (pending gone / bad seq)
+/// is terminal — the relay told us to stop. Transport errors and non-2xx get one
+/// retry; the error text uses `{:?}` so the full source chain is logged (reqwest's
+/// `Display` hides the underlying cause — the old code logged only
+/// "error sending request", which is useless for diagnosis).
+async fn post_ask_chunk(
+    client: &reqwest::Client,
+    url: &str,
+    secret: &str,
+    seq: u64,
+    fin: bool,
+    body: String,
+) -> std::result::Result<(), String> {
+    let mut last = String::new();
+    for attempt in 0..2 {
+        if attempt > 0 {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+        let mut req = client
+            .post(url)
+            .bearer_auth(secret)
+            .header("Content-Type", "text/event-stream")
+            .header("X-Ask-Seq", seq.to_string())
+            // Chunks are short-lived, so a hard per-request timeout is safe here
+            // (never put one on the old long-lived streaming POST).
+            .timeout(Duration::from_secs(20));
+        if fin {
+            req = req.header("X-Ask-Fin", "1");
+        }
+        match req.body(body.clone()).send().await {
+            Ok(res) if res.status().is_success() => return Ok(()),
+            Ok(res) if res.status() == reqwest::StatusCode::CONFLICT => {
+                return Err("relay NACKed the chunk (409: pending gone or bad seq)".to_string());
+            }
+            Ok(res) => last = format!("HTTP {}", res.status()),
+            Err(e) => last = format!("{e:?}"),
+        }
+    }
+    Err(last)
 }

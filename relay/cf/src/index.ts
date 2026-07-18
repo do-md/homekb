@@ -119,7 +119,7 @@ async function handleTunnelUpstream(req: Request, env: Env, id: string): Promise
   if (!home) return jsonError(401, "unauthorized");
 
   const headers = new Headers();
-  for (const h of ["content-type", "content-length", "x-asset-error"]) {
+  for (const h of ["content-type", "content-length", "x-asset-error", "x-ask-seq", "x-ask-fin"]) {
     const v = req.headers.get(h);
     if (v) headers.set(h, v);
   }

@@ -1,5 +1,6 @@
 import http from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { PassThrough } from "node:stream";
 import type { Readable } from "node:stream";
 import {
   asRpcHubError,
@@ -357,10 +358,27 @@ async function handleShareAssetGet(
 }
 
 /**
- * Home device upstream for the streaming answer channel: the request body is the SSE
- * frame stream (delta/done/error). Deferred 204 until the frames are fully piped to the
- * client (delivery.done). Mirrors the asset channel; there is no X-*-Error header — a
- * synthesis failure arrives as a trailing `error` frame inside the body.
+ * In-flight chunked ask streams (docs/ARCHITECTURE.md "Streaming answer channel"),
+ * keyed `<homeId>:<reqId>`. The home delivers the answer as ordered chunk POSTs
+ * (X-Ask-Seq/X-Ask-Fin) — mandatory on the Workers target (its edge buffers request
+ * bodies); the Node target implements the same contract for protocol parity.
+ */
+const askSessions = new Map<
+  string,
+  { pass: PassThrough; nextSeq: number; idleTimer: ReturnType<typeof setTimeout> }
+>();
+/** Inter-chunk idle timeout: GC an ask session whose home went silent mid-stream. */
+const ASK_CHUNK_IDLE_TIMEOUT = 120_000;
+
+/**
+ * Home device upstream for the streaming answer channel. Two shapes:
+ * - Chunked (X-Ask-Seq header): seq 0 resolves the pending client stream with a
+ *   PassThrough; later chunks append; X-Ask-Fin (or the idle timer) ends it. Each
+ *   chunk ACKs 204 as soon as its body is consumed.
+ * - Legacy single streaming POST (engines predating the chunk contract): the whole
+ *   request body is the SSE frame stream, piped verbatim; deferred 204 until fully
+ *   piped (delivery.done). A synthesis failure arrives as a trailing `error` frame
+ *   inside the body either way — there is no X-*-Error header on this channel.
  */
 function handleTunnelAskPost(
   nodeReq: IncomingMessage,
@@ -369,6 +387,11 @@ function handleTunnelAskPost(
 ): void {
   const home = authHome(toWebRequestHeaders(nodeReq));
   if (!home) return sendJson(nodeRes, 401, { ok: false, error: "unauthorized" });
+
+  const rawSeq = nodeReq.headers["x-ask-seq"];
+  if (typeof rawSeq === "string") {
+    return handleTunnelAskChunk(nodeReq, nodeRes, home.id, id, Number(rawSeq));
+  }
 
   const delivery: AssetDelivery = {
     contentType: "text/event-stream",
@@ -387,6 +410,80 @@ function handleTunnelAskPost(
     nodeReq.resume();
     sendJson(nodeRes, 409, { ok: false, error: "no_pending" });
   }
+}
+
+/** One chunk of a chunked ask stream (X-Ask-Seq present). */
+function handleTunnelAskChunk(
+  nodeReq: IncomingMessage,
+  nodeRes: ServerResponse,
+  homeId: string,
+  id: string,
+  seq: number,
+): void {
+  const key = `${homeId}:${id}`;
+  const fin = nodeReq.headers["x-ask-fin"] === "1";
+
+  const nack = (error: string) => {
+    nodeReq.resume();
+    sendJson(nodeRes, 409, { ok: false, error });
+  };
+  const endSession = (s: NonNullable<ReturnType<typeof askSessions.get>>, abort: boolean) => {
+    clearTimeout(s.idleTimer);
+    askSessions.delete(key);
+    if (abort) s.pass.destroy();
+    else s.pass.end();
+  };
+  const armIdle = (s: NonNullable<ReturnType<typeof askSessions.get>>) => {
+    clearTimeout(s.idleTimer);
+    s.idleTimer = setTimeout(() => {
+      if (askSessions.get(key) === s) endSession(s, true);
+    }, ASK_CHUNK_IDLE_TIMEOUT);
+  };
+
+  let session = askSessions.get(key);
+  if (!session) {
+    // First chunk: must be seq 0 against a still-pending client request.
+    if (seq !== 0) return nack("bad_seq");
+    const pass = new PassThrough();
+    const delivered = hub().resolveResult(homeId, id, true, {
+      contentType: "text/event-stream",
+      stream: pass,
+    } satisfies AssetDelivery);
+    if (!delivered) {
+      pass.destroy();
+      return nack("no_pending");
+    }
+    session = { pass, nextSeq: 0, idleTimer: setTimeout(() => {}, 0) };
+    askSessions.set(key, session);
+  }
+  const s = session;
+
+  if (seq !== s.nextSeq) {
+    // Out of order (lost ACK + replay, or a bug): kill the stream so the client
+    // fails fast instead of hanging on a hole.
+    endSession(s, true);
+    return nack("bad_seq");
+  }
+  if (s.pass.destroyed || !s.pass.writable) {
+    // Client went away — tell the home to abandon the remainder.
+    endSession(s, true);
+    return nack("no_pending");
+  }
+  s.nextSeq += 1;
+  clearTimeout(s.idleTimer);
+
+  nodeReq.on("data", (c: Buffer) => {
+    if (!s.pass.destroyed && s.pass.writable) s.pass.write(c);
+  });
+  nodeReq.on("end", () => {
+    if (fin) endSession(s, false);
+    else armIdle(s);
+    if (!nodeRes.headersSent) {
+      nodeRes.writeHead(204, CORS_HEADERS);
+      nodeRes.end();
+    }
+  });
+  nodeReq.on("error", () => endSession(s, true));
 }
 
 /**
@@ -437,6 +534,11 @@ async function handleRelayRpcStream(
 
   stream.pipe(nodeRes);
   stream.on("end", () => delivery.done?.());
+  // Client gone mid-stream: destroy the source so chunked ask appends fail fast
+  // (the chunk handler NACKs 409 and the home abandons the remainder).
+  nodeRes.on("close", () => {
+    if (!stream.readableEnded) stream.destroy();
+  });
   stream.on("error", () => {
     delivery.done?.();
     nodeRes.destroy();
