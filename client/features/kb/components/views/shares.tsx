@@ -58,7 +58,7 @@ function ShareItem({ share }: { share: ShareMeta }) {
   };
 
   return (
-    <div className="flex items-start gap-3 rounded-2xl bg-base-200 p-4">
+    <div className="flex items-start gap-3 rounded-xl bg-base-200 p-4">
       <span className="mt-0.5 flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[9px] bg-base-200 text-primary">
         <IconShare size={15} strokeWidth={1.5} />
       </span>
@@ -158,7 +158,7 @@ export function SharesView() {
           </div>
         ) : shares.length === 0 ? (
           <div className="mt-10 flex flex-col items-center gap-2 py-8 text-center">
-            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-base-200 text-primary">
+            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-base-200 text-primary">
               <IconShare size={19} strokeWidth={1.5} />
             </span>
             <p className="text-[14.5px] font-semibold text-base-content">No active shares</p>

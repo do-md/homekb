@@ -66,7 +66,7 @@ function NoteItem({ hit, maxScore }: { hit: KbHit; maxScore: number }) {
   return (
     <button
       onClick={() => pushHash("doc", hit.path)}
-      className="flex w-full flex-col gap-2.5 rounded-2xl border border-base-300 bg-base-200 p-4 text-left transition-colors hover:bg-base-300"
+      className="flex w-full flex-col gap-2.5 rounded-xl border border-base-300 bg-base-200 p-4 text-left transition-colors hover:bg-base-300"
     >
       <div className="flex items-start gap-3">
         <DocGlyph />
@@ -109,7 +109,7 @@ function ListSkeleton() {
       {[0, 1, 2].map((i) => (
         <span
           key={i}
-          className="hk-shimmer block h-24 rounded-2xl bg-base-200"
+          className="hk-shimmer block h-24 rounded-xl bg-base-200"
           style={{ animationDelay: `${i * 0.12}s` }}
         />
       ))}
@@ -235,7 +235,7 @@ function AnswerPanel() {
   const secs = answerMs != null ? `${(answerMs / 1000).toFixed(1)}s` : null;
 
   return (
-    <div className="shadow-sm rounded-2xl border border-base-300 bg-base-200">
+    <div className="shadow-sm rounded-xl border border-base-300 bg-base-200">
       <div className="flex items-center gap-1.5 px-4 pt-3 text-[12px] font-semibold tracking-wide text-primary uppercase">
         {writing ? (
           <>
@@ -307,7 +307,7 @@ function AskPanel() {
   const statusText = stage ? STAGE_TEXT[stage] : null;
   if (statusText) {
     return (
-      <div className="flex items-center gap-2.5 rounded-2xl border border-base-300 bg-base-200 px-4 py-3 text-[13px] text-base-content/60">
+      <div className="flex items-center gap-2.5 rounded-xl border border-base-300 bg-base-200 px-4 py-3 text-[13px] text-base-content/60">
         <Spinner size={13} />
         {statusText}
       </div>
@@ -316,7 +316,7 @@ function AskPanel() {
 
   if (resultKind === "list" && phase === "done" && hasHits) {
     return (
-      <div className="flex items-center gap-2.5 rounded-2xl border border-base-300 bg-base-200 px-4 py-2.5 text-[13px] text-base-content/60">
+      <div className="flex items-center gap-2.5 rounded-xl border border-base-300 bg-base-200 px-4 py-2.5 text-[13px] text-base-content/60">
         <IconSpark size={13} strokeWidth={1.5} className="shrink-0 text-base-content/35" />
         <span className="min-w-0 flex-1">No AI answer needed — these notes match directly.</span>
         <button
@@ -551,14 +551,14 @@ function EmptyLibrary() {
   ];
   return (
     <div className="mx-auto flex w-full max-w-md flex-col items-center px-2 py-10 text-center">
-      <span className="flex h-14 w-14 items-center justify-center rounded-2xl border border-base-300 bg-base-200 text-base-content/45">
+      <span className="flex h-14 w-14 items-center justify-center rounded-xl border border-base-300 bg-base-200 text-base-content/45">
         <IconDocPlus size={24} strokeWidth={1.4} />
       </span>
       <h1 className="mt-5 text-[22px] font-bold tracking-tight text-base-content">
         Your knowledge base is empty
       </h1>
       <p className="mt-2 text-[14.5px] text-base-content/60">Three ways to add your first notes:</p>
-      <div className="mt-5 w-full rounded-2xl border border-base-300 bg-base-200 p-4 text-left">
+      <div className="mt-5 w-full rounded-xl border border-base-300 bg-base-200 p-4 text-left">
         <div className="flex flex-col gap-3.5">
           {paths.map(([title, desc], i) => (
             <div key={i} className="flex items-start gap-3">
@@ -612,7 +612,7 @@ function AiSetupGuide({ ai }: { ai: AiStatus }) {
   ];
   return (
     <div className="mx-auto flex w-full max-w-md flex-col items-center px-2 py-10 text-center">
-      <span className="flex h-14 w-14 items-center justify-center rounded-2xl border border-base-300 bg-base-200 text-primary">
+      <span className="flex h-14 w-14 items-center justify-center rounded-xl border border-base-300 bg-base-200 text-primary">
         <IconSpark size={24} strokeWidth={1.5} />
       </span>
       <h1 className="mt-5 text-[22px] font-bold tracking-tight text-base-content">
@@ -622,7 +622,7 @@ function AiSetupGuide({ ai }: { ai: AiStatus }) {
         HomeKB uses AI to make your notes searchable. It needs two keys before it can index
         anything — both stay on this computer.
       </p>
-      <div className="mt-5 w-full rounded-2xl border border-base-300 bg-base-200 p-4 text-left">
+      <div className="mt-5 w-full rounded-xl border border-base-300 bg-base-200 p-4 text-left">
         <div className="flex flex-col gap-3.5">
           {items.map(({ title, desc, ok }) => (
             <div key={title} className="flex items-start gap-3">
@@ -696,7 +696,7 @@ function HealthStrip() {
   const vectorized = status.chunksWithVectors ?? 0;
   const pct = chunks > 0 ? Math.round((vectorized / chunks) * 100) : 0;
   return (
-    <div className="flex items-center gap-4 rounded-2xl bg-base-200 px-4 py-3">
+    <div className="flex items-center gap-4 rounded-xl bg-base-200 px-4 py-3">
       <span className="text-[13px] text-base-content/60">
         <span className="font-semibold text-base-content tabular-nums">{status.docs}</span> docs
       </span>
@@ -736,7 +736,7 @@ function EntryBody() {
               <button
                 key={s.path}
                 onClick={() => api.askSuggestion(s.question)}
-                className="flex items-center gap-3 rounded-2xl bg-base-200 px-4 py-3 text-left transition-colors hover:bg-base-300"
+                className="flex items-center gap-3 rounded-xl bg-base-200 px-4 py-3 text-left transition-colors hover:bg-base-300"
               >
                 <span className="text-primary">
                   <IconSpark size={14} strokeWidth={1.5} />
@@ -763,7 +763,7 @@ function EntryBody() {
           <div className="hk-label">
             {openedDocs.length > 0 ? "Recently opened" : "Recently updated"}
           </div>
-          <div className="mt-2 flex flex-col">
+          <ul className="mt-2 list rounded-xl bg-base-200">
             {(openedDocs.length > 0
               ? openedDocs.map((d) => ({
                   path: d.path,
@@ -771,24 +771,23 @@ function EntryBody() {
                   mtimeSec: Math.round(d.at / 1000),
                 }))
               : recentDocs.map((d) => ({ path: d.path, title: d.title, mtimeSec: d.mtime }))
-            ).map((doc, i) => (
-              <button
-                key={doc.path}
-                onClick={() => pushHash("doc", doc.path)}
-                className={`flex items-center gap-3 px-1 py-2.5 text-left transition-colors hover:bg-base-200 ${
-                  i > 0 ? "border-t border-base-200" : ""
-                }`}
-              >
-                <IconDoc size={15} className="shrink-0 text-base-content/45" strokeWidth={1.5} />
-                <span className="min-w-0 flex-1 truncate text-[14px] text-base-content">
-                  {doc.title || doc.path}
-                </span>
-                <span className="shrink-0 text-xs text-base-content/35">
-                  {dateLabel(doc.mtimeSec)}
-                </span>
-              </button>
+            ).map((doc) => (
+              <li key={doc.path}>
+                <button
+                  onClick={() => pushHash("doc", doc.path)}
+                  className="list-row w-full items-center gap-3 px-3.5 py-2.5 text-left transition-colors hover:bg-base-300"
+                >
+                  <IconDoc size={15} className="shrink-0 text-base-content/45" strokeWidth={1.5} />
+                  <span className="min-w-0 truncate text-[14px] text-base-content">
+                    {doc.title || doc.path}
+                  </span>
+                  <span className="shrink-0 text-xs text-base-content/35">
+                    {dateLabel(doc.mtimeSec)}
+                  </span>
+                </button>
+              </li>
             ))}
-          </div>
+          </ul>
         </div>
       )}
     </div>

@@ -18,10 +18,10 @@ function SendButton({ disabled }: { disabled: boolean }) {
       type="submit"
       disabled={disabled}
       aria-label="Send"
-      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors ${
+      className={`btn btn-soft btn-square rounded-full btn-sm ${
         disabled
-          ? "bg-base-300 text-base-content/45"
-          : "bg-primary text-primary-content hover:bg-primary/90"
+          ? "bg-outline"
+          : "btn-primary"
       }`}
     >
       <IconArrowUp size={17} strokeWidth={2} />
@@ -54,7 +54,7 @@ export function Composer({
   return (
     <div className="hk-scrim px-4 pt-8 pb-[max(env(safe-area-inset-bottom),12px)]">
       <form
-        className={`shadow-sm mx-auto flex w-full max-w-2xl items-center gap-2 rounded-2xl border border-base-200 bg-hk-composer p-2.5 backdrop-blur-md ${
+        className={`shadow-sm mx-auto flex w-full max-w-2xl items-center gap-2 rounded-2xl border border-base-content/10 bg-hk-composer p-2.5 backdrop-blur-md ${
           muted ? "opacity-60" : ""
         }`}
         onSubmit={(e) => {

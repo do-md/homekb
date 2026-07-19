@@ -42,14 +42,14 @@ export function ReaderView() {
           {!editMode ? (
             <div className="flex items-center gap-2">
               <button
-                className="flex items-center gap-1.5 rounded-xl border border-base-300 px-3.5 py-1.5 text-[13px] font-semibold text-base-content/60 transition-colors hover:bg-base-200"
+                className="btn btn-sm rounded-xl btn-soft"
                 onClick={() => setShareOpen(true)}
                 disabled={loading || !!error}
               >
                 <IconShare size={13} /> Share
               </button>
               <button
-                className="rounded-xl border border-base-300 px-3.5 py-1.5 text-[13px] font-semibold text-base-content/60 transition-colors hover:bg-base-200"
+                className="btn btn-sm rounded-xl btn-soft"
                 onClick={() => api.startEdit()}
                 disabled={loading || !!error}
               >
@@ -59,7 +59,7 @@ export function ReaderView() {
           ) : (
             <div className="flex items-center gap-2">
               <button
-                className="rounded-xl px-3.5 py-1.5 text-[13px] font-semibold text-base-content/45 transition-colors hover:text-base-content/60"
+                className="rxt-base-content/60"
                 onClick={() => api.cancelEdit()}
               >
                 Cancel
@@ -99,7 +99,7 @@ export function ReaderView() {
           </article>
         )}
         {!loading && !error && editMode && (
-          <div className="mt-4 rounded-2xl border border-base-300 bg-base-200 p-4 focus-within:border-base-content/30">
+          <div className="mt-4 rounded-xl border border-base-300 bg-base-200 p-4 focus-within:border-base-content/30">
             <KbEditor
               key={`edit:${path}#${version}`}
               seed={content}

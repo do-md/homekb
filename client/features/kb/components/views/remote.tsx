@@ -29,7 +29,7 @@ function Card({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-2xl bg-base-200 p-4">
+    <section className="rounded-xl bg-base-200 p-4">
       {title && <div className="hk-label">{title}</div>}
       <div className={title ? "mt-3" : ""}>{children}</div>
     </section>
@@ -153,12 +153,12 @@ function PairingCard() {
         <div className="flex flex-col items-center gap-3 py-1">
           {qr ? (
             // White tile keeps the QR scannable in both themes
-            <div className="rounded-2xl bg-white p-3">
+            <div className="rounded-xl bg-white p-3">
               {/* eslint-disable-next-line @next/next/no-img-element -- generated data URL */}
               <img src={qr} alt="Pairing QR code" className="h-40 w-40" />
             </div>
           ) : (
-            <div className="flex h-40 w-40 items-center justify-center rounded-2xl bg-base-300 text-primary">
+            <div className="flex h-40 w-40 items-center justify-center rounded-xl bg-base-300 text-primary">
               <Spinner size={20} />
             </div>
           )}

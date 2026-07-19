@@ -131,7 +131,7 @@ function AiEndpointEditor({ section, title, note }: { section: AiSection; title:
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-2xl border border-base-300 bg-base-200 p-4">
+    <section className="rounded-xl border border-base-300 bg-base-200 p-4">
       <div className="hk-label">{title}</div>
       <div className="mt-3 flex flex-col gap-1.5">{children}</div>
     </section>

@@ -102,7 +102,7 @@ export function SharePanel({ path, onClose }: { path: string; onClose: () => voi
 
         {created ? (
           <div className="mt-4">
-            <div className="rounded-2xl border border-base-300 bg-base-200 p-4">
+            <div className="rounded-xl border border-base-300 bg-base-200 p-4">
               <div className="hk-label">Anyone with this link can read the note</div>
               <div className="mt-2 flex items-center gap-2">
                 <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-base-content">

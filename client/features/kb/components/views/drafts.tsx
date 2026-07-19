@@ -53,7 +53,7 @@ function DraftItem({ draft }: { draft: Draft }) {
   const preview = previewText(draft.text);
 
   return (
-    <div className="flex items-start gap-3 rounded-2xl border border-base-300 bg-base-200 p-4">
+    <div className="flex items-start gap-3 rounded-xl border border-base-300 bg-base-200 p-4">
       <span className="mt-0.5 flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[9px] bg-base-200 text-primary">
         <IconPencil size={15} strokeWidth={1.5} />
       </span>

@@ -30,7 +30,7 @@ function StatCard({
   const dotCls =
     dot === "green" ? "text-success" : dot === "amber" ? "text-warning" : "text-hk-orange";
   return (
-    <div className="rounded-2xl bg-base-200 p-4">
+    <div className="rounded-xl bg-base-200 p-4">
       <div className="hk-label flex items-center gap-1.5">
         {label}
         {dot && (
@@ -64,7 +64,7 @@ function SchedulerCard() {
 
   const active = managed && running;
   return (
-    <div className="rounded-2xl border border-base-300 bg-base-200 p-4">
+    <div className="rounded-xl border border-base-300 bg-base-200 p-4">
       <div className="flex items-center justify-between gap-3">
         <span className="flex items-center gap-2 text-[14px] font-semibold text-base-content">
           <span className={active ? "text-success" : "text-warning"}>
@@ -103,7 +103,7 @@ function PathsCard() {
     ["Config", engine.configPath, "toml"],
   ];
   return (
-    <div className="rounded-2xl border border-base-300 bg-base-200 p-4">
+    <div className="rounded-xl border border-base-300 bg-base-200 p-4">
       <div className="hk-label">Paths</div>
       <div className="mt-2 flex flex-col">
         {rows.map(([label, path, tag], i) => (
@@ -192,7 +192,7 @@ export function StatusView() {
 
             {/* Compiling state (6b) */}
             {compiling && (
-              <div className="rounded-2xl border border-base-300 bg-base-200 p-4">
+              <div className="rounded-xl border border-base-300 bg-base-200 p-4">
                 <div className="flex items-center gap-2 text-[14px] font-semibold text-base-content">
                   <span className="text-primary">
                     <Spinner size={14} />
@@ -215,7 +215,7 @@ export function StatusView() {
             )}
 
             {/* Hero CHUNKS card */}
-            <div className="rounded-2xl bg-base-200 p-4">
+            <div className="rounded-xl bg-base-200 p-4">
               <div className="hk-label flex items-center gap-1.5">
                 Chunks
                 {allVectorized && (
@@ -258,7 +258,7 @@ export function StatusView() {
             </div>
 
             {/* Data flow: the primary index.db box = read-only snapshot, data stays local */}
-            <div className="rounded-2xl bg-base-200 p-4">
+            <div className="rounded-xl bg-base-200 p-4">
               <div className="hk-label">Data flow</div>
               <div className="mt-3 flex flex-wrap items-center gap-1.5">
                 <FlowBox label="*.md" />
@@ -279,7 +279,7 @@ export function StatusView() {
             {isDesktop() && <PathsCard />}
 
             {/* Failures section */}
-            <div className="flex items-center gap-2 rounded-2xl bg-base-200 px-4 py-3 text-[13px] text-base-content/60">
+            <div className="flex items-center gap-2 rounded-xl bg-base-200 px-4 py-3 text-[13px] text-base-content/60">
               {failures === 0 ? (
                 <>
                   <span className="text-success">

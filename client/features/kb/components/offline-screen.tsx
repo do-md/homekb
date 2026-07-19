@@ -29,7 +29,7 @@ const WAKE_STEPS = [
 /** Deeper checklist behind the "Connection help" link (design 4b). */
 function ConnectionHelp() {
   return (
-    <div className="mt-4 w-full rounded-2xl border border-base-300 bg-base-200 p-4 text-left">
+    <div className="mt-4 w-full rounded-xl border border-base-300 bg-base-200 p-4 text-left">
       <div className="hk-label">Connection help</div>
       <ul className="mt-3 flex flex-col gap-2.5 text-[13px] leading-relaxed text-base-content/60">
         <li>
@@ -73,7 +73,7 @@ export function OfflineScreen() {
         they just can&apos;t be searched from here until it comes back.
       </p>
 
-      <div className="mt-6 w-full rounded-2xl border border-base-300 bg-base-200 p-4 text-left">
+      <div className="mt-6 w-full rounded-xl border border-base-300 bg-base-200 p-4 text-left">
         <div className="hk-label">How to wake it up</div>
         <ol className="mt-3 flex flex-col gap-2.5">
           {WAKE_STEPS.map((step, i) => (

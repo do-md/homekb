@@ -162,7 +162,7 @@ export function ShareViewer() {
 
         {phase.kind === "password" && (
           <form
-            className="mx-auto mt-16 max-w-sm rounded-2xl border border-base-300 bg-base-200 p-6"
+            className="mx-auto mt-16 max-w-sm rounded-xl border border-base-300 bg-base-200 p-6"
             onSubmit={(e) => {
               e.preventDefault();
               if (passwordInput) void load(passwordInput);
@@ -259,7 +259,7 @@ function StatusCard({
   retry?: () => void;
 }) {
   return (
-    <div className="mx-auto mt-16 max-w-sm rounded-2xl border border-base-300 bg-base-200 p-6 text-center">
+    <div className="mx-auto mt-16 max-w-sm rounded-xl border border-base-300 bg-base-200 p-6 text-center">
       <h1 className="text-[17px] font-semibold text-base-content">{title}</h1>
       <p className="mt-2 text-[13.5px] leading-relaxed text-base-content/60">{body}</p>
       {retry && (
