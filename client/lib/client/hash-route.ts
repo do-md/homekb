@@ -74,11 +74,22 @@ export function closeHashOverlay() {
   if ((window.history.state as { hkOverlay?: boolean } | null)?.hkOverlay) {
     window.history.back(); // fires popstate → subscribers update
   } else {
-    window.history.replaceState(
-      window.history.state,
-      "",
-      window.location.pathname + window.location.search,
-    );
-    window.dispatchEvent(new Event(HASH_EVENT));
+    stripHash();
   }
+}
+
+/**
+ * Remove the hash in place, never popping history — for when an action
+ * *consumed* the hash target (e.g. saving a `#note=`/`#draft=` edit session):
+ * the surface should fall back to its plain state while back still leaves the
+ * page as the user expects.
+ */
+export function stripHash() {
+  if (!window.location.hash) return;
+  window.history.replaceState(
+    window.history.state,
+    "",
+    window.location.pathname + window.location.search,
+  );
+  window.dispatchEvent(new Event(HASH_EVENT));
 }

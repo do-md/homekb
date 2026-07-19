@@ -1,33 +1,28 @@
 "use client";
 
 /**
- * Reader: read-only DOMD rendering with an in-place WYSIWYG edit mode.
- * The read view remounts on (path, readerVersion) so saves re-render fresh markdown.
+ * Reader: read-only DOMD rendering. The read view remounts on
+ * (path, readerVersion) so external saves re-render fresh markdown.
+ * Editing is NOT done here — Edit hands off to the compose surface
+ * (`/new#note=<path>`, see store.editNote): create/edit/update are one form.
  */
 
-import { useRef, useState } from "react";
-import { closeHashOverlay } from "@/lib/client/hash-route";
-import { useKbStore, useKbStoreApi } from "../../store/kb-store";
-import { KbEditor, type KbEditorHandle, KbMarkdown } from "../domd";
-import { IconChevronLeft, IconShare, Spinner } from "../icons";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { closeHashOverlay, hashHref } from "@/lib/client/hash-route";
+import { useKbStore } from "../../store/kb-store";
+import { KbMarkdown } from "../domd";
+import { IconChevronLeft, IconPencil, IconShare, Spinner } from "../icons";
 import { SharePanel } from "../share-panel";
 
 export function ReaderView() {
-  const api = useKbStoreApi();
+  const router = useRouter();
   const path = useKbStore((s) => s.state.readerPath);
   const content = useKbStore((s) => s.state.readerContent);
   const version = useKbStore((s) => s.state.readerVersion);
   const loading = useKbStore((s) => s.state.readerLoading);
   const error = useKbStore((s) => s.state.readerError);
-  const editMode = useKbStore((s) => s.state.editMode);
-  const saveBusy = useKbStore((s) => s.state.saveBusy);
-  const editorRef = useRef<KbEditorHandle | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
-
-  const save = () => {
-    const md = editorRef.current?.getMarkdown();
-    if (md != null) void api.saveEdit(md);
-  };
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
@@ -39,41 +34,22 @@ export function ReaderView() {
           >
             <IconChevronLeft size={16} /> Back
           </button>
-          {!editMode ? (
-            <div className="flex items-center gap-2">
-              <button
-                className="btn btn-sm rounded-xl btn-soft"
-                onClick={() => setShareOpen(true)}
-                disabled={loading || !!error}
-              >
-                <IconShare size={13} /> Share
-              </button>
-              <button
-                className="btn btn-sm rounded-xl btn-soft"
-                onClick={() => api.startEdit()}
-                disabled={loading || !!error}
-              >
-                Edit
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <button
-                className="rxt-base-content/60"
-                onClick={() => api.cancelEdit()}
-              >
-                Cancel
-              </button>
-              <button
-                className="flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-1.5 text-[13px] font-semibold text-primary-content transition-colors hover:bg-primary/90 disabled:opacity-60"
-                onClick={save}
-                disabled={saveBusy}
-              >
-                {saveBusy && <Spinner size={12} />}
-                Save
-              </button>
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            <button
+              className="btn btn-sm rounded-xl btn-soft"
+              onClick={() => setShareOpen(true)}
+              disabled={loading || !!error}
+            >
+              <IconShare size={13} /> Share
+            </button>
+            <button
+              className="btn btn-sm rounded-xl btn-soft"
+              onClick={() => path && router.push(`/new${hashHref("note", path)}`)}
+              disabled={loading || !!error}
+            >
+              <IconPencil size={13} /> Edit
+            </button>
+          </div>
         </div>
 
         <div className="mt-1 truncate font-mono text-[11px] text-base-content/35">{path}</div>
@@ -89,7 +65,7 @@ export function ReaderView() {
           </div>
         )}
 
-        {!loading && !error && !editMode && (
+        {!loading && !error && (
           <article className="mt-4">
             <KbMarkdown
               key={`read:${path}#${version}`}
@@ -97,17 +73,6 @@ export function ReaderView() {
               notePath={path ?? ""}
             />
           </article>
-        )}
-        {!loading && !error && editMode && (
-          <div className="mt-4 rounded-xl border border-base-300 bg-base-200 p-4 focus-within:border-base-content/30">
-            <KbEditor
-              key={`edit:${path}#${version}`}
-              seed={content}
-              notePath={path ?? ""}
-              handleRef={editorRef}
-              autoFocus
-            />
-          </div>
         )}
       </div>
 

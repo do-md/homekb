@@ -7,6 +7,7 @@ import {
   connectionLabel,
   getConnection,
 } from "@/lib/client/connection";
+import { stripHash } from "@/lib/client/hash-route";
 import { isDesktop } from "@/lib/client/desktop";
 import { checkHealth, RelayError, rpc, rpcAskStream } from "@/lib/client/rpc";
 import type {
@@ -72,22 +73,29 @@ function persistOpenedDocs(docs: OpenedDoc[]) {
   }
 }
 
-/** The active compose buffer: what the user is currently typing, plus the id of
- *  the home-side draft it maps to (null = a brand-new note not yet saved). */
+/** The active compose buffer: what the user is currently typing, plus what it
+ *  maps to — a home-side draft id, a library note path being edited (the
+ *  composer doubles as the note editor — `/new#note=<path>`), or neither
+ *  (a brand-new note not yet saved). */
 interface ComposeBuffer {
   text: string;
   editingDraftId: string | null;
+  editingNotePath: string | null;
 }
 
 function loadCompose(): ComposeBuffer {
-  const empty: ComposeBuffer = { text: "", editingDraftId: null };
+  const empty: ComposeBuffer = { text: "", editingDraftId: null, editingNotePath: null };
   if (typeof window === "undefined") return empty;
   try {
     const raw = window.localStorage.getItem(COMPOSE_KEY);
     if (!raw) return empty;
     const buf = JSON.parse(raw) as ComposeBuffer;
     return typeof buf?.text === "string"
-      ? { text: buf.text, editingDraftId: buf.editingDraftId ?? null }
+      ? {
+          text: buf.text,
+          editingDraftId: buf.editingDraftId ?? null,
+          editingNotePath: buf.editingNotePath ?? null,
+        }
       : empty;
   } catch {
     return empty;
@@ -152,21 +160,22 @@ interface KbState {
   suggestionsLoaded: boolean;
   typesLoaded: boolean;
 
-  // reader
+  // reader (read-only — editing happens on the compose surface, see editNote)
   readerPath: string | null;
   readerContent: string;
   /** Bumped on every load/save so the read-only DOMD remounts with fresh initMd. */
   readerVersion: number;
   readerLoading: boolean;
   readerError: string | null;
-  editMode: boolean;
-  saveBusy: boolean;
 
-  // compose (new note) + drafts (drafts live on the home; see loadDrafts)
+  // compose (new note / edit note) + drafts (drafts live on the home; see loadDrafts)
   drafts: Draft[];
   /** Home-side drafts loaded at least once (self-healing backfill flag). */
   draftsLoaded: boolean;
   editingDraftId: string | null;
+  /** Library note the composer is editing (`/new#note=<path>`); null = new note.
+   *  "Save to library" updates this note (kb.write) instead of creating one. */
+  editingNotePath: string | null;
   editorSeed: string;
   /** Bumped to remount the editor with a new seed. */
   editorSession: number;
@@ -249,11 +258,10 @@ export class KbStore extends ZenithStore<KbState> {
       readerVersion: 0,
       readerLoading: false,
       readerError: null,
-      editMode: false,
-      saveBusy: false,
       drafts: [],
       draftsLoaded: false,
       editingDraftId: compose.editingDraftId,
+      editingNotePath: compose.editingNotePath,
       editorSeed: compose.text,
       editorSession: 0,
       newBusy: false,
@@ -707,7 +715,6 @@ export class KbStore extends ZenithStore<KbState> {
       d.readerContent = "";
       d.readerLoading = true;
       d.readerError = null;
-      d.editMode = false;
     });
     try {
       const res = await rpc<{ content: string }>("kb.read", { path });
@@ -742,39 +749,43 @@ export class KbStore extends ZenithStore<KbState> {
     persistOpenedDocs(this.state.openedDocs);
   }
 
-  public startEdit() {
+  /**
+   * Enter Edit note mode: seed the composer with a library note (`/new#note=
+   * <path>`). Editing rides the exact same surface as writing a new note —
+   * same Drafts entry, same "Save draft" / "Save to library" actions — so
+   * create/edit/update stay one form; "Save to library" then updates this
+   * note in place (kb.write) instead of creating one.
+   */
+  public async editNote(path: string) {
+    // The common path — Edit tapped in the reader: the content is already loaded.
+    if (this.state.readerPath === path && !this.state.readerLoading && !this.state.readerError) {
+      this.seedNoteEdit(path, this.state.readerContent);
+      return;
+    }
+    // Deep link / reload: fetch the note first.
     this.produce((d) => {
-      d.editMode = true;
-    });
-  }
-
-  public cancelEdit() {
-    this.produce((d) => {
-      d.editMode = false;
-    });
-  }
-
-  public async saveEdit(markdown: string) {
-    const path = this.state.readerPath;
-    if (!path) return;
-    this.produce((d) => {
-      d.saveBusy = true;
+      d.newError = null;
     });
     try {
-      await rpc("kb.write", { path, content: markdown });
-      this.produce((d) => {
-        d.readerContent = markdown;
-        d.readerVersion += 1;
-        d.editMode = false;
-        d.saveBusy = false;
-      });
-      this.flash("Saved");
+      const res = await rpc<{ content: string }>("kb.read", { path });
+      this.seedNoteEdit(path, res.content);
     } catch (e) {
       this.produce((d) => {
-        d.saveBusy = false;
+        d.newError = e instanceof Error ? e.message : "Failed to load note";
       });
-      this.flash(e instanceof Error ? e.message : "Save failed");
     }
+  }
+
+  private seedNoteEdit(path: string, content: string) {
+    this.produce((d) => {
+      d.editingDraftId = null;
+      d.editingNotePath = path;
+      d.editorSeed = content;
+      d.editorSession += 1;
+      d.newSavedPath = null;
+      d.newError = null;
+    });
+    persistCompose({ text: content, editingDraftId: null, editingNotePath: path });
   }
 
   // ---------- Compose (new note) + drafts ----------
@@ -789,6 +800,7 @@ export class KbStore extends ZenithStore<KbState> {
   public composeNew() {
     this.produce((d) => {
       d.editingDraftId = null;
+      d.editingNotePath = null;
       d.editorSeed = "";
       d.editorSession += 1;
       d.newSavedPath = null;
@@ -812,12 +824,13 @@ export class KbStore extends ZenithStore<KbState> {
     if (!draft) return false;
     this.produce((d) => {
       d.editingDraftId = draft.id;
+      d.editingNotePath = null;
       d.editorSeed = draft.text;
       d.editorSession += 1;
       d.newSavedPath = null;
       d.newError = null;
     });
-    persistCompose({ text: draft.text, editingDraftId: draft.id });
+    persistCompose({ text: draft.text, editingDraftId: draft.id, editingNotePath: null });
     return true;
   }
 
@@ -829,15 +842,29 @@ export class KbStore extends ZenithStore<KbState> {
    * is ready for the next note (same contract as "Save to library"). On
    * failure the text stays in the editor (nothing is lost, nothing hidden).
    */
-  public async saveDraft(markdown: string) {
-    if (!markdown.trim()) return;
+  /** Returns true when the workspace cleared (the caller strips a consumed
+   *  #draft hash); false on failure or in an edit-note checkpoint. */
+  public async saveDraft(markdown: string): Promise<boolean> {
+    if (!markdown.trim()) return false;
     // Crash-safety first: never lose the text, connected or not.
     this.produce((d) => {
       d.editorSeed = markdown;
     });
-    persistCompose({ text: markdown, editingDraftId: this.state.editingDraftId });
+    persistCompose({
+      text: markdown,
+      editingDraftId: this.state.editingDraftId,
+      editingNotePath: this.state.editingNotePath,
+    });
     try {
       await this.pushDraft(markdown);
+      if (this.state.editingNotePath) {
+        // Edit-note session: the draft is a checkpoint of an in-progress note
+        // edit. Keep the session open — clearing would orphan the note
+        // association (drafts don't carry a target path), so a later "Save to
+        // library" would create a duplicate instead of updating the note.
+        this.flash("Draft saved");
+        return false;
+      }
       // Clear the workspace. The remount auto-stash must not resurrect the
       // just-saved text as another draft — mark it saved first.
       this.lastDraftSaved = markdown;
@@ -849,41 +876,78 @@ export class KbStore extends ZenithStore<KbState> {
         d.newError = null;
       });
       persistCompose(null);
+      // Same reasoning as saveToLibrary: a surviving #draft hash would make
+      // the /new page effect instantly re-resume the just-saved draft.
+      stripHash();
       this.flash("Draft saved");
+      return true;
     } catch {
       this.flash("Home offline — draft kept here until you reconnect");
+      return false;
     }
   }
 
-  /** Silent stash when the editor unmounts with unsaved content — never lose work. */
-  public stashDraft(markdown: string) {
+  /**
+   * Silent stash when a compose session ends with unsaved content — never lose
+   * work. `bound` pins the identity of the session the text came from (captured
+   * when that session's editor mounted): a stash that fires *after* the store
+   * has already re-seeded a new session (resumed draft / note edit) must
+   * neither hijack the fresh buffer nor upsert under the new session's draft id.
+   */
+  public stashDraft(
+    markdown: string,
+    bound: { draftId: string | null; notePath: string | null; seed: string; baseline: string | null },
+  ) {
     if (!markdown.trim()) return;
     // Just saved to the library: don't resurrect it as a draft.
     if (this.lastLibrarySaved !== null && markdown.trim() === this.lastLibrarySaved.trim()) return;
     // Just saved as a draft (workspace cleared): same suppression.
     if (this.lastDraftSaved !== null && markdown.trim() === this.lastDraftSaved.trim()) return;
-    // Skip when identical to the draft we're editing (nothing typed).
-    if (this.state.editingDraftId) {
-      const existing = this.state.drafts.find((x) => x.id === this.state.editingDraftId);
+    // Nothing typed this session: the text still equals the serializer's echo
+    // of the seed (`baseline` — raw-seed comparison would false-negative on
+    // round-trip normalization). A note-edit or resumed-draft session has
+    // nothing new to back up then; a plain compose session still promotes —
+    // its crash-restored buffer may never have reached the home.
+    if (bound.baseline !== null && markdown === bound.baseline && (bound.notePath || bound.draftId))
+      return;
+    // Note-edit session with nothing typed (exact raw match): same skip.
+    if (bound.notePath && markdown === bound.seed) return;
+    // Skip when identical to the draft the session was editing (nothing typed).
+    if (bound.draftId) {
+      const existing = this.state.drafts.find((x) => x.id === bound.draftId);
       if (existing && existing.text === markdown) return;
     }
-    // Keep the crash-safety buffer regardless of connectivity.
-    this.produce((d) => {
-      d.editorSeed = markdown;
-    });
-    persistCompose({ text: markdown, editingDraftId: this.state.editingDraftId });
+    // Only touch the compose buffer if the store is still on this session.
+    const sessionCurrent =
+      this.state.editorSeed === bound.seed &&
+      this.state.editingDraftId === bound.draftId &&
+      this.state.editingNotePath === bound.notePath;
+    if (sessionCurrent) {
+      // Keep the crash-safety buffer regardless of connectivity.
+      this.produce((d) => {
+        d.editorSeed = markdown;
+      });
+      persistCompose({
+        text: markdown,
+        editingDraftId: bound.draftId,
+        editingNotePath: bound.notePath,
+      });
+    }
     // Best-effort promote to a shared draft; silent when the home is offline.
-    void this.pushDraft(markdown).catch(() => {});
+    void this.pushDraft(markdown, bound.draftId).catch(() => {});
   }
 
   /**
-   * Upsert the current compose text as a home-side draft and mirror the result
-   * locally. Throws when the home is unreachable (callers decide whether to
-   * surface it). Guards against a late resolution clobbering a fresh compose.
+   * Upsert compose text as a home-side draft and mirror the result locally.
+   * Throws when the home is unreachable (callers decide whether to surface it).
+   * `draftId` defaults to the active session's id; a stale stash passes its own
+   * bound id explicitly. Guards against a late resolution clobbering a fresh
+   * compose.
    */
-  private async pushDraft(markdown: string) {
+  private async pushDraft(markdown: string, draftId?: string | null) {
+    const id = draftId !== undefined ? draftId : this.state.editingDraftId;
     const res = await rpc<{ id: string; editedAt: number }>("kb.draftSave", {
-      id: this.state.editingDraftId ?? undefined,
+      id: id ?? undefined,
       text: markdown,
     });
     // If the editor moved on to different content, only record the draft in the
@@ -901,7 +965,13 @@ export class KbStore extends ZenithStore<KbState> {
       d.draftsLoaded = true;
       if (stillCurrent) d.editingDraftId = res.id;
     });
-    if (stillCurrent) persistCompose({ text: markdown, editingDraftId: res.id });
+    if (stillCurrent) {
+      persistCompose({
+        text: markdown,
+        editingDraftId: res.id,
+        editingNotePath: this.state.editingNotePath,
+      });
+    }
   }
 
   public async deleteDraft(id: string) {
@@ -911,6 +981,7 @@ export class KbStore extends ZenithStore<KbState> {
       d.drafts = d.drafts.filter((x) => x.id !== id);
       if (clearingCurrent) {
         d.editingDraftId = null;
+        d.editingNotePath = null;
         d.editorSeed = "";
         d.editorSession += 1;
       }
@@ -924,20 +995,33 @@ export class KbStore extends ZenithStore<KbState> {
     }
   }
 
-  /** "Save to library" — writes to home (needs home online). Title = first line. */
-  public async saveToLibrary(markdown: string, title: string) {
+  /**
+   * "Save to library" — writes to home (needs home online). Title = first line.
+   * In an Edit note session (editingNotePath set) this *updates* the note in
+   * place via kb.write; otherwise it creates a new note via kb.create.
+   * Returns true on success so the view can strip a consumed #note/#draft hash.
+   */
+  public async saveToLibrary(markdown: string, title: string): Promise<boolean> {
     const content = markdown.trim();
-    if (!content) return;
+    if (!content) return false;
+    const target = this.state.editingNotePath;
     this.produce((d) => {
       d.newBusy = true;
       d.newError = null;
       d.newSavedPath = null;
     });
     try {
-      const res = await rpc<{ path: string }>("kb.create", {
-        content,
-        title: title || undefined,
-      });
+      let savedPath: string;
+      if (target) {
+        await rpc("kb.write", { path: target, content });
+        savedPath = target;
+      } else {
+        const res = await rpc<{ path: string }>("kb.create", {
+          content,
+          title: title || undefined,
+        });
+        savedPath = res.path;
+      }
       this.lastLibrarySaved = content;
       const publishedDraftId = this.state.editingDraftId;
       this.produce((d) => {
@@ -945,22 +1029,35 @@ export class KbStore extends ZenithStore<KbState> {
           d.drafts = d.drafts.filter((x) => x.id !== publishedDraftId);
         }
         d.editingDraftId = null;
+        d.editingNotePath = null;
         d.editorSeed = "";
         d.editorSession += 1;
         d.newBusy = false;
-        d.newSavedPath = res.path;
+        d.newSavedPath = savedPath;
+        // Keep an open reader on this note fresh — back returns to it.
+        if (target && d.readerPath === target) {
+          d.readerContent = content;
+          d.readerVersion += 1;
+        }
       });
       persistCompose(null);
-      // The draft has become a real note: remove it from the shared store too.
+      // The save consumed the session — drop a #note/#draft hash *synchronously
+      // with the state clear*: if it outlived the clear until React's effects
+      // ran, the /new page effect would re-enter the just-saved edit session.
+      stripHash();
+      // The draft has become a real note (or was consumed as an edit
+      // checkpoint): remove it from the shared store too.
       if (publishedDraftId) {
         void rpc("kb.draftDelete", { id: publishedDraftId }).catch(() => {});
       }
       void this.loadRecent();
+      return true;
     } catch (e) {
       this.produce((d) => {
         d.newBusy = false;
         d.newError = e instanceof Error ? e.message : "Failed to save note";
       });
+      return false;
     }
   }
 

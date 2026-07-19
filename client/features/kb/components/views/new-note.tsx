@@ -1,13 +1,15 @@
 "use client";
 
 /**
- * New note (design 5a): a focused compose mode — no pill nav. Pure WYSIWYG
- * Markdown editor; the first line becomes the title. Two actions only:
- * "Save draft" (saved to the home so every device sees it — needs home online)
- * and "Save to library" (writes to home, needs home online). Phone: actions in a
- * bottom bar (thumb zone); desktop: header. Leaving the view auto-stashes unsaved
- * content — the text is crash-safe on this device even offline, and promoted to a
- * shared draft as soon as the home is reachable.
+ * Compose (design 5a): a focused mode — no pill nav. Pure WYSIWYG Markdown
+ * editor; the first line becomes the title. One surface for create AND edit
+ * ("New note" / "Edit note" via `/new#note=<path>`): same Drafts entry on top,
+ * same two actions — "Save draft" (saved to the home so every device sees it —
+ * needs home online) and "Save to library" (creates a note, or updates the note
+ * being edited). Phone: actions in a bottom bar (thumb zone); desktop: header.
+ * Leaving the view auto-stashes unsaved content — the text is crash-safe on
+ * this device even offline, and promoted to a shared draft as soon as the home
+ * is reachable.
  */
 
 import { useEffect, useRef } from "react";
@@ -41,6 +43,8 @@ function ActionButtons({ editorRef }: { editorRef: React.MutableRefObject<KbEdit
         title={online ? undefined : "Home is offline — reconnect to save"}
         onClick={() => {
           const md = read();
+          // On success the store clears the session AND strips a consumed
+          // #note/#draft hash atomically (see saveToLibrary).
           void api.saveToLibrary(md, titleFromMarkdown(md));
         }}
       >
@@ -56,6 +60,7 @@ export function NewNoteView() {
   const router = useRouter();
   const seed = useKbStore((s) => s.state.editorSeed);
   const session = useKbStore((s) => s.state.editorSession);
+  const editingNotePath = useKbStore((s) => s.state.editingNotePath);
   const draftCount = useKbStore((s) => s.state.drafts.length);
   const savedPath = useKbStore((s) => s.state.newSavedPath);
   const error = useKbStore((s) => s.state.newError);
@@ -64,12 +69,23 @@ export function NewNoteView() {
   apiRef.current = api;
 
   // Auto-stash on unmount (view switch): unsaved content becomes a local draft.
+  // The bound identity is captured when this session's editor mounts, so a
+  // stash firing after the store re-seeded (resumed draft / note edit) can't
+  // hijack the fresh buffer or write under the wrong draft id.
   useEffect(() => {
+    const bound = {
+      draftId: api.state.editingDraftId,
+      notePath: api.state.editingNotePath,
+      seed: api.state.editorSeed,
+      // The serializer's echo of the seed — the reference for "nothing typed"
+      // (the raw seed differs from getMarkdown() by round-trip normalization).
+      baseline: editorRef.current?.getMarkdown() ?? null,
+    };
     return () => {
       const md = editorRef.current?.getMarkdown();
-      if (md?.trim()) apiRef.current.stashDraft(md);
+      if (md?.trim()) apiRef.current.stashDraft(md, bound);
     };
-  }, [session]);
+  }, [session, api]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -78,12 +94,18 @@ export function NewNoteView() {
         <div className="mx-auto flex h-16 max-w-3xl items-center gap-2 px-3">
           <button
             className="-ml-1 flex items-center rounded-lg p-1.5 text-base-content/60 transition-colors hover:text-base-content"
-            onClick={() => router.push("/search")}
+            onClick={() =>
+              router.push(
+                editingNotePath ? `/search${hashHref("doc", editingNotePath)}` : "/search",
+              )
+            }
             aria-label="Back"
           >
             <IconChevronLeft size={18} />
           </button>
-          <span className="text-[15px] font-semibold text-base-content">New note</span>
+          <span className="text-[15px] font-semibold text-base-content">
+            {editingNotePath ? "Edit note" : "New note"}
+          </span>
           <button
             className="ml-1 flex items-center gap-1.5 rounded-full border border-base-200 px-2.5 py-1 text-[12.5px] font-medium text-base-content/60 transition-colors hover:bg-base-200"
             onClick={() => router.push("/new/drafts")}
@@ -105,6 +127,11 @@ export function NewNoteView() {
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-2xl px-4 py-5 pb-16">
+          {editingNotePath && (
+            <div className="mb-3 truncate font-mono text-[11px] text-base-content/35">
+              {editingNotePath}
+            </div>
+          )}
           {savedPath && (
             <div className="mb-4 flex items-center gap-2 rounded-xl border border-base-300 bg-base-200 px-4 py-3 text-[13.5px] text-base-content/60">
               <span className="text-success">
@@ -127,6 +154,7 @@ export function NewNoteView() {
           <KbEditor
             key={`compose#${session}`}
             seed={seed}
+            notePath={editingNotePath ?? ""}
             placeholder="Start writing — the first line becomes the title…"
             handleRef={editorRef}
             autoFocus
