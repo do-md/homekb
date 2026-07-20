@@ -8,9 +8,10 @@
  * address field — without scanning, the client cannot know which service the home
  * registered with (docs/ARCHITECTURE.md "Client connection model").
  *
- * Phone (coarse pointer + camera): scan-first (8b) — camera viewfinder decoding the
- * home machine's pairing QR; "Enter code manually" reveals the code form.
- * Desktop (8a): manual-first + a primary "On your phone? Scan the QR instead" link.
+ * Every device lands on the pairing-code form (the Service address comes prefilled
+ * with the official default, so the user usually only types the code). QR scanning is
+ * demoted to a "Scan the QR code instead" action below the form — one tap away, never
+ * the first thing shown, since leading with the camera adds friction.
  *
  * Supports the pairing-link contract (docs/ARCHITECTURE.md "Pairing link (QR payload)"):
  * `/?relay=<url>&code=<code>` prefill + auto-claim, params stripped immediately.
@@ -25,23 +26,15 @@ import { canScanQr, isCoarsePointer, QrScanner } from "./qr-scanner";
 const inputCls =
   "w-full rounded-xl border border-base-300 bg-base-200 px-3.5 py-2.5 text-[14px] text-base-content outline-none placeholder:text-base-content/45 focus:border-base-content/30";
 
-/** Pairing link in the address bar (auto-claim path) — skip the scanner then. */
-function hasLinkParams(): boolean {
-  if (typeof window === "undefined") return false;
-  const params = new URLSearchParams(window.location.search);
-  return !!(params.get("relay") || params.get("code"));
-}
-
 export function PairScreen() {
   const api = useKbStoreApi();
   const busy = useKbStore((s) => s.state.pairBusy);
   const error = useKbStore((s) => s.state.pairError);
   const [serviceUrl, setServiceUrl] = useState(defaultRelayUrl());
   const [code, setCode] = useState("");
-  // 8b scan-first on phones with a camera; desktops land on the manual form.
-  const [scanning, setScanning] = useState(
-    () => canScanQr() && isCoarsePointer() && !hasLinkParams(),
-  );
+  // Pairing-code entry is the default surface on every device (phone included) —
+  // leading with the camera adds friction. QR scanning stays one tap below the form.
+  const [scanning, setScanning] = useState(false);
   const [cameraNote, setCameraNote] = useState<string | null>(null);
   const autoClaimed = useRef(false);
 

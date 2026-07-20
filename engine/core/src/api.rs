@@ -188,11 +188,21 @@ pub async fn reindex(cfg: &Config, quiet: bool) -> Result<ReindexReport> {
 pub async fn reindex_opts(cfg: &Config, quiet: bool, reclassify: bool) -> Result<ReindexReport> {
     let started = std::time::Instant::now();
 
+    // Self-bootstrapping on the DEFAULT layout: `homekb pair` alone must yield
+    // a working setup (docs "CLI" first-run bootstrap) — the scheduled compile
+    // starts before any `homekb init`, so create the default tree instead of
+    // erroring on it. An *overridden* notes_dir still has to exist: silently
+    // creating an empty custom dir would mask a typo'd path with a forever-empty
+    // library (and a deleted custom dir must not resurrect as empty).
     if !cfg.notes_dir.is_dir() {
-        bail!(
-            "notes directory does not exist: {} (run `homekb init` first)",
-            cfg.notes_dir.display()
-        );
+        if cfg.notes_dir == cfg.root.join("notes") {
+            ensure_dirs(cfg)?;
+        } else {
+            bail!(
+                "notes directory does not exist: {} (check `notes_dir` in config.toml, or run `homekb init`)",
+                cfg.notes_dir.display()
+            );
+        }
     }
 
     let _lock = acquire_lock(&cfg.lock_path())?;

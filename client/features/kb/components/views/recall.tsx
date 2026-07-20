@@ -33,9 +33,9 @@ import {
   IconDoc,
   IconDocPlus,
   IconExpand,
+  IconGear,
   IconRefresh,
   IconSearch,
-  IconSliders,
   IconSpark,
   IconX,
   Spinner,
@@ -658,7 +658,7 @@ function AiSetupGuide({ ai }: { ai: AiStatus }) {
         onClick={() => router.push("/settings")}
         className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-[15px] font-semibold text-primary-content transition-colors hover:bg-primary/90"
       >
-        <IconSliders size={16} strokeWidth={1.8} /> Set up in Settings
+        <IconGear size={16} strokeWidth={1.8} /> Set up in Settings
       </button>
     </div>
   );

@@ -142,7 +142,7 @@ enum Cmd {
     },
     /// Register this machine with a relay server; writes [relay] to config.
     Register {
-        /// Relay base URL, e.g. https://kb.example.com
+        /// Relay base URL (default: the official hosted relay).
         #[arg(long)]
         relay: Option<String>,
         /// Device name shown to paired clients (default: hostname).
@@ -152,6 +152,11 @@ enum Cmd {
     /// Leave the connection service: retire the registration, clear [relay], remove the tunnel.
     Unregister,
     /// Generate a pairing code via the connection service (for phone web / Claude mobile).
+    ///
+    /// First run does the whole setup: not registered yet → registers with the
+    /// official hosted service and installs the tunnel + compile background
+    /// services (macOS), so `homekb pair` is the only command a fresh install
+    /// needs before entering the code on the web.
     Pair {
         /// Emit machine-readable JSON (desktop client parses this).
         #[arg(long)]

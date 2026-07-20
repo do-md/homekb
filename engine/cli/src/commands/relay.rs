@@ -4,6 +4,11 @@ use anyhow::{Context, Result};
 use homekb_core::{Config, RelayConfig};
 use serde_json::Value;
 
+/// Official hosted connection service baked into the engine (docs/ARCHITECTURE.md
+/// "Desktop service picker"). `homekb register` with no `--relay` enrols against
+/// this — the zero-friction default so a fresh install just works.
+const DEFAULT_RELAY_URL: &str = "https://homekb-relay.wangjintaoapp.workers.dev";
+
 fn normalize_url(url: &str) -> String {
     let mut u = url.trim().trim_end_matches('/').to_string();
     if !u.starts_with("http://") && !u.starts_with("https://") {
@@ -42,9 +47,17 @@ async fn retire_registration(old: &RelayConfig) {
     }
 }
 
-/// `homekb register --relay URL [--name NAME]`
+/// `homekb register [--relay URL] [--name NAME]` — `--relay` defaults to the
+/// official hosted relay (`DEFAULT_RELAY_URL`).
 pub fn run_register(relay: Option<String>, name: Option<String>) -> Result<()> {
-    let relay = relay.context("--relay <URL> is required, e.g. --relay https://kb.example.com")?;
+    register_at(relay, name, true)
+}
+
+/// Register with a connection service. `print_next_steps` gates the trailing
+/// "Next steps" guidance — `homekb pair`'s first-run bootstrap registers as a
+/// sub-step and handles the follow-up itself, so the guidance would mislead.
+fn register_at(relay: Option<String>, name: Option<String>, print_next_steps: bool) -> Result<()> {
+    let relay = relay.unwrap_or_else(|| DEFAULT_RELAY_URL.to_string());
     let url = normalize_url(&relay);
     let name = name.unwrap_or_else(|| {
         hostname::get()
@@ -126,9 +139,11 @@ pub fn run_register(relay: Option<String>, name: Option<String>) -> Result<()> {
             }
         }
     }
-    println!("\nNext steps:");
-    println!("  homekb tunnel   # resident relay connection (required for phone / remote MCP access)");
-    println!("  homekb pair     # generate a pairing code for a phone or Claude mobile client");
+    if print_next_steps {
+        println!("\nNext steps:");
+        println!("  homekb tunnel   # resident relay connection (required for phone / remote MCP access)");
+        println!("  homekb pair     # generate a pairing code for a phone or Claude mobile client");
+    }
     Ok(())
 }
 
@@ -136,9 +151,62 @@ pub fn run_register(relay: Option<String>, name: Option<String>) -> Result<()> {
 ///
 /// `--json`: stdout single-line `{"code","expiresAt","relayUrl","homeName"}`
 /// (epoch milliseconds), parsed by the desktop client (docs/ARCHITECTURE.md).
+///
+/// Human mode **bootstraps on first run** (docs/ARCHITECTURE.md "CLI"): with
+/// no registration it first registers against the official hosted relay, and
+/// on that fresh-registration path also installs the tunnel (`--interval 0`)
+/// + compile (default interval) agents on macOS — so "install the engine →
+/// `homekb pair` → enter the code on the web" is the complete minimal path.
+/// Already registered → mints a code only, never (re)installs agents.
+/// `--json` keeps the strict pre-bootstrap behavior: the desktop client
+/// registers explicitly and must never trigger an implicit registration.
 pub fn run_pair(json: bool) -> Result<()> {
-    let config = Config::load()?;
+    let mut config = Config::load()?;
+    let mut fresh_registration = false;
+    let has_registration = config
+        .relay
+        .as_ref()
+        .map(|r| !r.url.is_empty() && !r.home_secret.is_empty())
+        .unwrap_or(false);
+    if !has_registration && !json {
+        println!("not connected to a connection service yet — setting this machine up first\n");
+        register_at(None, None, false)?;
+        config = Config::load()?;
+        fresh_registration = true;
+        println!();
+    }
     let relay = relay_config(&config)?;
+
+    // First-run bootstrap: pairing is pointless without the resident tunnel
+    // (the code claims fine, but the home would look offline forever), and a
+    // usable library needs scheduled compilation. Only the fresh-registration
+    // path installs anything — an existing setup is never touched (a
+    // deliberately uninstalled agent must not come back on the next `pair`).
+    #[cfg(target_os = "macos")]
+    if !json {
+        use super::launchd;
+        if fresh_registration {
+            if !launchd::status(launchd::TUNNEL_LABEL)?.installed {
+                super::tunnel::run_install(0)?;
+                println!();
+            }
+            if !launchd::status(launchd::COMPILE_LABEL)?.installed {
+                super::watch::run_install(homekb_core::DEFAULT_COMPILE_INTERVAL_SECS)?;
+                println!();
+            }
+        } else if !launchd::status(launchd::TUNNEL_LABEL)?.running {
+            eprintln!(
+                "note: the tunnel is not running — the code below can be claimed, but this machine will look offline until it is (install: homekb tunnel --install, or run `homekb tunnel` in the foreground)\n"
+            );
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    if !json && fresh_registration {
+        println!(
+            "note: keep `homekb tunnel` running (another terminal or a system service) — it is the connection your other devices reach this machine through\n"
+        );
+    }
+
     let rt = super::runtime()?;
     let body: Value = rt.block_on(async {
         let res = reqwest::Client::new()
@@ -167,9 +235,9 @@ pub fn run_pair(json: bool) -> Result<()> {
     }
     println!("pairing code (valid for 10 minutes, single use):\n");
     println!("    {code}\n");
-    println!("Usage:");
-    println!("  - Open {} in your phone browser and enter the pairing code", relay.url);
-    println!("  - Add connector {}/api/mcp in Claude mobile and enter the pairing code on the auth page", relay.url);
+    println!("Use it from another device:");
+    println!("  - HomeKB web app: enter the pairing code (keep the prefilled service address: {})", relay.url);
+    println!("  - Claude / ChatGPT connector: add {}/api/mcp and enter the pairing code on the authorization page", relay.url);
     Ok(())
 }
 

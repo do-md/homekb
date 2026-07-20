@@ -60,16 +60,6 @@ export function IconPhoneSignal(p: IconProps) {
   );
 }
 
-export function IconSliders(p: IconProps) {
-  return (
-    <svg {...base(p)}>
-      <path d="M4 7h9M17 7h3M4 17h3M11 17h9" />
-      <circle cx="15" cy="7" r="2" />
-      <circle cx="9" cy="17" r="2" />
-    </svg>
-  );
-}
-
 export function IconDoc(p: IconProps) {
   return (
     <svg {...base(p)}>
@@ -157,6 +147,27 @@ export function IconShare(p: IconProps) {
   );
 }
 
+/** Chain link — the Shares *management* tab (a list of share links), distinct from
+    IconShare which is the "share this out" action. */
+export function IconLink(p: IconProps) {
+  return (
+    <svg {...base(p)}>
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </svg>
+  );
+}
+
+/** Gear / cog — the Settings tab (replaced the sliders, which read as "filters"). */
+export function IconGear(p: IconProps) {
+  return (
+    <svg {...base(p)}>
+      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
 export function IconCopy(p: IconProps) {
   return (
     <svg {...base(p)}>
@@ -200,6 +211,17 @@ export function IconExpand(p: IconProps) {
     <svg {...base(p)}>
       <path d="M14 4h6v6M20 4l-7 7" />
       <path d="M10 20H4v-6M4 20l7-7" />
+    </svg>
+  );
+}
+
+/** Horizontal ellipsis — the "more" overflow trigger that collapses low-frequency tabs on phones. */
+export function IconMore(p: IconProps) {
+  return (
+    <svg {...base(p)}>
+      <circle cx="5" cy="12" r="1.4" />
+      <circle cx="12" cy="12" r="1.4" />
+      <circle cx="19" cy="12" r="1.4" />
     </svg>
   );
 }

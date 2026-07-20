@@ -3,11 +3,13 @@
 /**
  * App shell (top pill nav + a New-note action on the right edge).
  *
- * Header layout: Search / Status / Remote tabs on the left; "New note" sits alone
- * on the far right because its surface is special (focused compose mode renders
- * its own header, no pill nav). The connection state has no standalone widget
- * anywhere — it rides as a small dot badge on the Remote tab icon, and the
- * Remote page itself shows the full connection details.
+ * Header layout: Search / Shares / Remote are first-class pill tabs on every width;
+ * the two low-frequency destinations (Status, Settings) trail them and collapse into
+ * a "More" dropdown on phones (< sm), staying as full tabs on wider screens. "New note"
+ * sits alone on the far right because its surface is special (focused compose mode
+ * renders its own header, no pill nav). The connection state has no standalone widget
+ * anywhere — it rides as a small dot badge on the Remote tab icon, and the Remote page
+ * itself shows the full connection details.
  *
  * Mounted once from app/(app)/layout.tsx and persists across tab navigation, so
  * the zenith stores keep their state while Next.js swaps the page below. The URL
@@ -35,11 +37,12 @@ import type { ConnState } from "../type";
 import { KbStoreProvider, useKbStore, useKbStoreApi } from "../store/kb-store";
 import {
   IconActivity,
+  IconGear,
+  IconLink,
+  IconMore,
   IconPhoneSignal,
   IconPlus,
   IconSearch,
-  IconShare,
-  IconSliders,
 } from "./icons";
 import { PairScreen } from "./pair-screen";
 
@@ -82,18 +85,151 @@ function SettingsBadge() {
   );
 }
 
-const NAV: { href: string; label: string; icon: typeof IconSearch }[] = [
+type NavItem = { href: string; label: string; icon: typeof IconSearch };
+
+const NAV: NavItem[] = [
   { href: "/search", label: "Search", icon: IconSearch },
-  { href: "/shares", label: "Shares", icon: IconShare },
-  { href: "/status", label: "Status", icon: IconActivity },
+  { href: "/shares", label: "Shares", icon: IconLink },
   { href: "/remote", label: "Remote", icon: IconPhoneSignal },
-  { href: "/settings", label: "Settings", icon: IconSliders },
+  { href: "/status", label: "Status", icon: IconActivity },
+  { href: "/settings", label: "Settings", icon: IconGear },
 ];
+
+// The two lowest-frequency destinations collapse into a "More" dropdown on phones.
+// They live at the tail of NAV so the collapse is a clean tail-cut; Search / Shares /
+// Remote stay first-class tabs on every width.
+const OVERFLOW = new Set(["/status", "/settings"]);
+const PRIMARY_NAV = NAV.filter((n) => !OVERFLOW.has(n.href));
+const OVERFLOW_NAV = NAV.filter((n) => OVERFLOW.has(n.href));
 
 /** Which nav tab a path highlights (#doc belongs to Search; /new renders its own header). */
 function activeTab(pathname: string): string {
   const item = NAV.find((n) => pathname === n.href || pathname.startsWith(`${n.href}/`));
   return item?.href ?? "/search";
+}
+
+/** Shared Notion-style pill styling for both real tabs and the "More" trigger. */
+function pillClass(active: boolean): string {
+  return `flex items-center rounded-full py-2 text-[13px] font-semibold transition-[background-color,padding] duration-300 ${
+    active
+      ? "bg-base-200 px-3 text-base-content"
+      : "bg-base-200/60 px-3.5 text-base-content/45 hover:bg-base-200 hover:text-base-content/60"
+  }`;
+}
+
+/**
+ * One pill tab. The label is always mounted and collapses via max-width/opacity so the
+ * width change animates instead of jumping (deci-a3542e). `desktop` gates the Settings
+ * badge, whose store only mounts in desktop mode.
+ */
+function NavTab({
+  item,
+  active,
+  desktop,
+  onSelect,
+}: {
+  item: NavItem;
+  active: boolean;
+  desktop: boolean;
+  onSelect: (href: string) => void;
+}) {
+  const { href, label, icon: Icon } = item;
+  return (
+    <button
+      onClick={() => onSelect(href)}
+      aria-current={active ? "page" : undefined}
+      className={pillClass(active)}
+      title={label}
+    >
+      <span className="relative flex">
+        <Icon size={16} strokeWidth={1.7} />
+        {href === "/remote" && <ConnBadge />}
+        {href === "/settings" && desktop && <SettingsBadge />}
+      </span>
+      <span
+        className={`overflow-hidden leading-4 whitespace-nowrap transition-[max-width,margin] duration-300 ${
+          active ? "ml-1.5 max-w-[72px]" : "ml-0 max-w-0"
+        }`}
+      >
+        {label}
+      </span>
+    </button>
+  );
+}
+
+/**
+ * Phones-only overflow menu (< sm) holding Status + Settings. The trigger morphs into the
+ * active child's labeled pill when you're on one of those routes, so the active-state
+ * pattern stays consistent with the real tabs; otherwise it shows a quiet "more" ellipsis.
+ * The Settings setup nudge is surfaced on the trigger so it isn't lost while collapsed.
+ */
+function OverflowMenu({
+  active,
+  desktop,
+  onSelect,
+}: {
+  active: string;
+  desktop: boolean;
+  onSelect: (href: string) => void;
+}) {
+  const current = OVERFLOW_NAV.find((n) => n.href === active);
+  const CurrentIcon = current?.icon;
+  const select = (href: string) => {
+    onSelect(href);
+    // Close the focus-driven daisyUI dropdown after choosing.
+    if (typeof document !== "undefined") (document.activeElement as HTMLElement | null)?.blur();
+  };
+  return (
+    <div className="dropdown dropdown-end sm:hidden">
+      <div
+        tabIndex={0}
+        role="button"
+        aria-haspopup="menu"
+        aria-label={current ? current.label : "More"}
+        className={pillClass(Boolean(current))}
+        title={current ? current.label : "More"}
+      >
+        <span className="relative flex">
+          {CurrentIcon ? (
+            <CurrentIcon size={16} strokeWidth={1.7} />
+          ) : (
+            <IconMore size={16} strokeWidth={1.7} />
+          )}
+          {desktop && !current && <SettingsBadge />}
+        </span>
+        <span
+          className={`overflow-hidden leading-4 whitespace-nowrap transition-[max-width,margin] duration-300 ${
+            current ? "ml-1.5 max-w-[72px]" : "ml-0 max-w-0"
+          }`}
+        >
+          {current?.label}
+        </span>
+      </div>
+      <ul
+        tabIndex={0}
+        className="dropdown-content menu z-50 mt-2 w-44 rounded-2xl bg-base-100 p-1.5 shadow-lg ring-1 ring-base-200"
+      >
+        {OVERFLOW_NAV.map(({ href, label, icon: Icon }) => {
+          const isActive = active === href;
+          return (
+            <li key={href}>
+              <button
+                onClick={() => select(href)}
+                aria-current={isActive ? "page" : undefined}
+                className={isActive ? "bg-base-200 font-semibold" : "font-medium"}
+              >
+                <span className="relative flex">
+                  <Icon size={16} strokeWidth={1.7} />
+                  {href === "/settings" && desktop && <SettingsBadge />}
+                </span>
+                <span className="text-[13px]">{label}</span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
 }
 
 function Header() {
@@ -102,9 +238,6 @@ function Header() {
   const pathname = usePathname();
   const desktop = useKbStore((s) => s.state.desktop);
   const active = activeTab(pathname);
-
-  // Settings renders on all platforms now (docs "Settings over RPC").
-  const items = NAV;
 
   const goTab = (href: string) => {
     if (href === active) {
@@ -132,42 +265,30 @@ function Header() {
     <header className="bg-base-100 pt-safe-top">
       <div className="mx-auto flex h-16 max-w-3xl items-center gap-1 px-3">
         <nav className="flex items-center gap-1.5" aria-label="Main">
-          {items.map(({ href, label, icon: Icon }) => {
-            const isActive = active === href;
-            return (
-              // Notion-style tabs: inactive ones keep a faint circular backdrop
-              // (visibly tappable), the active one widens into a labeled pill.
-              // The label is always mounted and collapses via max-width/opacity
-              // so the width change animates instead of jumping.
-              <button
-                key={href}
-                onClick={() => goTab(href)}
-                aria-current={isActive ? "page" : undefined}
-                className={`flex items-center rounded-full py-2 text-[13px] font-semibold transition-[background-color,padding] duration-300 ${
-                  isActive
-                    ? "bg-base-200 px-3 text-base-content"
-                    : "bg-base-200/60 px-3.5 text-base-content/45 hover:bg-base-200 hover:text-base-content/60"
-                }`}
-                title={label}
-              >
-                <span className="relative flex">
-                  <Icon size={16} strokeWidth={1.7} />
-                  {href === "/remote" && <ConnBadge />}
-                  {/* Badge reads the DesktopStore — its provider only mounts in desktop mode. */}
-                  {href === "/settings" && desktop && <SettingsBadge />}
-                </span>
-                {/* No fade on the label: full-opacity text is revealed/clipped by the
-                    animating width — a fade reads as sluggish color change here. */}
-                <span
-                  className={`overflow-hidden leading-4 whitespace-nowrap transition-[max-width,margin] duration-300 ${
-                    isActive ? "ml-1.5 max-w-[72px]" : "ml-0 max-w-0"
-                  }`}
-                >
-                  {label}
-                </span>
-              </button>
-            );
-          })}
+          {/* Notion-style tabs (deci-a3542e): inactive ones keep a faint circular backdrop
+              (visibly tappable), the active one widens into a labeled pill. */}
+          {PRIMARY_NAV.map((item) => (
+            <NavTab
+              key={item.href}
+              item={item}
+              active={active === item.href}
+              desktop={desktop}
+              onSelect={goTab}
+            />
+          ))}
+          {/* Status + Settings: full tabs on wider screens, collapsed into "More" on phones. */}
+          <div className="hidden items-center gap-1.5 sm:flex">
+            {OVERFLOW_NAV.map((item) => (
+              <NavTab
+                key={item.href}
+                item={item}
+                active={active === item.href}
+                desktop={desktop}
+                onSelect={goTab}
+              />
+            ))}
+          </div>
+          <OverflowMenu active={active} desktop={desktop} onSelect={goTab} />
         </nav>
         {/* New note lives apart from the tabs: its surface is a focused mode with its own header. */}
         <button

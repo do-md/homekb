@@ -28,13 +28,17 @@ export interface Connection {
 const CONN_KEY = "homekb.connection.v1";
 
 /**
- * Official service baked at build time; empty when none is configured.
- * Deliberately NO localhost fallback: a `localhost` service address is never
- * reachable from a phone, so prefiling it just manufactures broken states —
- * the user types (or scans) a real address instead.
+ * Official connection service. `NEXT_PUBLIC_RELAY_URL` overrides it (e.g. a
+ * self-hosted deployment); otherwise the official hosted relay is baked in so
+ * the pairing screen's Service address comes prefilled and a fresh client only
+ * needs to type the pairing code. This is a public HTTPS endpoint a phone can
+ * actually reach — the old "empty, never localhost" guard existed only because
+ * no official instance was deployed yet.
  */
+export const DEFAULT_RELAY_URL = "https://homekb-relay.wangjintaoapp.workers.dev";
+
 export function defaultRelayUrl(): string {
-  return process.env.NEXT_PUBLIC_RELAY_URL || "";
+  return process.env.NEXT_PUBLIC_RELAY_URL || DEFAULT_RELAY_URL;
 }
 
 /** Strip a trailing slash so URL concatenation stays predictable. */
