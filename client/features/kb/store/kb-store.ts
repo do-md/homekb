@@ -8,6 +8,7 @@ import {
   getConnection,
 } from "@/lib/client/connection";
 import { stripHash } from "@/lib/client/hash-route";
+import { importTitleFromFilename } from "@/lib/client/md-drop";
 import { isDesktop, type AiSection } from "@/lib/client/desktop";
 import {
   listGrants,
@@ -1138,6 +1139,47 @@ export class KbStore extends ZenithStore<KbState> {
       });
       return false;
     }
+  }
+
+  /**
+   * Import Markdown files dropped anywhere in the app (the global drag-and-drop
+   * overlay, components/global-md-drop.tsx — docs "Markdown file import"). Each
+   * file becomes a new library note via plain kb.create: content = file text,
+   * title = filename stem (lib/client/md-drop.ts), the engine owns slugging +
+   * collision suffixes. Deliberately independent of the compose-session state —
+   * an import must never disturb an in-progress edit on /new.
+   */
+  public async importMarkdownFiles(files: { name: string; text: string }[]) {
+    const jobs = files
+      .map((f) => ({ title: importTitleFromFilename(f.name), content: f.text.trim() }))
+      .filter((j) => j.content);
+    if (!jobs.length) {
+      this.flash("Nothing to import — the file is empty");
+      return;
+    }
+    let created: { path: string; title: string } | null = null;
+    let ok = 0;
+    let failure: string | null = null;
+    for (const j of jobs) {
+      try {
+        created = await rpc<{ path: string; title: string }>("kb.create", {
+          content: j.content,
+          title: j.title || undefined,
+        });
+        ok += 1;
+      } catch (e) {
+        failure = e instanceof Error ? e.message : "Import failed";
+        break; // one notice, not one per file, when the home is unreachable
+      }
+    }
+    if (failure) {
+      this.flash(ok ? `Imported ${ok}, then failed — ${failure}` : failure);
+    } else if (ok === 1 && created) {
+      this.flash(`Added to library: ${created.title}`);
+    } else {
+      this.flash(`Added ${ok} notes to library`);
+    }
+    if (ok) void this.loadRecent();
   }
 
   // ---------- Shares (public share links) ----------

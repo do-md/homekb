@@ -44,6 +44,7 @@ import {
   IconPlus,
   IconSearch,
 } from "./icons";
+import { GlobalMdDrop } from "./global-md-drop";
 import { PairScreen } from "./pair-screen";
 
 /**
@@ -341,6 +342,9 @@ function Chrome({ children }: { children: React.ReactNode }) {
       {!focused && <Header />}
       <main className="flex min-h-0 flex-1 flex-col">{children}</main>
       <Notice />
+      {/* Global .md drag-import — mounted once here so every route is covered
+          (docs "Markdown file import"); paired-only, an import needs the home. */}
+      <GlobalMdDrop />
     </div>
   );
 }

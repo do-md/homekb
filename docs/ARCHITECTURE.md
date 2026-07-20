@@ -298,6 +298,8 @@ Each tab is a real Next.js route; dynamic overlays live in the URL hash (static-
 
 The providers/gates shell mounts once in a shared layout (`app/(app)/layout.tsx`, loaded `ssr:false`) so client state persists across tab navigation; the unpaired connect screen renders on any route until paired.
 
+**Markdown file import (global drag-and-drop)**: dropping a `.md`/`.markdown` file anywhere in the paired app — any tab, web and desktop, one HTML5 code path (`features/kb/components/global-md-drop.tsx`, mounted once in the shell) — imports it as a new library note via plain `kb.create`: content = file text, `title` = filename stem, the engine still owns slugging + `-2`/`-3` collision suffixes (so `foo.md` lands as `notes/foo.md` unless taken). **No new protocol surface.** The global handler runs window-capture and claims only Markdown files; image drops pass through to the editor's paste/drop bridge unchanged, and an image-only drag never shows the drop overlay. The public share viewer (`/s`) sits outside the shell and has no import. Desktop prerequisite: `dragDropEnabled: false` on the main window in `tauri.conf.json` — Tauri's native drag-drop interception (the default) eats HTML5 file drops in the webview; re-enabling it would silently break both this import and the editor's image drag-drop.
+
 ### Pairing link (QR payload)
 
 The desktop Remote tab renders a QR code next to the pairing code so a phone can connect without typing:
