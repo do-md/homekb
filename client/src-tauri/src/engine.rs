@@ -128,6 +128,21 @@ fn preset_default_model(provider: &str, chat: bool) -> &'static str {
     }
 }
 
+/// Preset base URL per built-in provider (mirrors the engine's preset table).
+/// Needed by the key ↔ endpoint binding rule: "did the effective base URL
+/// change" must compare against what an absent `base_url` resolves to.
+fn preset_base_url(provider: &str) -> Option<&'static str> {
+    match provider {
+        "openai" => Some("https://api.openai.com/v1"),
+        "gemini" => Some("https://generativelanguage.googleapis.com/v1beta/openai"),
+        "voyage" => Some("https://api.voyageai.com/v1"),
+        "cohere" => Some("https://api.cohere.ai/compatibility/v1"),
+        "deepseek" => Some("https://api.deepseek.com/v1"),
+        "qwen" => Some("https://dashscope.aliyuncs.com/compatible-mode/v1"),
+        _ => None,
+    }
+}
+
 /// Read-only summary (for rendering); writes go only through
 /// [`set_ai_endpoint`] or the engine CLI.
 pub fn read_config() -> ConfigSummary {
@@ -228,9 +243,13 @@ pub fn relay_credentials() -> Option<(String, String)> {
 /// whole table (unknown fields preserved; comments are not — config is
 /// machine-written by init/register).
 ///
-/// Semantics: an omitted/empty `api_key` keeps the stored key when the
-/// provider is unchanged (switching provider clears section fields first);
-/// an omitted/empty `model` resets to the provider default; an empty
+/// Semantics (one shared contract with the engine's `kb.configSetAi` — see
+/// docs/ARCHITECTURE.md "Settings over RPC"): an omitted/empty `api_key`
+/// keeps the stored key **only when neither the provider nor the effective
+/// base URL changed** — the key is bound to its `(provider, baseUrl)`
+/// endpoint identity, so a redirected base URL cannot carry the stored key
+/// along (key-exfiltration guard); switching provider clears section fields
+/// first; an omitted/empty `model` resets to the provider default; an empty
 /// `provider` on `ask` deletes the section (back to the summary fallback).
 /// Writes land at the `~/.homekb/config.toml` anchor and migrate a legacy
 /// `~/.config/homekb/config.toml` (renamed to `config.toml.migrated`),
@@ -294,12 +313,25 @@ pub fn set_ai_endpoint(
         .and_then(|v| v.as_str())
         .unwrap_or("openai")
         .to_string();
+    let prev_explicit_base = sec
+        .get("base_url")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim_end_matches('/').to_string());
     if prev_provider != provider {
         // Provider switch: stored key/model/dim/base_url belong to the old one.
         sec.remove("api_key");
         sec.remove("model");
         sec.remove("dim");
         sec.remove("base_url");
+    } else if let Some(requested) = base_url.map(|u| u.trim_end_matches('/')) {
+        // Key ↔ endpoint binding (docs "Settings over RPC"): a changed
+        // effective base URL drops the stored key unless this write brings a
+        // new one — otherwise a redirected URL exfiltrates the stored key.
+        let effective_prev = prev_explicit_base
+            .or_else(|| preset_base_url(&prev_provider).map(str::to_string));
+        if effective_prev.as_deref() != Some(requested) {
+            sec.remove("api_key");
+        }
     }
     sec.insert("provider".into(), toml::Value::String(provider.to_string()));
     if let Some(k) = api_key.map(str::trim).filter(|s| !s.is_empty()) {

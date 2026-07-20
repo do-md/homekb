@@ -5,7 +5,7 @@
 //! lockstep (thundering herd on a weak-CPU relay).
 
 use anyhow::{Context, Result, anyhow};
-use homekb_core::{AskStreamEvent, Config};
+use homekb_core::{AskStreamEvent, Config, ConfigCell};
 use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::Duration;
@@ -127,15 +127,21 @@ fn jittered_backoff(ceil_secs: u64) -> Duration {
 }
 
 pub fn run(interval: u64) -> Result<()> {
-    let config = Arc::new(Config::load()?);
-    let relay = super::relay::relay_config(&config)?;
+    let startup_config = Config::load()?;
+    let relay = super::relay::relay_config(&startup_config)?;
+    // Hot-reload handle (docs "Settings over RPC"): every RPC/asset handler and
+    // reindex cycle resolves the current config, so `kb.configSetAi` writes
+    // apply on the next request without restarting the tunnel. The [relay]
+    // registration stays from startup (re-registering restarts the tunnel).
+    let config = Arc::new(ConfigCell::new(startup_config));
     let rt = super::runtime()?;
     rt.block_on(async move {
         // Built-in periodic reindex (interval=0 disables it)
         if interval > 0 {
-            let cfg = config.clone();
+            let cell = config.clone();
             tokio::spawn(async move {
                 loop {
+                    let cfg = cell.current();
                     match homekb_core::reindex(&cfg, true).await {
                         Ok(r) => tracing::info!("periodic reindex done (generation {})", r.generation),
                         Err(e) => tracing::warn!("periodic reindex failed: {e:#}"),
@@ -190,7 +196,7 @@ async fn connect(
 async fn pump(
     mut res: reqwest::Response,
     client: &reqwest::Client,
-    config: &Arc<Config>,
+    config: &Arc<ConfigCell>,
     relay: &homekb_core::RelayConfig,
 ) -> Result<()> {
     // connId arrives in the `hello` event; the verifier compares it against the
@@ -325,7 +331,7 @@ fn parse_sse(raw: &str) -> Option<(String, String)> {
 fn handle_asset(
     data: &str,
     client: &reqwest::Client,
-    config: &Arc<Config>,
+    config: &Arc<ConfigCell>,
     relay: &homekb_core::RelayConfig,
 ) {
     let Ok(msg) = serde_json::from_str::<Value>(data) else {
@@ -357,7 +363,7 @@ fn handle_asset(
         .and_then(|v| v.as_str())
         .map(str::to_string);
     let client = client.clone();
-    let config = config.clone();
+    let config = config.current();
     let upload_url = format!("{}/api/relay/tunnel/asset/{}", relay.url, id);
     let secret = relay.home_secret.clone();
 
@@ -427,7 +433,7 @@ fn handle_asset(
 fn handle_asset_upload(
     data: &str,
     client: &reqwest::Client,
-    config: &Arc<Config>,
+    config: &Arc<ConfigCell>,
     relay: &homekb_core::RelayConfig,
 ) {
     let Ok(msg) = serde_json::from_str::<Value>(data) else {
@@ -443,7 +449,7 @@ fn handle_asset_upload(
         .unwrap_or("")
         .to_string();
     let client = client.clone();
-    let config = config.clone();
+    let config = config.current();
     let claim_url = format!("{}/api/relay/tunnel/upload/{}", relay.url, id);
     let result_url = format!("{}/api/relay/tunnel/result", relay.url);
     let secret = relay.home_secret.clone();
@@ -501,7 +507,7 @@ fn handle_asset_upload(
 fn handle_rpc(
     data: &str,
     client: &reqwest::Client,
-    config: &Arc<Config>,
+    config: &Arc<ConfigCell>,
     relay: &homekb_core::RelayConfig,
 ) {
     let Ok(msg) = serde_json::from_str::<Value>(data) else {
@@ -523,7 +529,7 @@ fn handle_rpc(
     }
 
     let client = client.clone();
-    let config = config.clone();
+    let config = config.current();
     let result_url = format!("{}/api/relay/tunnel/result", relay.url);
     let secret = relay.home_secret.clone();
 
@@ -585,7 +591,7 @@ fn handle_ask_stream(
     id: String,
     params: Value,
     client: &reqwest::Client,
-    config: &Arc<Config>,
+    config: &Arc<ConfigCell>,
     relay: &homekb_core::RelayConfig,
 ) {
     let query = params
@@ -597,7 +603,7 @@ fn handle_ask_stream(
     // answer-vs-list; a list decision short-circuits into one `results` frame.
     let auto = params.get("auto").and_then(|v| v.as_bool()).unwrap_or(false);
     let client = client.clone();
-    let config = config.clone();
+    let config = config.current();
     let ask_url = format!("{}/api/relay/tunnel/ask/{}", relay.url, id);
     let secret = relay.home_secret.clone();
 

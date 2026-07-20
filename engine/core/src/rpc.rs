@@ -41,6 +41,8 @@ pub const RPC_METHODS: &[&str] = &[
     "kb.listTypes",
     "kb.suggestions",
     "kb.reindex",
+    "kb.configGet",
+    "kb.configSetAi",
     "kb.shareCreate",
     "kb.shareGet",
     "kb.shareList",
@@ -188,6 +190,36 @@ pub async fn dispatch(config: &Config, method: &str, params: &Value) -> Result<V
                 }
             });
             Ok(json!({ "started": true }))
+        }
+        "kb.configGet" => {
+            // Masked config summary (docs "Settings over RPC") — built from the
+            // raw file, independent of the `config` snapshot passed in, so the
+            // Settings surface always reflects the latest write.
+            let summary = crate::config_edit::config_summary()
+                .map_err(|e| RpcFailure::new("config_get_failed", format!("{e:#}")))?;
+            to_value(&summary)
+        }
+        "kb.configSetAi" => {
+            let section = required(params, "section")?;
+            let provider = s(params, "provider").unwrap_or_default();
+            let dim = params
+                .get("dim")
+                .and_then(|v| v.as_u64())
+                .and_then(|v| u32::try_from(v).ok());
+            crate::config_edit::set_ai_endpoint(
+                &section,
+                &provider,
+                s(params, "apiKey").as_deref(),
+                s(params, "model").as_deref(),
+                s(params, "baseUrl").as_deref(),
+                dim,
+            )
+            .map_err(|e| RpcFailure::new("config_set_failed", format!("{e:#}")))?;
+            // Echo the fresh masked summary; the write itself takes effect on
+            // the next request via the transports' ConfigCell hot reload.
+            let summary = crate::config_edit::config_summary()
+                .map_err(|e| RpcFailure::new("config_get_failed", format!("{e:#}")))?;
+            Ok(json!({ "ai": summary.ai }))
         }
         "kb.shareCreate" => {
             let path = required(params, "path")?;

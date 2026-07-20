@@ -37,6 +37,8 @@ export const RPC_METHODS = new Set([
   "kb.listTypes",
   "kb.suggestions",
   "kb.reindex",
+  "kb.configGet",
+  "kb.configSetAi",
   "kb.shareCreate",
   "kb.shareGet",
   "kb.shareList",

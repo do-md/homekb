@@ -64,7 +64,7 @@ pub fn preset_key_env(provider: &str) -> Option<&'static str> {
 
 /// Default embedding model + native output dimension per provider.
 /// DeepSeek has no embeddings API — chat-only preset.
-fn preset_embedding_model(provider: &str) -> Option<(&'static str, usize)> {
+pub(crate) fn preset_embedding_model(provider: &str) -> Option<(&'static str, usize)> {
     match provider {
         "openai" => Some(("text-embedding-3-small", 1536)),
         "gemini" => Some(("gemini-embedding-001", 3072)),
@@ -76,7 +76,7 @@ fn preset_embedding_model(provider: &str) -> Option<(&'static str, usize)> {
 }
 
 /// Default chat model per provider. Voyage/Cohere are embedding-only presets.
-fn preset_chat_model(provider: &str) -> Option<&'static str> {
+pub(crate) fn preset_chat_model(provider: &str) -> Option<&'static str> {
     match provider {
         "openai" => Some("gpt-4o-mini"),
         "gemini" => Some("gemini-flash-lite-latest"),
@@ -509,6 +509,61 @@ impl Config {
     }
 }
 
+/// Mtime-checked hot-reload handle for long-running transports
+/// (docs/ARCHITECTURE.md "Settings over RPC", hot reload): `homekb serve` and
+/// `homekb tunnel` resolve `Config` per request through this cell instead of
+/// caching it at startup, so a `kb.configSetAi` write (or a desktop command /
+/// hand edit) is picked up on the very next RPC with no process restart.
+///
+/// Cost per call = one `metadata()` stat. A load *error* keeps the last good
+/// config and logs — a transient bad write must not take the transport down.
+pub struct ConfigCell {
+    inner: std::sync::Mutex<CellState>,
+}
+
+struct CellState {
+    path: PathBuf,
+    mtime: Option<std::time::SystemTime>,
+    config: std::sync::Arc<Config>,
+}
+
+impl ConfigCell {
+    pub fn new(config: Config) -> Self {
+        let path = config_path().unwrap_or_default();
+        let mtime = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+        Self {
+            inner: std::sync::Mutex::new(CellState {
+                path,
+                mtime,
+                config: std::sync::Arc::new(config),
+            }),
+        }
+    }
+
+    /// The current config: re-loads when the config file's identity or mtime
+    /// changed since the last call (the path is re-resolved every time — an
+    /// anchor file appearing after startup switches over correctly).
+    pub fn current(&self) -> std::sync::Arc<Config> {
+        let mut state = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+        let path = config_path().unwrap_or_else(|_| state.path.clone());
+        let mtime = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+        if path != state.path || mtime != state.mtime {
+            match Config::load() {
+                Ok(fresh) => {
+                    tracing::info!("config reloaded ({})", path.display());
+                    state.config = std::sync::Arc::new(fresh);
+                }
+                Err(e) => {
+                    tracing::warn!("config reload failed, keeping last good: {e:#}");
+                }
+            }
+            state.path = path;
+            state.mtime = mtime;
+        }
+        state.config.clone()
+    }
+}
+
 fn resolve_embedding_section(
     sec: Option<&AiSectionFile>,
     legacy_key: Option<&str>,
@@ -636,7 +691,7 @@ pub fn config_path() -> Result<PathBuf> {
 }
 
 /// Write path: `$HOMEKB_CONFIG` or always the new anchor (writes migrate).
-fn write_config_path() -> Result<PathBuf> {
+pub(crate) fn write_config_path() -> Result<PathBuf> {
     if let Ok(p) = std::env::var("HOMEKB_CONFIG") {
         if !p.is_empty() {
             return Ok(PathBuf::from(p));
@@ -645,7 +700,7 @@ fn write_config_path() -> Result<PathBuf> {
     Ok(home_dir()?.join(".homekb").join("config.toml"))
 }
 
-fn legacy_config_path() -> Result<PathBuf> {
+pub(crate) fn legacy_config_path() -> Result<PathBuf> {
     Ok(xdg_config_home()?.join("homekb").join("config.toml"))
 }
 

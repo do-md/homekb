@@ -80,6 +80,61 @@ function draftDelete({ id }) {
 }
 
 /**
+ * In-memory AI config (docs/ARCHITECTURE.md "Settings over RPC"). Stateful so
+ * smoke tests exercise the masked read → write → masked echo cycle, including
+ * the key ↔ endpoint binding rule (provider or baseUrl change drops the key).
+ * Keys are stored as a boolean only — this fake never sees or returns one.
+ */
+const aiConfig = {
+  embedding: { provider: "openai", model: "text-embedding-3-small", keyPresent: true, configured: true },
+  summary: { provider: "openai", model: "gpt-4o-mini", keyPresent: true, configured: true },
+  ask: { provider: "openai", model: "gpt-4o-mini", keyPresent: false, configured: false },
+};
+function configGet() {
+  return {
+    root: "/home/fake/.homekb",
+    notesDir: "/home/fake/.homekb/notes",
+    configPath: "/home/fake/.homekb/config.toml",
+    ai: structuredClone(aiConfig),
+  };
+}
+const PRESET_MODELS = {
+  embedding: { openai: "text-embedding-3-small", gemini: "gemini-embedding-001", voyage: "voyage-4", cohere: "embed-v4.0", qwen: "text-embedding-v4" },
+  chat: { openai: "gpt-4o-mini", gemini: "gemini-flash-lite-latest", deepseek: "deepseek-chat", qwen: "qwen-flash" },
+};
+function configSetAi({ section, provider, apiKey, model, baseUrl, dim }) {
+  if (!["embedding", "summary", "ask"].includes(section)) {
+    throw new Error(`unknown config section "${section}"`);
+  }
+  const p = (provider ?? "").trim();
+  if (section === "ask" && !p) {
+    aiConfig.ask = { provider: "openai", model: PRESET_MODELS.chat.openai, keyPresent: false, configured: false };
+    return { ai: structuredClone(aiConfig) };
+  }
+  const prev = aiConfig[section];
+  const requestedBase = (baseUrl ?? "").trim().replace(/\/+$/, "") || undefined;
+  const providerChanged = prev.provider !== p;
+  const baseChanged = requestedBase !== undefined && requestedBase !== prev.baseUrl;
+  const presets = section === "embedding" ? PRESET_MODELS.embedding : PRESET_MODELS.chat;
+  const next = {
+    provider: p,
+    model: (model ?? "").trim() || presets[p] || "",
+    // Key ↔ endpoint binding: a changed provider or base URL drops the stored
+    // key unless this write supplies a new one.
+    keyPresent: Boolean((apiKey ?? "").trim()) || (!providerChanged && !baseChanged && prev.keyPresent),
+    configured: true,
+  };
+  if (requestedBase !== undefined) next.baseUrl = requestedBase;
+  else if (!providerChanged && prev.baseUrl) next.baseUrl = prev.baseUrl;
+  if (section === "embedding") {
+    if (dim) next.dim = dim;
+    else if (!providerChanged && prev.dim) next.dim = prev.dim;
+  }
+  aiConfig[section] = next;
+  return { ai: structuredClone(aiConfig) };
+}
+
+/**
  * Binary asset channel, upload direction: claim the pending body from the relay
  * (GET /tunnel/upload/<id>), write it under ASSETS_DIR with the engine's
  * collision-avoid convention, and report the final path via /tunnel/result.
@@ -255,17 +310,25 @@ for await (const chunk of res.body) {
       "kb.draftList": () => draftList(),
       "kb.draftSave": () => draftSave(params),
       "kb.draftDelete": () => draftDelete(params),
+      "kb.configGet": () => configGet(),
+      "kb.configSetAi": () => configSetAi(params),
     };
-    const result = draftHandlers[method]
-      ? draftHandlers[method]()
-      : (canned[method] ?? { echo: { method, params }, fake: true });
+    let body;
+    try {
+      const result = draftHandlers[method]
+        ? draftHandlers[method]()
+        : (canned[method] ?? { echo: { method, params }, fake: true });
+      body = { id, ok: true, result };
+    } catch (e) {
+      body = { id, ok: false, error: { code: "rpc_error", message: String(e?.message ?? e) } };
+    }
     await fetch(`${BASE}/api/relay/tunnel/result`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${SECRET}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ id, ok: true, result }),
+      body: JSON.stringify(body),
     });
   }
 }

@@ -54,6 +54,27 @@ curl -s -X POST "$BASE/api/relay/tunnel/result" -H "Authorization: Bearer $SECRE
 wait $RPC_PID
 echo "client received: $(cat "$TMP/rpc.out")"
 
+echo "== 6.1 Settings over RPC (kb.configGet forwarded, masked reply relayed back) =="
+curl -s -X POST "$BASE/api/relay/rpc" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"method":"kb.configGet","params":{}}' > "$TMP/cfg.out" &
+CFG_PID=$!
+sleep 2
+CFG_ID=$(grep -o '"id":"[^"]*"' "$TMP/sse.log" | tail -1 | cut -d'"' -f4)
+echo "home received configGet id: $CFG_ID"
+curl -s -X POST "$BASE/api/relay/tunnel/result" -H "Authorization: Bearer $SECRET" -H 'Content-Type: application/json' \
+  -d "{\"id\":\"$CFG_ID\",\"ok\":true,\"result\":{\"root\":\"/home/x/.homekb\",\"ai\":{\"embedding\":{\"provider\":\"openai\",\"keyPresent\":true}}}}" -o /dev/null -w "config result relay-back HTTP %{http_code}\n"
+wait $CFG_PID
+grep -q '"keyPresent":true' "$TMP/cfg.out" && echo "configGet masked summary OK" || { echo "configGet failed"; exit 1; }
+curl -s -X POST "$BASE/api/relay/rpc" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"method":"kb.configSetAi","params":{"section":"summary","provider":"openai","apiKey":"sk-x"}}' > "$TMP/cfgset.out" &
+CFGSET_PID=$!
+sleep 2
+CFGSET_ID=$(grep -o '"id":"[^"]*"' "$TMP/sse.log" | tail -1 | cut -d'"' -f4)
+curl -s -X POST "$BASE/api/relay/tunnel/result" -H "Authorization: Bearer $SECRET" -H 'Content-Type: application/json' \
+  -d "{\"id\":\"$CFGSET_ID\",\"ok\":true,\"result\":{\"ai\":{\"summary\":{\"provider\":\"openai\",\"keyPresent\":true}}}}" -o /dev/null -w "configSetAi relay-back HTTP %{http_code}\n"
+wait $CFGSET_PID
+grep -q '"keyPresent":true' "$TMP/cfgset.out" && echo "configSetAi forwarded OK" || { echo "configSetAi failed"; exit 1; }
+test "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/relay/rpc" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"method":"kb.configHack","params":{}}')" = "400" \
+  && echo "unknown method 400 OK"
+
 echo "== 6.5 Binary asset channel (SSE asset event → home posts bytes → client receives) =="
 curl -s -D "$TMP/asset.hdr" "$BASE/api/relay/asset/images/pixel.png" -H "Authorization: Bearer $TOKEN" -o "$TMP/asset.out" &
 ASSET_PID=$!

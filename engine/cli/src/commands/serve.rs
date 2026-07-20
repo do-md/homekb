@@ -25,7 +25,7 @@ use axum::{
     routing::{get, post},
 };
 use futures::StreamExt;
-use homekb_core::{AskStreamEvent, Config};
+use homekb_core::{AskStreamEvent, Config, ConfigCell};
 use serde_json::{Value, json};
 use std::convert::Infallible;
 use std::net::{IpAddr, SocketAddr};
@@ -49,7 +49,11 @@ const ALLOWED_ORIGINS: [&str; 4] = [
 ];
 
 struct ServeState {
-    config: Config,
+    /// Hot-reload handle (docs "Settings over RPC"): request handlers resolve
+    /// the current config per request, so `kb.configSetAi` / desktop / CLI
+    /// writes apply without a restart. Bind address / token / CORS stay from
+    /// startup — a socket cannot rebind live.
+    config: ConfigCell,
     /// Some(token) = public bind; non-loopback peers must present it.
     token: Option<String>,
 }
@@ -109,7 +113,10 @@ pub fn run(host: Option<String>, port: Option<u16>) -> Result<()> {
                 .allow_methods([Method::GET, Method::POST])
                 .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
         };
-        let state = Arc::new(ServeState { config, token });
+        let state = Arc::new(ServeState {
+            config: ConfigCell::new(config),
+            token,
+        });
         let app = Router::new()
             .route("/rpc", post(rpc_handler))
             .route("/rpc/stream", post(rpc_stream_handler))
@@ -188,7 +195,8 @@ async fn rpc_handler(
     }
     let method = body.get("method").and_then(|m| m.as_str()).unwrap_or("");
     let params = body.get("params").cloned().unwrap_or_else(|| json!({}));
-    match homekb_core::dispatch(&state.config, method, &params).await {
+    let config = state.config.current();
+    match homekb_core::dispatch(&config, method, &params).await {
         Ok(result) => Json(json!({ "ok": true, "result": result })).into_response(),
         Err(e) => {
             Json(json!({ "ok": false, "error": e.code, "message": e.message })).into_response()
@@ -252,7 +260,7 @@ async fn rpc_stream_handler(
     // `error` frame (if any) once the event channel drains.
     let (tx, rx) = mpsc::unbounded_channel::<AskStreamEvent>();
     let (err_tx, err_rx) = tokio::sync::oneshot::channel::<Option<(String, String)>>();
-    let config = state.config.clone();
+    let config = state.config.current();
     tokio::spawn(async move {
         let result = homekb_core::ask_stream(&config, &query, auto, &tx).await;
         let _ = err_tx.send(result.err().map(|e| ("ask_failed".to_string(), format!("{e:#}"))));
@@ -286,15 +294,13 @@ async fn asset_upload_handler(
     if !authorized(&state, &peer, &headers) {
         return unauthorized();
     }
-    match homekb_core::save_asset(&state.config, &path, &body) {
+    let config = state.config.current();
+    match homekb_core::save_asset(&config, &path, &body) {
         Ok(saved) => {
             // Warm the default web variants fire-and-forget so the first view
             // hits the cache (docs/ARCHITECTURE.md "Image variant service").
-            if let Some(abs) = resolve_asset_path(&state.config, &saved.path) {
-                tokio::spawn(warm_default_variants(
-                    image_cache_root(&state.config),
-                    abs,
-                ));
+            if let Some(abs) = resolve_asset_path(&config, &saved.path) {
+                tokio::spawn(warm_default_variants(image_cache_root(&config), abs));
             }
             Json(json!({ "ok": true, "path": saved.path })).into_response()
         }
@@ -316,7 +322,8 @@ async fn asset_handler(
     if !authorized(&state, &peer, &headers) {
         return unauthorized();
     }
-    let Some(full) = resolve_asset_path(&state.config, &path) else {
+    let config = state.config.current();
+    let Some(full) = resolve_asset_path(&config, &path) else {
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({ "ok": false, "error": "bad_path" })),
@@ -330,7 +337,7 @@ async fn asset_handler(
         .get(header::ACCEPT)
         .and_then(|v| v.to_str().ok());
     let Some(resolved) =
-        resolve_variant(&image_cache_root(&state.config), &full, &params, accept).await
+        resolve_variant(&image_cache_root(&config), &full, &params, accept).await
     else {
         return (
             StatusCode::NOT_FOUND,
