@@ -124,10 +124,13 @@ export function GlobalMdDrop() {
 
   if (!active) return null;
   return (
-    <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-base-100/70 p-6 backdrop-blur-[2px]">
-      <div className="flex flex-col items-center gap-2 rounded-3xl border-2 border-dashed border-primary bg-base-100 px-10 py-8 shadow-lg">
+    <div className="pointer-events-none fixed inset-0 z-40 bg-base-100/70 backdrop-blur-[2px]">
+      {/* The whole window is the drop target — the dashed frame hugs the
+          viewport edge to say so (a small centered box would read as
+          "drop *inside this box*", which is wrong). */}
+      <div className="absolute inset-3 flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-primary">
         <span className="text-primary">
-          <IconDocPlus size={26} strokeWidth={1.7} />
+          <IconDocPlus size={28} strokeWidth={1.7} />
         </span>
         <div className="text-[15px] font-semibold text-base-content">
           Drop Markdown file
