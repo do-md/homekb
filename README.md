@@ -6,11 +6,9 @@ A personal Markdown knowledge base that lives on your computer and stays within 
 - **Agent native.** Claude Code, Codex, Claude, ChatGPT, and other MCP clients can search, read, create, update, and share notes.
 - **Local by construction.** The index, retrieval, and writes stay on your home computer; AI calls use the provider you configure.
 - **Remote without an account.** Pair with a one-time code; the relay stores relationships and token hashes, never your knowledge-base content at rest.
+- **Two commands to your phone.** Install the engine, run `homekb pair`, and finish setup in the Web UI.
 
 [English](README.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md)
-
-> [!IMPORTANT]
->
 
 ---
 
@@ -34,6 +32,7 @@ The command-line engine is the product core. The desktop app and Web UI are rend
 - Keep unpublished drafts on the home device and share them across paired clients.
 - Render Markdown and local images, upload pasted or dropped images, and edit notes from the desktop or Web UI.
 - Create revocable public links for individual notes, with optional passwords and expiry.
+- Manage scheduled compilation and start a full index rebuild remotely from the Web UI.
 - Connect remote browsers and AI clients through an outbound tunnel — no public IP on the home computer required.
 
 ---
@@ -61,9 +60,11 @@ The protocol and data-layout contract lives in [docs/ARCHITECTURE.md](docs/ARCHI
 
 ---
 
-## Quick start: engine
+## Quick start
 
 The engine is a **single self-contained binary** — bundled SQLite, rustls TLS, no runtime dependencies and no Rust toolchain required. Install it through your platform's package manager:
+
+### 1. Install the engine
 
 ```bash
 # macOS / Linux — Homebrew
@@ -79,21 +80,42 @@ scoop install homekb
 
 Or download a binary directly from the [latest release](https://github.com/do-md/homekb/releases). Prefer building from source? `cd engine && cargo install --path cli` (needs a recent Rust toolchain).
 
-Then point it at an AI provider and index your notes:
+### 2. Pair this computer
 
 ```bash
-# OpenAI shortcut: configures embedding + summary generation.
-homekb init --openai-key "$OPENAI_API_KEY"
+homekb pair
+```
 
-# Or index an existing Markdown folder.
-# homekb init --notes "$HOME/Documents/notes" --openai-key "$OPENAI_API_KEY"
+On first run, this registers the computer with HomeKB's built-in official connection service, starts the background connection and scheduled-compilation services on macOS, and prints a single-use code valid for ten minutes. No HomeKB account is created.
 
+Automatic background-service installation is currently macOS-only. See [Current status](#current-status) for Linux and Windows.
+
+### 3. Open the Web UI
+
+Open [www.homekb.app](https://www.homekb.app) on your phone or another browser and enter the code. The service address is already selected for the default path.
+
+### 4. Finish in the browser
+
+- Open **Settings** and configure **Embedding** and **Summary**. **Ask** is optional because connected MCP agents bring their own model.
+- Choose a built-in preset for OpenAI, Gemini, Voyage, Cohere, DeepSeek, or Qwen, or use a custom OpenAI-compatible endpoint.
+- Open **Status** to watch the first compilation. On macOS, scheduled compilation is on by default after first pairing; you can pause it or change the interval there.
+
+Your Markdown files now stay on the home computer while the paired browser can search, read, edit, and manage the library remotely.
+
+---
+
+## Use it from the CLI
+
+The browser-first path needs no manual initialization. Use `homekb init` when you want to configure providers in the terminal or point HomeKB at an existing Markdown directory:
+
+```bash
+homekb init --notes "$HOME/Documents/notes" --openai-key "$OPENAI_API_KEY"
 homekb reindex
 homekb query "What did I decide about local-first storage?"
 homekb ask "Summarize my notes about local-first storage."
 ```
 
-`homekb init` creates the data directories and `~/.homekb/config.toml`. HomeKB also supports built-in presets for OpenAI, Gemini, Voyage, Cohere, DeepSeek, and Qwen, plus custom OpenAI-compatible endpoints. See [AI provider configuration](docs/ARCHITECTURE.md#ai-provider-presets).
+Without `--notes`, HomeKB uses `~/.homekb/notes/`. `homekb init` creates the data directories and `~/.homekb/config.toml`. The same provider presets available in the Web UI can be configured in the file; see [AI provider configuration](docs/ARCHITECTURE.md#ai-provider-presets).
 
 To keep compilation running in the background on macOS:
 
@@ -101,11 +123,11 @@ To keep compilation running in the background on macOS:
 homekb watch --install --interval 300
 ```
 
-On Linux and Windows, use `homekb watch` in your process manager for now; built-in service installation is currently macOS-only.
+You can also enable, pause, and change this schedule from the app's **Status** page. On Linux and Windows, run `homekb watch` through your process manager for now.
 
 ---
 
-## Connect an AI locally
+## Connect an AI
 
 HomeKB exposes the same tools to every MCP client:
 
@@ -123,27 +145,15 @@ Codex:
 codex mcp add homekb -- homekb mcp
 ```
 
-The MCP server runs over stdio and calls the local engine directly. No relay is involved.
+This local MCP server runs over stdio and calls the engine directly. No connection service is involved.
 
----
+For Claude or ChatGPT on another device, add the official remote MCP endpoint as a custom connector:
 
-## Remote access
+```text
+https://homekb-relay.wangjintaoapp.workers.dev/api/mcp
+```
 
-Remote access uses a connection service — HomeKB's relay — and an outbound tunnel from the home computer. The recommended self-host target is Cloudflare Workers; a standalone Node + SQLite target is included for running on your own server.
-
-1. Deploy a relay by following [the Cloudflare Workers guide](relay/cf/README.md), or run the Node target.
-2. Register the home computer and start its tunnel:
-
-   ```bash
-   homekb register --relay https://your-relay.example.com
-   homekb tunnel --install --interval 0  # macOS; watch handles compilation
-   homekb pair
-   ```
-3. Use the eight-character pairing code in the Web UI, or add `https://your-relay.example.com/api/mcp` as a custom MCP connector in Claude or ChatGPT and enter the code during OAuth authorization.
-
-If you did not install `homekb watch`, omit `--interval 0`; the tunnel's default 300-second interval can handle compilation as well.
-
-The same pairing flow works for browsers and AI clients. There is no HomeKB account, and a pairing code is single-use and expires after ten minutes.
+Run `homekb pair` to generate a code, then enter it on the connector's OAuth authorization page. The same single-use code pairs browsers and AI clients, and expires after ten minutes. Prefer to operate the connection service yourself? See [Self-hosting the connection service](#self-hosting-the-connection-service).
 
 ---
 
@@ -162,6 +172,8 @@ There are two boundaries worth stating plainly:
 
 - **At rest:** the relay stores no note, attachment, search result, or index content. Your home computer remains the source of truth.
 - **In transit:** remote requests pass through relay memory after TLS termination. Text used for embeddings, summaries, or answers reaches the AI provider you configure. The current protocol is not end-to-end encrypted. Self-hosting the relay removes the HomeKB operator from this trust path; it does not remove the AI provider you choose.
+
+The default setup uses HomeKB's official hosted relay, which stores zero knowledge-base data at rest. [Self-hosting the connection service](#self-hosting-the-connection-service) removes that operator from the path entirely.
 
 See [Relay trust boundary](docs/ARCHITECTURE.md#relay-trust-boundary) for the full model.
 
@@ -183,12 +195,14 @@ homekb rebuild    Rebuild for a new embedding vector space
 homekb mcp        Serve local MCP over stdio
 homekb serve      Serve local HTTP RPC and assets
 homekb register   Register with a connection service
-homekb pair       Generate a one-time pairing code
+homekb pair       Bootstrap the default connection on first run, then generate a one-time code
 homekb share      Create, list, or revoke public note links
 homekb tunnel     Keep the home connected to the relay
 ```
 
 Run `homekb <command> --help` for complete options.
+
+On macOS, `homekb watch --install` manages the same scheduled-compilation service exposed on the app's **Status** page; either interface can enable it or change its interval.
 
 ---
 
@@ -235,6 +249,28 @@ For contribution rules and the protocol-first workflow, read [AGENTS.md](AGENTS.
 - End-to-end encryption, native mobile apps, conflict resolution, and ChatGPT Deep Research `search`/`fetch` tools are not implemented.
 
 HomeKB is not presented as production-ready yet. The design is intentionally open and inspectable while the distribution and first-run experience are being finished.
+
+---
+
+## Self-hosting the connection service
+
+The default path uses HomeKB's hosted Cloudflare Workers relay. Running your own is an optional sovereignty upgrade: it removes the HomeKB-operated service from the remote request path while preserving the same pairing and client workflow.
+
+- Deploy the Workers target with the [Cloudflare Workers guide](relay/cf/README.md).
+- Or run the standalone Node target: one process, one SQLite file, and the same protocol.
+
+Register the home computer with your service, keep its outbound connection running, and generate a new code:
+
+```bash
+homekb register --relay https://your-relay.example.com
+homekb tunnel --install --interval 0  # macOS; scheduled compilation is managed separately
+homekb watch --install --interval 300 # macOS
+homekb pair
+```
+
+If you already completed Quick start, the background services are installed; `homekb register --relay ...` switches services and restarts the installed connection automatically, so you only need to run `homekb pair` afterward. On Linux and Windows, run `homekb tunnel` and `homekb watch` under your process manager.
+
+Use `https://your-relay.example.com/api/mcp` for remote Claude or ChatGPT connectors. The Web UI accepts the same service address and pairing code.
 
 ---
 
