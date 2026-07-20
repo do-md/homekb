@@ -146,14 +146,30 @@ test "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/relay/tunnel/a
 test "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/relay/tunnel/ask/nonexistent-id" -H "Authorization: Bearer $SECRET" -H 'X-Ask-Seq: 0' -d 'x')" = "409" \
   && echo "chunk seq 0 on unknown id NACKed (409) OK"
 
-echo "== 6.8 Grants list + revoke (paired devices) =="
+echo "== 6.8 Grants list + revoke (paired devices; homeSecret AND clientToken — docs 'Paired-device equivalence') =="
 GRANTS=$(curl -s "$BASE/api/relay/grants" -H "Authorization: Bearer $SECRET")
-echo "$GRANTS" | grep -q 'smoke-phone' && echo "grants list OK"
+echo "$GRANTS" | grep -q 'smoke-phone' && echo "grants list (homeSecret) OK"
+GRANTS_C=$(curl -s "$BASE/api/relay/grants" -H "Authorization: Bearer $TOKEN")
+echo "$GRANTS_C" | grep -q '"self":true' && echo "grants list (clientToken) with self marker OK" || { echo "clientToken grants failed: $GRANTS_C"; exit 1; }
+
+echo "== 6.85 Device-minted pairing (clientToken invites another device) =="
+CODE_INV=$(curl -s -X POST "$BASE/api/relay/pair" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"action":"new"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["code"])')
+echo "device-minted code: $CODE_INV"
+TOKEN_INV=$(curl -s -X POST "$BASE/api/relay/pair" -H 'Content-Type: application/json' -d "{\"action\":\"claim\",\"code\":\"$CODE_INV\",\"label\":\"invited-tablet\"}" | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])')
+test -n "$TOKEN_INV" && echo "invited device claimed OK"
+curl -s "$BASE/api/relay/grants" -H "Authorization: Bearer $SECRET" | grep -q 'invited-tablet' && echo "invited grant visible in list OK"
+# Sibling revoke: the original device unpairs the one it invited (delegation is
+# flat — grants are siblings; the audit surface is this very list).
+INV_ID=$(curl -s "$BASE/api/relay/grants" -H "Authorization: Bearer $SECRET" | python3 -c 'import sys,json;print([g["id"] for g in json.load(sys.stdin)["grants"] if g["label"]=="invited-tablet"][0])')
+curl -s -X DELETE "$BASE/api/relay/grants/$INV_ID" -H "Authorization: Bearer $TOKEN" | grep -q '"ok":true' && echo "sibling revoke via clientToken OK"
+test "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/relay/health" -H "Authorization: Bearer $TOKEN_INV")" = "401" && echo "invited token dead after revoke OK"
+
 GRANT_ID=$(echo "$GRANTS" | python3 -c 'import sys,json;print(json.load(sys.stdin)["grants"][0]["id"])')
-test "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/relay/grants" -H "Authorization: Bearer $TOKEN")" = "401" && echo "grants 401 with clientToken OK"
 curl -s -X DELETE "$BASE/api/relay/grants/$GRANT_ID" -H "Authorization: Bearer $SECRET" | grep -q '"ok":true' && echo "revoke OK"
 test "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "$BASE/api/relay/grants/$GRANT_ID" -H "Authorization: Bearer $SECRET")" = "404" && echo "revoke 404 on unknown id OK"
 test "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/relay/health" -H "Authorization: Bearer $TOKEN")" = "401" && echo "revoked token rejected OK"
+test "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/relay/pair" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"action":"new"}')" = "401" \
+  && echo "revoked token cannot mint codes OK"
 # Re-pair so the later steps still have a working client token
 CODE2=$(curl -s -X POST "$BASE/api/relay/pair" -H "Authorization: Bearer $SECRET" -H 'Content-Type: application/json' -d '{"action":"new"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["code"])')
 TOKEN=$(curl -s -X POST "$BASE/api/relay/pair" -H 'Content-Type: application/json' -d "{\"action\":\"claim\",\"code\":\"$CODE2\",\"label\":\"smoke-phone-2\"}" | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])')

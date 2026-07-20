@@ -42,8 +42,23 @@ export async function relayRegister(req: Request): Promise<Response> {
 }
 
 /**
+ * Home scope of the caller (docs/ARCHITECTURE.md "Paired-device equivalence"):
+ * homeSecret resolves to the home itself, a clientToken to the home its grant
+ * is bound to. `grantId` identifies the calling device when clientToken-authed
+ * (used for the grants list's `self` marker).
+ */
+function authHomeScope(req: Request): { homeId: string; grantId?: string } | null {
+  const home = authHome(req);
+  if (home) return { homeId: home.id };
+  const grant = authGrant(req);
+  if (grant) return { homeId: grant.home_id, grantId: grant.id };
+  return null;
+}
+
+/**
  * Pairing:
- * - {action:"new"} (home device authenticated) → generate pairing code
+ * - {action:"new"} (homeSecret or clientToken — any paired device can invite
+ *   another; docs "Paired-device equivalence") → generate pairing code
  * - {action:"claim", code, label?} (public) → exchange for long-lived clientToken
  */
 export async function relayPair(req: Request): Promise<Response> {
@@ -57,13 +72,13 @@ export async function relayPair(req: Request): Promise<Response> {
   db.prepare("DELETE FROM pair_codes WHERE expires_at < ?").run(Date.now());
 
   if (body.action === "new") {
-    const home = authHome(req);
-    if (!home) return jsonError(401, "unauthorized");
+    const scope = authHomeScope(req);
+    if (!scope) return jsonError(401, "unauthorized");
     const code = randomPairCode();
     const expiresAt = Date.now() + PAIR_TTL_MS;
     db.prepare(
       "INSERT INTO pair_codes (code, home_id, expires_at) VALUES (?, ?, ?)",
-    ).run(code, home.id, expiresAt);
+    ).run(code, scope.homeId, expiresAt);
     return Response.json({ ok: true, code, expiresAt });
   }
 
@@ -239,18 +254,20 @@ export async function relayTunnelHealth(req: Request): Promise<Response> {
 }
 
 /**
- * Paired-devices list (home device authenticated): every grant of this home, newest
- * first. The relay stores only labels + token hashes, so there is no per-grant
- * liveness — clients render lastUsedAt instead (docs/ARCHITECTURE.md, grants API).
+ * Paired-devices list (homeSecret or clientToken — docs "Paired-device
+ * equivalence"): every grant of this home, newest first. clientToken callers
+ * get `self: true` on their own grant so the UI can mark "this device". The
+ * relay stores only labels + token hashes, so there is no per-grant liveness —
+ * clients render lastUsedAt instead (docs/ARCHITECTURE.md, grants API).
  */
 export async function relayGrantsList(req: Request): Promise<Response> {
-  const home = authHome(req);
-  if (!home) return jsonError(401, "unauthorized");
+  const scope = authHomeScope(req);
+  if (!scope) return jsonError(401, "unauthorized");
   const rows = relayDb()
     .prepare(
       "SELECT id, label, created_at, last_used_at FROM grants WHERE home_id = ? ORDER BY created_at DESC",
     )
-    .all(home.id) as { id: string; label: string; created_at: number; last_used_at: number | null }[];
+    .all(scope.homeId) as { id: string; label: string; created_at: number; last_used_at: number | null }[];
   return Response.json({
     ok: true,
     grants: rows.map((r) => ({
@@ -258,17 +275,21 @@ export async function relayGrantsList(req: Request): Promise<Response> {
       label: r.label,
       createdAt: r.created_at,
       lastUsedAt: r.last_used_at,
+      ...(r.id === scope.grantId ? { self: true } : {}),
     })),
   });
 }
 
-/** Revoke one grant (unpair a device). Scoped to the authenticated home — a home can only revoke its own grants. */
+/**
+ * Revoke one grant (unpair a device). Scoped to the caller's home — the owning
+ * home or any of its paired devices (a device may revoke a sibling or itself).
+ */
 export async function relayGrantRevoke(req: Request, grantId: string): Promise<Response> {
-  const home = authHome(req);
-  if (!home) return jsonError(401, "unauthorized");
+  const scope = authHomeScope(req);
+  if (!scope) return jsonError(401, "unauthorized");
   const res = relayDb()
     .prepare("DELETE FROM grants WHERE id = ? AND home_id = ?")
-    .run(grantId, home.id);
+    .run(grantId, scope.homeId);
   if (res.changes === 0) return jsonError(404, "not_found");
   return Response.json({ ok: true });
 }

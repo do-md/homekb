@@ -9,6 +9,12 @@ import {
 } from "@/lib/client/connection";
 import { stripHash } from "@/lib/client/hash-route";
 import { isDesktop, type AiSection } from "@/lib/client/desktop";
+import {
+  listGrants,
+  mintPairCode,
+  revokeGrant,
+  type RelayGrant,
+} from "@/lib/client/relay-admin";
 import { checkHealth, RelayError, rpc, rpcAskStream } from "@/lib/client/rpc";
 import {
   emptyAiEndpointDraft,
@@ -207,6 +213,16 @@ interface KbState {
   configError: string | null;
   aiDrafts: Record<AiSection, AiEndpointDraft>;
   aiBusy: AiSection | null;
+
+  // web Remote — invite + manage devices (docs "Paired-device equivalence";
+  // the desktop Remote drives the same relay endpoints via the DesktopStore)
+  mintedPair: { code: string; expiresAt: number } | null;
+  mintBusy: boolean;
+  mintError: string | null;
+  grants: RelayGrant[];
+  grantsLoaded: boolean;
+  grantsError: string | null;
+  revokingGrantId: string | null;
 }
 
 const memo = createMemo<KbStore>();
@@ -296,6 +312,13 @@ export class KbStore extends ZenithStore<KbState> {
         ask: emptyAiEndpointDraft(),
       },
       aiBusy: null,
+      mintedPair: null,
+      mintBusy: false,
+      mintError: null,
+      grants: [],
+      grantsLoaded: false,
+      grantsError: null,
+      revokingGrantId: null,
     });
   }
 
@@ -379,6 +402,18 @@ export class KbStore extends ZenithStore<KbState> {
       d.draftsLoaded = false;
       // Open history belongs to the previous home — a future pairing may be a different one.
       d.openedDocs = [];
+      // Settings + device list are home-scoped too (docs "Settings over RPC" /
+      // "Paired-device equivalence") — never leak into the next pairing.
+      d.config = null;
+      d.configLoading = false;
+      d.configError = null;
+      d.mintedPair = null;
+      d.mintBusy = false;
+      d.mintError = null;
+      d.grants = [];
+      d.grantsLoaded = false;
+      d.grantsError = null;
+      d.revokingGrantId = null;
     });
     persistOpenedDocs([]);
   }
@@ -1267,6 +1302,76 @@ export class KbStore extends ZenithStore<KbState> {
         d.aiBusy = null;
       });
       this.flash(e instanceof Error ? e.message : "Reset failed");
+    }
+  }
+
+  // ---------- Web Remote: invite + manage devices (docs "Paired-device equivalence") ----------
+  /** Mint a pairing code for this home with our own clientToken — any paired device can invite. */
+  public async newPairCode() {
+    const conn = getConnection();
+    if (!conn) return;
+    this.produce((d) => {
+      d.mintBusy = true;
+      d.mintError = null;
+    });
+    try {
+      const pair = await mintPairCode(conn.relayUrl, conn.token);
+      this.produce((d) => {
+        d.mintedPair = pair;
+        d.mintBusy = false;
+      });
+    } catch (e) {
+      this.produce((d) => {
+        d.mintBusy = false;
+        d.mintError = e instanceof Error ? e.message : "Failed to generate a pairing code";
+      });
+    }
+  }
+
+  /** Paired devices of this home (clientToken-authed; `self` marks this device). */
+  public async loadGrants() {
+    const conn = getConnection();
+    if (!conn) return;
+    try {
+      const grants = await listGrants(conn.relayUrl, conn.token);
+      this.produce((d) => {
+        d.grants = grants;
+        d.grantsLoaded = true;
+        d.grantsError = null;
+      });
+    } catch (e) {
+      this.produce((d) => {
+        d.grantsLoaded = true;
+        d.grantsError = e instanceof Error ? e.message : "Failed to load devices";
+      });
+    }
+  }
+
+  /** Unpair a device. Revoking our own grant (self) = disconnect this device. */
+  public async revokeDevice(grantId: string) {
+    const conn = getConnection();
+    if (!conn) return;
+    const isSelf = this.state.grants.find((g) => g.id === grantId)?.self === true;
+    this.produce((d) => {
+      d.revokingGrantId = grantId;
+    });
+    try {
+      await revokeGrant(conn.relayUrl, conn.token, grantId);
+      if (isSelf) {
+        // Our own token just died — leave cleanly instead of waiting for 401s.
+        this.unpair();
+        return;
+      }
+      this.produce((d) => {
+        d.grants = d.grants.filter((g) => g.id !== grantId);
+        d.revokingGrantId = null;
+      });
+      this.flash("Device unpaired");
+    } catch (e) {
+      this.produce((d) => {
+        d.revokingGrantId = null;
+      });
+      this.flash(e instanceof Error ? e.message : "Failed to unpair");
     }
   }
 

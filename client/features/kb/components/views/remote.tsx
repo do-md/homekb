@@ -86,12 +86,19 @@ function countdown(expiresAt: number, now: number): string | null {
  * Fixed Web UI origin for QR links (docs "Pairing link (QR payload)") — never
  * user-configured. The in-app scanner reads only the query params; the base just
  * makes the same QR openable from a native camera once the official domain is live.
+ * A web client composes links against its own origin — it *is* the Web UI
+ * (docs "Paired-device equivalence"), same fixed-origin rule.
  */
 const WEB_BASE = (process.env.NEXT_PUBLIC_WEB_URL || "http://localhost:3000").replace(/\/+$/, "");
 
+function webBase(): string {
+  if (!isDesktop() && typeof window !== "undefined") return window.location.origin;
+  return WEB_BASE;
+}
+
 /** Relay pairing link contract: docs/ARCHITECTURE.md "Pairing link (QR payload)". */
 function relayPairingLink(relayUrl: string, code: string): string {
-  return `${WEB_BASE}/?relay=${encodeURIComponent(relayUrl)}&code=${encodeURIComponent(code)}`;
+  return `${webBase()}/?relay=${encodeURIComponent(relayUrl)}&code=${encodeURIComponent(code)}`;
 }
 
 /** Small QR data-url hook for the pairing card. */
@@ -119,11 +126,23 @@ function useQrDataUrl(link: string | null): string | null {
   return qr;
 }
 
-function PairingCard() {
-  const api = useDesktopStoreApi();
-  const pair = useDesktopStore((s) => s.state.pair);
-  const busy = useDesktopStore((s) => s.state.pairBusy);
-  const error = useDesktopStore((s) => s.state.pairError);
+/**
+ * Shared pairing card (docs "Paired-device equivalence"): QR + code + expiry +
+ * regenerate. Purely presentational — the desktop binds the DesktopStore
+ * (`pair_new` via the engine's homeSecret), the web binds the KbStore
+ * (relay `{action:"new"}` with its own clientToken).
+ */
+function PairingCard({
+  pair,
+  busy,
+  error,
+  onGenerate,
+}: {
+  pair: { code: string; expiresAt: number; relayUrl: string } | null;
+  busy: boolean;
+  error: string | null;
+  onGenerate: () => void;
+}) {
   const [now, setNow] = useState(() => Date.now());
   const [copied, setCopied] = useState(false);
   const qr = useQrDataUrl(pair ? relayPairingLink(pair.relayUrl, pair.code) : null);
@@ -188,12 +207,23 @@ function PairingCard() {
       <button
         className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-[14px] font-semibold text-primary-content transition-colors hover:bg-primary/90 disabled:opacity-60"
         disabled={busy}
-        onClick={() => void api.newPairCode()}
+        onClick={onGenerate}
       >
         {busy ? <Spinner size={14} /> : <IconRefresh size={14} />}
         {pair && remain ? "Generate new code" : "Generate pairing code"}
       </button>
     </Card>
+  );
+}
+
+/** Desktop binding: pairing state from the DesktopStore (engine-side `homekb pair`). */
+function DesktopPairingCard() {
+  const api = useDesktopStoreApi();
+  const pair = useDesktopStore((s) => s.state.pair);
+  const busy = useDesktopStore((s) => s.state.pairBusy);
+  const error = useDesktopStore((s) => s.state.pairError);
+  return (
+    <PairingCard pair={pair} busy={busy} error={error} onGenerate={() => void api.newPairCode()} />
   );
 }
 
@@ -211,14 +241,15 @@ function agoLabel(ts: number | null): string {
 function DeviceRow({
   grant,
   border,
+  busy,
+  onRevoke,
 }: {
-  grant: { id: string; label: string; createdAt: number; lastUsedAt: number | null };
+  grant: { id: string; label: string; createdAt: number; lastUsedAt: number | null; self?: boolean };
   border: boolean;
+  busy: boolean;
+  onRevoke: () => void;
 }) {
-  const api = useDesktopStoreApi();
-  const revokingId = useDesktopStore((s) => s.state.revokingGrantId);
   const [confirming, setConfirming] = useState(false);
-  const busy = revokingId === grant.id;
 
   return (
     <div
@@ -227,6 +258,11 @@ function DeviceRow({
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[13.5px] font-medium text-base-content">
           {grant.label || "Unnamed device"}
+          {grant.self && (
+            <span className="ml-2 rounded-full bg-base-300 px-2 py-0.5 text-[10.5px] font-semibold text-base-content/60">
+              This device
+            </span>
+          )}
         </span>
         <span className="block text-xs text-base-content/35">
           Paired {new Date(grant.createdAt).toLocaleDateString()} · {agoLabel(grant.lastUsedAt)}
@@ -243,10 +279,10 @@ function DeviceRow({
           <button
             className="flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1 text-[12.5px] font-semibold text-primary-content transition-colors hover:bg-primary/90 disabled:opacity-60"
             disabled={busy}
-            onClick={() => void api.revokeDevice(grant.id)}
+            onClick={onRevoke}
           >
             {busy && <Spinner size={11} />}
-            Unpair
+            {grant.self ? "Disconnect" : "Unpair"}
           </button>
         </span>
       ) : (
@@ -254,7 +290,7 @@ function DeviceRow({
           className="shrink-0 text-[12.5px] font-medium text-base-content/45 transition-colors hover:text-hk-orange-text"
           onClick={() => setConfirming(true)}
         >
-          Unpair
+          {grant.self ? "Disconnect" : "Unpair"}
         </button>
       )}
     </div>
@@ -262,20 +298,25 @@ function DeviceRow({
 }
 
 /**
- * Paired devices (design 7b): every grant this home has issued at the relay.
- * The relay stores only labels + token hashes — no per-device liveness exists
- * (docs/ARCHITECTURE.md grants API), so rows show last activity instead of a dot.
+ * Paired devices (design 7b, all platforms — docs "Paired-device equivalence"):
+ * every grant this home has issued at the relay. The relay stores only labels +
+ * token hashes — no per-device liveness exists (docs/ARCHITECTURE.md grants
+ * API), so rows show last activity instead of a dot. Presentational; the
+ * desktop binds homeSecret-authed calls, the web its own clientToken.
  */
-function PairedDevicesCard() {
-  const api = useDesktopStoreApi();
-  const grants = useDesktopStore((s) => s.state.grants);
-  const loaded = useDesktopStore((s) => s.state.grantsLoaded);
-  const error = useDesktopStore((s) => s.state.grantsError);
-
-  useEffect(() => {
-    void api.loadGrants();
-  }, [api]);
-
+function PairedDevicesCard({
+  grants,
+  loaded,
+  error,
+  revokingId,
+  onRevoke,
+}: {
+  grants: { id: string; label: string; createdAt: number; lastUsedAt: number | null; self?: boolean }[];
+  loaded: boolean;
+  error: string | null;
+  revokingId: string | null;
+  onRevoke: (id: string) => void;
+}) {
   return (
     <Card title="Paired devices">
       {error ? (
@@ -292,11 +333,40 @@ function PairedDevicesCard() {
       ) : (
         <div className="flex flex-col">
           {grants.map((g, i) => (
-            <DeviceRow key={g.id} grant={g} border={i > 0} />
+            <DeviceRow
+              key={g.id}
+              grant={g}
+              border={i > 0}
+              busy={revokingId === g.id}
+              onRevoke={() => onRevoke(g.id)}
+            />
           ))}
         </div>
       )}
     </Card>
+  );
+}
+
+/** Desktop binding: grants via the homeSecret-authed relay admin calls. */
+function DesktopPairedDevicesCard() {
+  const api = useDesktopStoreApi();
+  const grants = useDesktopStore((s) => s.state.grants);
+  const loaded = useDesktopStore((s) => s.state.grantsLoaded);
+  const error = useDesktopStore((s) => s.state.grantsError);
+  const revokingId = useDesktopStore((s) => s.state.revokingGrantId);
+
+  useEffect(() => {
+    void api.loadGrants();
+  }, [api]);
+
+  return (
+    <PairedDevicesCard
+      grants={grants}
+      loaded={loaded}
+      error={error}
+      revokingId={revokingId}
+      onRevoke={(id) => void api.revokeDevice(id)}
+    />
   );
 }
 
@@ -475,7 +545,7 @@ function ServiceCard() {
   return (
     <>
       {/* The QR is the whole point of this screen — always shown once registered. */}
-      <PairingCard />
+      <DesktopPairingCard />
       <Card title="Connection">
         <Row label="Service" value={engine.relay.url} />
         {badServiceUrl && (
@@ -522,7 +592,7 @@ function ServiceCard() {
           </div>
         )}
       </Card>
-      <PairedDevicesCard />
+      <DesktopPairedDevicesCard />
     </>
   );
 }
@@ -609,6 +679,51 @@ function DesktopRemote() {
   );
 }
 
+/**
+ * Web binding of the pairing card (docs "Paired-device equivalence"): mints the
+ * code at the relay with this device's own clientToken — a paired phone/browser
+ * can invite the next device without touching the home computer.
+ */
+function WebPairingCard() {
+  const api = useKbStoreApi();
+  const minted = useKbStore((s) => s.state.mintedPair);
+  const busy = useKbStore((s) => s.state.mintBusy);
+  const error = useKbStore((s) => s.state.mintError);
+  const conn = getConnection();
+  if (!conn) return null;
+  return (
+    <PairingCard
+      pair={minted ? { ...minted, relayUrl: conn.relayUrl } : null}
+      busy={busy}
+      error={error}
+      onGenerate={() => void api.newPairCode()}
+    />
+  );
+}
+
+/** Web binding: grants via this device's own clientToken; self-revoke = disconnect. */
+function WebPairedDevicesCard() {
+  const api = useKbStoreApi();
+  const grants = useKbStore((s) => s.state.grants);
+  const loaded = useKbStore((s) => s.state.grantsLoaded);
+  const error = useKbStore((s) => s.state.grantsError);
+  const revokingId = useKbStore((s) => s.state.revokingGrantId);
+
+  useEffect(() => {
+    void api.loadGrants();
+  }, [api]);
+
+  return (
+    <PairedDevicesCard
+      grants={grants}
+      loaded={loaded}
+      error={error}
+      revokingId={revokingId}
+      onRevoke={(id) => void api.revokeDevice(id)}
+    />
+  );
+}
+
 function WebRemote() {
   const api = useKbStoreApi();
   const homeName = useKbStore((s) => s.state.homeName);
@@ -641,10 +756,14 @@ function WebRemote() {
         </div>
       </Card>
 
+      {/* Any paired device can invite + manage devices (docs "Paired-device equivalence"). */}
+      <WebPairingCard />
+      <WebPairedDevicesCard />
+
       <Card>
         <p className="text-[13px] leading-relaxed text-base-content/60">
           Disconnecting removes this device&apos;s access token. You can pair again anytime
-          with a fresh code from your home computer.
+          with a fresh code from your home computer — or from any other paired device.
         </p>
         {confirming ? (
           <div className="mt-3 flex gap-2">

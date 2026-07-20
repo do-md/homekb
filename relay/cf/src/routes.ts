@@ -85,9 +85,28 @@ export async function relayRegister(req: Request, env: Env): Promise<Response> {
 
 /**
  * Pairing:
- * - {action:"new"} (home device authenticated) → generate pairing code
+ * - {action:"new"} (homeSecret or clientToken — any paired device can invite
+ *   another; docs "Paired-device equivalence") → generate pairing code
  * - {action:"claim", code, label?} (public) → exchange for long-lived clientToken
  */
+
+/**
+ * Home scope of the caller (docs/ARCHITECTURE.md "Paired-device equivalence"):
+ * homeSecret resolves to the home itself, a clientToken to the home its grant
+ * is bound to. `grantId` identifies the calling device when clientToken-authed
+ * (used for the grants list's `self` marker).
+ */
+async function authHomeScope(
+  req: Request,
+  env: Env,
+): Promise<{ homeId: string; grantId?: string } | null> {
+  const home = await authHome(req, env);
+  if (home) return { homeId: home.id };
+  const grant = await authGrant(req, env);
+  if (grant) return { homeId: grant.home_id, grantId: grant.id };
+  return null;
+}
+
 export async function relayPair(req: Request, env: Env): Promise<Response> {
   let body: { action?: string; code?: string; label?: string };
   try {
@@ -98,12 +117,12 @@ export async function relayPair(req: Request, env: Env): Promise<Response> {
   await env.DB.prepare("DELETE FROM pair_codes WHERE expires_at < ?").bind(Date.now()).run();
 
   if (body.action === "new") {
-    const home = await authHome(req, env);
-    if (!home) return jsonError(401, "unauthorized");
+    const scope = await authHomeScope(req, env);
+    if (!scope) return jsonError(401, "unauthorized");
     const code = randomPairCode();
     const expiresAt = Date.now() + PAIR_TTL_MS;
     await env.DB.prepare("INSERT INTO pair_codes (code, home_id, expires_at) VALUES (?, ?, ?)")
-      .bind(code, home.id, expiresAt)
+      .bind(code, scope.homeId, expiresAt)
       .run();
     return Response.json({ ok: true, code, expiresAt });
   }
@@ -274,17 +293,19 @@ export async function relayTunnelHealth(req: Request, env: Env): Promise<Respons
 }
 
 /**
- * Paired-devices list (home device authenticated): every grant of this home, newest
- * first. The relay stores only labels + token hashes, so there is no per-grant
- * liveness — clients render lastUsedAt instead.
+ * Paired-devices list (homeSecret or clientToken — docs "Paired-device
+ * equivalence"): every grant of this home, newest first. clientToken callers
+ * get `self: true` on their own grant so the UI can mark "this device". The
+ * relay stores only labels + token hashes, so there is no per-grant liveness —
+ * clients render lastUsedAt instead.
  */
 export async function relayGrantsList(req: Request, env: Env): Promise<Response> {
-  const home = await authHome(req, env);
-  if (!home) return jsonError(401, "unauthorized");
+  const scope = await authHomeScope(req, env);
+  if (!scope) return jsonError(401, "unauthorized");
   const rows = await env.DB.prepare(
     "SELECT id, label, created_at, last_used_at FROM grants WHERE home_id = ? ORDER BY created_at DESC",
   )
-    .bind(home.id)
+    .bind(scope.homeId)
     .all<{ id: string; label: string; created_at: number; last_used_at: number | null }>();
   return Response.json({
     ok: true,
@@ -293,20 +314,24 @@ export async function relayGrantsList(req: Request, env: Env): Promise<Response>
       label: r.label,
       createdAt: r.created_at,
       lastUsedAt: r.last_used_at,
+      ...(r.id === scope.grantId ? { self: true } : {}),
     })),
   });
 }
 
-/** Revoke one grant (unpair a device). Scoped to the authenticated home. */
+/**
+ * Revoke one grant (unpair a device). Scoped to the caller's home — the owning
+ * home or any of its paired devices (a device may revoke a sibling or itself).
+ */
 export async function relayGrantRevoke(
   req: Request,
   env: Env,
   grantId: string,
 ): Promise<Response> {
-  const home = await authHome(req, env);
-  if (!home) return jsonError(401, "unauthorized");
+  const scope = await authHomeScope(req, env);
+  if (!scope) return jsonError(401, "unauthorized");
   const res = await env.DB.prepare("DELETE FROM grants WHERE id = ? AND home_id = ?")
-    .bind(grantId, home.id)
+    .bind(grantId, scope.homeId)
     .run();
   if ((res.meta.changes ?? 0) === 0) return jsonError(404, "not_found");
   return Response.json({ ok: true });
