@@ -142,21 +142,32 @@ export class TunnelHub {
    * Binary asset channel: push an `asset` event to the home device and wait for it to
    * stream the bytes back via POST /api/relay/tunnel/asset/<id>. The delivery object is
    * produced by that route (hub itself stays transport-agnostic).
+   *
+   * `query`/`accept` forward the client's image-variant request (query string +
+   * Accept header — docs/ARCHITECTURE.md "Image variant service"); older engines
+   * ignore both fields.
    */
   requestAsset(
     homeId: string,
     path: string,
-    share?: ShareContext,
-    timeoutMs = DEFAULT_TIMEOUT,
+    opts: { share?: ShareContext; query?: string; accept?: string; timeoutMs?: number } = {},
   ): Promise<AssetDelivery> {
+    const { share, query, accept } = opts;
     return this.request(
       homeId,
       "asset",
       // Share-scoped requests carry the share context; the home validates it
       // (valid share + asset referenced by the shared note) before streaming.
-      (id) => JSON.stringify({ id, path, ...(share ? { share } : {}) }),
+      (id) =>
+        JSON.stringify({
+          id,
+          path,
+          ...(query ? { query } : {}),
+          ...(accept ? { accept } : {}),
+          ...(share ? { share } : {}),
+        }),
       `asset ${path}`,
-      timeoutMs,
+      opts.timeoutMs ?? DEFAULT_TIMEOUT,
     ) as Promise<AssetDelivery>;
   }
 

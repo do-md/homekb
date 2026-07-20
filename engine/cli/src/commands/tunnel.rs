@@ -344,6 +344,18 @@ fn handle_asset(
     // relay adds a share context; the home validates the share (valid,
     // unexpired, password matches, asset referenced by the shared note).
     let share = msg.get("share").cloned();
+    // Image variant request (docs/ARCHITECTURE.md "Image variant service"):
+    // the relay forwards the client's query string + Accept header; the home
+    // applies the same rules as serve GET /assets. Older relays omit both.
+    let variant_query = msg
+        .get("query")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let variant_accept = msg
+        .get("accept")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
     let client = client.clone();
     let config = config.clone();
     let upload_url = format!("{}/api/relay/tunnel/asset/{}", relay.url, id);
@@ -367,18 +379,30 @@ fn handle_asset(
                 return;
             }
         }
-        let resolved = super::assets::resolve_asset_path(&config, &path);
+        let params = super::image_variants::parse_image_query(&variant_query);
+        let resolved = match super::assets::resolve_asset_path(&config, &path) {
+            Some(full) => {
+                super::image_variants::resolve_variant(
+                    &super::image_variants::image_cache_root(&config),
+                    &full,
+                    &params,
+                    variant_accept.as_deref(),
+                )
+                .await
+            }
+            None => None,
+        };
         let req = match resolved {
-            Some(full) => match tokio::fs::read(&full).await {
+            Some(rep) => match tokio::fs::read(&rep.path).await {
                 Ok(bytes) => client
                     .post(&upload_url)
                     .bearer_auth(&secret)
-                    .header("Content-Type", super::assets::guess_mime(&full))
+                    .header("Content-Type", rep.mime)
                     .body(bytes),
                 Err(_) => client
                     .post(&upload_url)
                     .bearer_auth(&secret)
-                    .header("X-Asset-Error", "not_found"),
+                    .header("X-Asset-Error", "read_error"),
             },
             None => client
                 .post(&upload_url)
@@ -445,7 +469,17 @@ fn handle_asset_upload(
         .await;
 
         let body = match saved {
-            Ok(saved) => json!({ "id": id, "ok": true, "result": { "path": saved.path } }),
+            Ok(saved) => {
+                // Warm the default web variants fire-and-forget (same as serve's
+                // upload path — docs/ARCHITECTURE.md "Image variant service").
+                if let Some(abs) = super::assets::resolve_asset_path(&config, &saved.path) {
+                    tokio::spawn(super::image_variants::warm_default_variants(
+                        super::image_variants::image_cache_root(&config),
+                        abs,
+                    ));
+                }
+                json!({ "id": id, "ok": true, "result": { "path": saved.path } })
+            }
             Err(message) => {
                 tracing::warn!("asset upload failed: {message}");
                 json!({ "id": id, "ok": false, "error": { "code": "asset_write_failed", "message": message } })

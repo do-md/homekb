@@ -16,7 +16,7 @@ use anyhow::Result;
 use axum::{
     Json, Router,
     body::{Body, Bytes},
-    extract::{ConnectInfo, DefaultBodyLimit, Path as AxPath, State},
+    extract::{ConnectInfo, DefaultBodyLimit, Path as AxPath, RawQuery, State},
     http::{HeaderValue, Method, StatusCode, header},
     response::{
         IntoResponse, Response,
@@ -34,7 +34,10 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tower_http::cors::{Any, CorsLayer};
 
-use super::assets::{guess_mime, resolve_asset_path};
+use super::assets::resolve_asset_path;
+use super::image_variants::{
+    image_cache_root, parse_image_query, resolve_variant, warm_default_variants,
+};
 
 /// CORS allowlist for loopback binds (docs/ARCHITECTURE.md): desktop webview and
 /// Next.js dev origin only. Never `*` — that would let any browser page drive local retrieval.
@@ -284,7 +287,17 @@ async fn asset_upload_handler(
         return unauthorized();
     }
     match homekb_core::save_asset(&state.config, &path, &body) {
-        Ok(saved) => Json(json!({ "ok": true, "path": saved.path })).into_response(),
+        Ok(saved) => {
+            // Warm the default web variants fire-and-forget so the first view
+            // hits the cache (docs/ARCHITECTURE.md "Image variant service").
+            if let Some(abs) = resolve_asset_path(&state.config, &saved.path) {
+                tokio::spawn(warm_default_variants(
+                    image_cache_root(&state.config),
+                    abs,
+                ));
+            }
+            Json(json!({ "ok": true, "path": saved.path })).into_response()
+        }
         Err(e) => (
             StatusCode::BAD_REQUEST,
             Json(json!({ "ok": false, "error": "bad_path", "message": format!("{e:#}") })),
@@ -298,6 +311,7 @@ async fn asset_handler(
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: axum::http::HeaderMap,
     AxPath(path): AxPath<String>,
+    RawQuery(query): RawQuery,
 ) -> Response {
     if !authorized(&state, &peer, &headers) {
         return unauthorized();
@@ -309,7 +323,37 @@ async fn asset_handler(
         )
             .into_response();
     };
-    let Ok(file) = tokio::fs::File::open(&full).await else {
+    // Image variant service (docs/ARCHITECTURE.md): the representation to serve
+    // is decided by query params + Accept — original file or cached variant.
+    let params = parse_image_query(query.as_deref().unwrap_or(""));
+    let accept = headers
+        .get(header::ACCEPT)
+        .and_then(|v| v.to_str().ok());
+    let Some(resolved) =
+        resolve_variant(&image_cache_root(&state.config), &full, &params, accept).await
+    else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "ok": false, "error": "not_found" })),
+        )
+            .into_response();
+    };
+    if headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|inm| inm == resolved.etag)
+    {
+        let mut res = Response::builder()
+            .status(StatusCode::NOT_MODIFIED)
+            .header(header::ETAG, &resolved.etag);
+        if resolved.varies {
+            res = res.header(header::VARY, "Accept");
+        }
+        return res
+            .body(Body::empty())
+            .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
+    }
+    let Ok(file) = tokio::fs::File::open(&resolved.path).await else {
         return (
             StatusCode::NOT_FOUND,
             Json(json!({ "ok": false, "error": "not_found" })),
@@ -320,8 +364,12 @@ async fn asset_handler(
     let stream = tokio_util::io::ReaderStream::new(file);
     let mut res = Response::builder()
         .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, guess_mime(&full))
-        .header(header::CACHE_CONTROL, "private, max-age=3600");
+        .header(header::CONTENT_TYPE, resolved.mime)
+        .header(header::CACHE_CONTROL, "private, max-age=3600")
+        .header(header::ETAG, &resolved.etag);
+    if resolved.varies {
+        res = res.header(header::VARY, "Accept");
+    }
     if let Some(len) = len {
         res = res.header(header::CONTENT_LENGTH, len);
     }

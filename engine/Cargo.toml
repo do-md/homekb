@@ -37,6 +37,12 @@ getrandom = "0.3"
 tokio-util = { version = "0.7", features = ["io"] }
 futures = "0.3"
 tokio-stream = "0.1"
+# Image variant service (docs/ARCHITECTURE.md "Image variant service"):
+# decode/resize/encode jpeg+png+webp; lossy webp encoding via libwebp bindings
+# (the `image` crate only encodes lossless webp). HEIC decoding is a macOS
+# `sips` subprocess — no Rust HEVC decoder dependency.
+image = { version = "0.25.6", default-features = false, features = ["jpeg", "png", "webp"] }
+webp = { version = "0.3", default-features = false }
 
 [profile.release]
 opt-level = 3

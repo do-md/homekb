@@ -93,4 +93,34 @@ describe("TunnelHub", () => {
       RpcHubError,
     );
   });
+
+  it("asset event forwards image variant query/accept and omits them when absent", () => {
+    const hub = new TunnelHub();
+    const { sent } = connect(hub);
+
+    void hub.requestAsset("hm_test", "images/a.png", {
+      query: "w=800&f=webp",
+      accept: "image/webp,*/*",
+    });
+    expect(sent[0].event).toBe("asset");
+    const withVariant = JSON.parse(sent[0].data);
+    expect(withVariant.path).toBe("images/a.png");
+    expect(withVariant.query).toBe("w=800&f=webp");
+    expect(withVariant.accept).toBe("image/webp,*/*");
+
+    void hub.requestAsset("hm_test", "images/b.png");
+    const bare = JSON.parse(sent[1].data);
+    expect(bare.path).toBe("images/b.png");
+    expect("query" in bare).toBe(false);
+    expect("accept" in bare).toBe(false);
+
+    // Share context still rides alongside the variant fields.
+    void hub.requestAsset("hm_test", "images/c.png", {
+      share: { shareId: "sh_x" },
+      query: "raw=1",
+    });
+    const shared = JSON.parse(sent[2].data);
+    expect(shared.share).toEqual({ shareId: "sh_x" });
+    expect(shared.query).toBe("raw=1");
+  });
 });

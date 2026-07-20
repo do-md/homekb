@@ -4,6 +4,7 @@
 
 pub mod ask;
 pub mod assets;
+pub mod image_variants;
 pub mod init;
 #[cfg(target_os = "macos")]
 pub mod launchd;

@@ -60,7 +60,12 @@ function makeShareImageLoader(
     if (!assetPath) throw new Error("not an asset reference");
     const encoded = assetPath.split("/").map(encodeURIComponent).join("/");
     const res = await fetch(`${relayUrl}/api/relay/share/${shareId}/asset/${encoded}`, {
-      headers: password ? { "X-Share-Password": password } : undefined,
+      headers: {
+        // fetch() defaults Accept to */* — advertise webp so the image variant
+        // service negotiates the same default variant an <img> would get.
+        Accept: "image/webp,image/*;q=0.8,*/*;q=0.5",
+        ...(password ? { "X-Share-Password": password } : {}),
+      },
     });
     if (!res.ok) throw new Error(`asset fetch failed: ${res.status}`);
     return URL.createObjectURL(await res.blob());

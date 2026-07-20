@@ -278,13 +278,24 @@ export class HomeTunnelDO {
     const body = (await request.json()) as {
       path?: string;
       share?: { shareId: string; password?: string };
+      query?: string;
+      accept?: string;
     };
     try {
       const d = (await this.request(
         "asset",
         // Share-scoped requests carry the share context; the home validates it
         // (valid share + asset referenced by the shared note) before streaming.
-        (id) => JSON.stringify({ id, path: body.path, ...(body.share ? { share: body.share } : {}) }),
+        // query/accept forward the client's image-variant request (docs/
+        // ARCHITECTURE.md "Image variant service"); older engines ignore them.
+        (id) =>
+          JSON.stringify({
+            id,
+            path: body.path,
+            ...(body.query ? { query: body.query } : {}),
+            ...(body.accept ? { accept: body.accept } : {}),
+            ...(body.share ? { share: body.share } : {}),
+          }),
         `asset ${body.path}`,
         DEFAULT_TIMEOUT,
       )) as Delivery;

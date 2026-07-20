@@ -209,11 +209,22 @@ function sendHubError(nodeRes: ServerResponse, e: unknown, fallback: string): vo
   });
 }
 
+/** The client's image-variant request, forwarded verbatim on the SSE `asset`
+ *  event (docs/ARCHITECTURE.md "Image variant service"). */
+function assetVariant(nodeReq: IncomingMessage, url: URL): { query?: string; accept?: string } {
+  const accept = nodeReq.headers.accept;
+  return {
+    ...(url.search.length > 1 ? { query: url.search.slice(1) } : {}),
+    ...(typeof accept === "string" && accept ? { accept } : {}),
+  };
+}
+
 /** Client-side binary asset fetch: forwarded to the home device, streamed back without buffering. */
 async function handleRelayAssetGet(
   nodeReq: IncomingMessage,
   nodeRes: ServerResponse,
   assetPath: string,
+  url: URL,
 ): Promise<void> {
   const grant = authGrant(toWebRequestHeaders(nodeReq));
   if (!grant) return sendJson(nodeRes, 401, { ok: false, error: "unauthorized" });
@@ -223,7 +234,7 @@ async function handleRelayAssetGet(
 
   let delivery: AssetDelivery;
   try {
-    delivery = await hub().requestAsset(grant.home_id, assetPath);
+    delivery = await hub().requestAsset(grant.home_id, assetPath, assetVariant(nodeReq, url));
   } catch (e) {
     return sendHubError(nodeRes, e, "asset fetch failed");
   }
@@ -334,6 +345,7 @@ async function handleShareAssetGet(
   nodeRes: ServerResponse,
   shareId: string,
   assetPath: string,
+  url: URL,
 ): Promise<void> {
   if (!SHARE_ID_RE.test(shareId)) {
     return sendJson(nodeRes, 404, { ok: false, error: "share_not_found" });
@@ -350,7 +362,10 @@ async function handleShareAssetGet(
   const password = typeof rawPw === "string" && rawPw ? rawPw : undefined;
   let delivery: AssetDelivery;
   try {
-    delivery = await hub().requestAsset(row.home_id, assetPath, { shareId, password });
+    delivery = await hub().requestAsset(row.home_id, assetPath, {
+      share: { shareId, password },
+      ...assetVariant(nodeReq, url),
+    });
   } catch (e) {
     return sendHubError(nodeRes, e, "asset fetch failed");
   }
@@ -585,6 +600,7 @@ async function handle(nodeReq: IncomingMessage, nodeRes: ServerResponse): Promis
       nodeReq,
       nodeRes,
       decodeURIComponent(path.slice(RELAY_ASSET.length)),
+      url,
     );
   }
   if (method === "POST" && path.startsWith(RELAY_ASSET)) {
@@ -612,6 +628,7 @@ async function handle(nodeReq: IncomingMessage, nodeRes: ServerResponse): Promis
         nodeRes,
         rest.slice(0, assetIdx),
         decodeURIComponent(rest.slice(assetIdx + "/asset/".length)),
+        url,
       );
     }
     if (method === "POST" && !rest.includes("/")) {

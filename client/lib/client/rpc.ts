@@ -285,7 +285,11 @@ export async function fetchAssetUrl(path: string): Promise<string> {
   let res: Response;
   try {
     res = await fetch(ep.assetBase + path.split("/").map(encodeURIComponent).join("/"), {
-      headers: ep.headers,
+      // fetch() defaults Accept to */* (unlike <img>), which would opt the
+      // image variant service out of webp — advertise it explicitly so the
+      // negotiated default variant matches what <img> would get (docs/
+      // ARCHITECTURE.md "Image variant service").
+      headers: { Accept: "image/webp,image/*;q=0.8,*/*;q=0.5", ...ep.headers },
     });
   } catch {
     throw new RelayError("unreachable", "Server is not responding");

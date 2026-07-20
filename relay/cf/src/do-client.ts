@@ -80,14 +80,21 @@ export interface ShareContext {
   password?: string;
 }
 
-/** Binary asset channel (docs/ARCHITECTURE.md): streamed, never buffered. */
+/** Binary asset channel (docs/ARCHITECTURE.md): streamed, never buffered.
+ *  `query`/`accept` forward the client's image-variant request ("Image variant
+ *  service"); older engines ignore both. */
 export function requestAsset(
   env: Env,
   homeId: string,
   path: string,
-  share?: ShareContext,
+  opts: { share?: ShareContext; query?: string; accept?: string } = {},
 ): Promise<StreamDelivery> {
-  return requestStream(env, homeId, "/asset-request", share ? { path, share } : { path });
+  return requestStream(env, homeId, "/asset-request", {
+    path,
+    ...(opts.query ? { query: opts.query } : {}),
+    ...(opts.accept ? { accept: opts.accept } : {}),
+    ...(opts.share ? { share: opts.share } : {}),
+  });
 }
 
 /** Streaming answer channel: the home's SSE frames, piped verbatim. */

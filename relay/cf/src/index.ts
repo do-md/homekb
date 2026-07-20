@@ -130,6 +130,17 @@ async function handleTunnelUpstream(req: Request, env: Env, id: string): Promise
   });
 }
 
+/** The client's image-variant request, forwarded verbatim on the SSE `asset`
+ *  event (docs/ARCHITECTURE.md "Image variant service"). */
+function assetVariant(req: Request): { query?: string; accept?: string } {
+  const search = new URL(req.url).search;
+  const accept = req.headers.get("accept");
+  return {
+    ...(search.length > 1 ? { query: search.slice(1) } : {}),
+    ...(accept ? { accept } : {}),
+  };
+}
+
 /** Client-side binary asset fetch: forwarded to the home device, streamed back without buffering. */
 async function handleRelayAssetGet(req: Request, env: Env, assetPath: string): Promise<Response> {
   const grant = await authGrant(req, env);
@@ -137,7 +148,7 @@ async function handleRelayAssetGet(req: Request, env: Env, assetPath: string): P
   if (!isSafeAssetPath(assetPath)) return jsonError(400, "bad_path");
 
   try {
-    const d = await requestAsset(env, grant.home_id, assetPath);
+    const d = await requestAsset(env, grant.home_id, assetPath, assetVariant(req));
     if (d.error) {
       return jsonError(d.error === "not_found" ? 404 : 500, d.error);
     }
@@ -213,7 +224,10 @@ async function handleShareAssetGet(
 
   const password = req.headers.get("x-share-password") ?? undefined;
   try {
-    const d = await requestAsset(env, row.home_id, assetPath, { shareId, password });
+    const d = await requestAsset(env, row.home_id, assetPath, {
+      share: { shareId, password },
+      ...assetVariant(req),
+    });
     if (d.error) {
       const status = d.error === "share_denied" ? 403 : d.error === "not_found" ? 404 : 500;
       return jsonError(status, d.error);
