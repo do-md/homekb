@@ -7,13 +7,10 @@
  * "your data stays local" story.
  */
 
-import { useEffect } from "react";
 import { isDesktop } from "@/lib/client/desktop";
-import {
-  useDesktopStore,
-  useDesktopStoreApi,
-} from "@/features/desktop/store/desktop-store";
+import { useDesktopStore } from "@/features/desktop/store/desktop-store";
 import { useKbStore, useKbStoreApi } from "../../store/kb-store";
+import { ScheduleCard } from "../schedule-card";
 import { IconCheck, IconRefresh, Spinner, StatusDot } from "../icons";
 
 function StatCard({
@@ -43,52 +40,6 @@ function StatCard({
         {value}
       </div>
       {sub && <div className="mt-1.5 text-xs text-base-content/35">{sub}</div>}
-    </div>
-  );
-}
-
-/**
- * Compile scheduler card (design 6a/6b) — desktop only: drives the
- * com.homekb.compile LaunchAgent through the compile_* Tauri commands.
- * Web/remote modes have no scheduler visibility (kb.status carries no such field).
- */
-function SchedulerCard() {
-  const api = useDesktopStoreApi();
-  const running = useDesktopStore((s) => s.state.schedulerRunning);
-  const managed = useDesktopStore((s) => s.state.schedulerManaged);
-  const busy = useDesktopStore((s) => s.state.schedulerBusy);
-
-  useEffect(() => {
-    void api.refreshScheduler();
-  }, [api]);
-
-  const active = managed && running;
-  return (
-    <div className="rounded-xl border border-base-300 bg-base-200 p-4">
-      <div className="flex items-center justify-between gap-3">
-        <span className="flex items-center gap-2 text-[14px] font-semibold text-base-content">
-          <span className={active ? "text-success" : "text-warning"}>
-            <StatusDot />
-          </span>
-          {active ? "Scheduler running" : "Scheduler stopped"}
-        </span>
-        <button
-          onClick={() => void api.toggleScheduler()}
-          disabled={busy}
-          className={
-            active
-              ? "flex items-center gap-1.5 rounded-xl border border-base-300 px-3.5 py-2 text-[13px] font-semibold text-base-content/60 transition-colors hover:bg-base-200 disabled:opacity-60"
-              : "flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-[13px] font-semibold text-primary-content transition-colors hover:bg-primary/90 disabled:opacity-60"
-          }
-        >
-          {busy && <Spinner size={12} />}
-          {active ? "Stop scheduler" : "Start scheduler"}
-        </button>
-      </div>
-      <p className="mt-2 text-xs leading-relaxed text-base-content/35">
-        <code className="font-mono">com.homekb.compile</code> · launchd — recompiles your
-        notes on a schedule while it runs.
-      </p>
     </div>
   );
 }
@@ -187,8 +138,9 @@ export function StatusView() {
           </div>
         ) : status ? (
           <div className="mt-5 flex flex-col gap-4">
-            {/* Compile scheduler (6a/6b) — the home machine's launchd agent */}
-            {isDesktop() && <SchedulerCard />}
+            {/* Compile schedule (6a/6b) — the home machine's launchd agent,
+                managed over RPC on all platforms (docs "RPC methods") */}
+            <ScheduleCard />
 
             {/* Compiling state (6b) */}
             {compiling && (

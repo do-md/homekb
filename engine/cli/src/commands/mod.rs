@@ -7,7 +7,7 @@ pub mod assets;
 pub mod image_variants;
 pub mod init;
 #[cfg(target_os = "macos")]
-pub mod launchd;
+pub use homekb_core::launchd;
 pub mod mcp;
 pub mod new;
 pub mod query;

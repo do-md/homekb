@@ -50,6 +50,19 @@ export interface KbStatusData {
   lastCompileAt?: number | null;
   lastCompileHost?: string | null;
   embeddingModel?: string | null;
+  embeddingProvider?: string | null;
+}
+
+/**
+ * `kb.scheduleGet` / `kb.scheduleSet` result (docs "RPC methods"): state of the
+ * home machine's background compile agent. `supported: false` = the home
+ * platform cannot manage a schedule (non-macOS for now).
+ */
+export interface KbScheduleData {
+  supported: boolean;
+  installed: boolean;
+  running: boolean;
+  intervalSecs: number | null;
 }
 
 export interface DocMeta {

@@ -9,32 +9,25 @@ use std::time::Duration;
 use serde_json::json;
 
 // ---- launchd compile service management (macOS only) ----
+// Thin CLI shell over the shared schedule implementation in homekb-core
+// (`schedule_enable`/`schedule_disable`/`schedule_status`), which also backs
+// the `kb.scheduleGet`/`kb.scheduleSet` RPC methods — one implementation.
 
 #[cfg(target_os = "macos")]
 pub fn run_install(interval: u64) -> Result<()> {
     use super::launchd;
-    let bin = launchd::home_bin_path()?;
-    let log = launchd::log_path("compile")?;
-    let interval_s = interval.to_string();
-    let body = launchd::daemon_plist(
-        launchd::COMPILE_LABEL,
-        &[&bin, "watch", "--interval", &interval_s],
-        &log,
-        // Batch compile work: deliberately yield to the user's foreground apps.
-        launchd::ProcessType::Background,
-    );
-    launchd::install(launchd::COMPILE_LABEL, &body)?;
-    println!("compile service installed and started (reindex every {interval}s, auto-restart on crash)");
+    let st = homekb_core::schedule_enable(Some(interval))?;
+    let effective = st.interval_secs.unwrap_or(interval);
+    println!("compile service installed and started (reindex every {effective}s, auto-restart on crash)");
     println!("   label : {}", launchd::COMPILE_LABEL);
-    println!("   log   : {log}");
+    println!("   log   : {}", launchd::log_path("compile")?);
     println!("   status: homekb watch --status");
     Ok(())
 }
 
 #[cfg(target_os = "macos")]
 pub fn run_uninstall() -> Result<()> {
-    use super::launchd;
-    launchd::uninstall(launchd::COMPILE_LABEL)?;
+    homekb_core::schedule_disable()?;
     println!("compile service stopped and removed (background compilation paused)");
     Ok(())
 }
@@ -43,6 +36,7 @@ pub fn run_uninstall() -> Result<()> {
 pub fn run_status(json_out: bool) -> Result<()> {
     use super::launchd;
     let st = launchd::status(launchd::COMPILE_LABEL)?;
+    let schedule = homekb_core::schedule_status()?;
     if json_out {
         println!(
             "{}",
@@ -51,6 +45,7 @@ pub fn run_status(json_out: bool) -> Result<()> {
                 "loaded": st.loaded,
                 "running": st.running,
                 "pid": st.pid,
+                "intervalSecs": schedule.interval_secs,
             })
         );
     } else {
@@ -58,6 +53,9 @@ pub fn run_status(json_out: bool) -> Result<()> {
         println!("running   : {}", st.running);
         if let Some(pid) = st.pid {
             println!("pid       : {pid}");
+        }
+        if let Some(secs) = schedule.interval_secs {
+            println!("interval  : {secs}s");
         }
     }
     Ok(())
@@ -78,7 +76,7 @@ pub fn run_status(json_out: bool) -> Result<()> {
     if json_out {
         println!(
             "{}",
-            serde_json::json!({ "installed": false, "loaded": false, "running": false, "pid": null })
+            serde_json::json!({ "installed": false, "loaded": false, "running": false, "pid": null, "intervalSecs": null })
         );
     } else {
         println!("compile service management is currently macOS-only");

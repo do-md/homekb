@@ -62,7 +62,7 @@ export interface PairInfo {
   homeName: string;
 }
 
-/** Launchd daemon status (tunnel_status / compile_status). */
+/** Launchd daemon status (tunnel_status; the compile schedule is RPC-managed). */
 export interface DaemonStatus {
   running: boolean;
   managed: boolean; // registered with launchd (plist installed)

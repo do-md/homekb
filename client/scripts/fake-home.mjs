@@ -98,6 +98,30 @@ function configGet() {
     ai: structuredClone(aiConfig),
   };
 }
+/**
+ * In-memory background compile schedule (docs/ARCHITECTURE.md "RPC methods":
+ * kb.scheduleGet / kb.scheduleSet). Stateful so smoke tests exercise the
+ * enable → interval change → disable cycle without touching launchd.
+ */
+const schedule = { supported: true, installed: false, running: false, intervalSecs: null };
+function scheduleGet() {
+  return { ...schedule };
+}
+function scheduleSet({ enabled, intervalSecs }) {
+  if (typeof enabled !== "boolean") throw new Error("missing param: enabled");
+  if (enabled) {
+    const requested = Number.isFinite(intervalSecs) ? intervalSecs : (schedule.intervalSecs ?? 300);
+    schedule.installed = true;
+    schedule.running = true;
+    schedule.intervalSecs = Math.min(86400, Math.max(60, requested));
+  } else {
+    schedule.installed = false;
+    schedule.running = false;
+    schedule.intervalSecs = null;
+  }
+  return { ...schedule };
+}
+
 const PRESET_MODELS = {
   embedding: { openai: "text-embedding-3-small", gemini: "gemini-embedding-001", voyage: "voyage-4", cohere: "embed-v4.0", qwen: "text-embedding-v4" },
   chat: { openai: "gpt-4o-mini", gemini: "gemini-flash-lite-latest", deepseek: "deepseek-chat", qwen: "qwen-flash" },
@@ -277,6 +301,7 @@ for await (const chunk of res.body) {
         ],
       },
       "kb.reindex": { started: true },
+      "kb.rebuild": { started: true },
       // Share methods (docs/ARCHITECTURE.md "Note sharing") — static shapes
       // matching the contract; policy (password/expiry) is engine-side and not
       // simulated here. `url` mirrors the current-relay composition rule.
@@ -312,6 +337,8 @@ for await (const chunk of res.body) {
       "kb.draftDelete": () => draftDelete(params),
       "kb.configGet": () => configGet(),
       "kb.configSetAi": () => configSetAi(params),
+      "kb.scheduleGet": () => scheduleGet(),
+      "kb.scheduleSet": () => scheduleSet(params),
     };
     let body;
     try {

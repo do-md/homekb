@@ -29,6 +29,7 @@ import type {
   KbAnswer,
   KbConfigData,
   KbHit,
+  KbScheduleData,
   KbStatusData,
   KbSuggestion,
   RecallPhase,
@@ -125,6 +126,13 @@ function persistCompose(buf: ComposeBuffer | null) {
   }
 }
 
+/** "5 min" / "90 s" / "2 h" — human label for a compile interval in seconds. */
+export function formatInterval(secs: number): string {
+  if (secs % 3600 === 0) return `${secs / 3600} h`;
+  if (secs % 60 === 0) return `${secs / 60} min`;
+  return `${secs} s`;
+}
+
 function loadLastConnectedAt(): number | null {
   if (typeof window === "undefined") return null;
   const raw = window.localStorage.getItem(LAST_CONNECTED_KEY);
@@ -205,6 +213,14 @@ interface KbState {
   status: KbStatusData | null;
   statusLoading: boolean;
   actionNotice: string | null;
+
+  // background compile schedule (Status page card, all platforms —
+  // docs "RPC methods": kb.scheduleGet / kb.scheduleSet)
+  schedule: KbScheduleData | null;
+  scheduleBusy: boolean;
+
+  // full rebuild + reindex (web Settings rebuild card — kb.rebuild)
+  rebuildBusy: boolean;
 
   // settings (web Settings surface over RPC — docs "Settings over RPC";
   // the desktop Settings uses Tauri commands + DesktopStore instead)
@@ -303,6 +319,9 @@ export class KbStore extends ZenithStore<KbState> {
       status: null,
       statusLoading: false,
       actionNotice: null,
+      schedule: null,
+      scheduleBusy: false,
+      rebuildBusy: false,
       config: null,
       configLoading: false,
       configError: null,
@@ -1214,6 +1233,81 @@ export class KbStore extends ZenithStore<KbState> {
       setTimeout(() => void this.loadStatus({ silent: true }), 1500);
     } catch (e) {
       this.flash(e instanceof Error ? e.message : "Failed to trigger reindex");
+    }
+  }
+
+  // ---------- Background compile schedule (Status card, all platforms) ----------
+  /** State of the home's compile agent (`kb.scheduleGet`). Silent on failure —
+   *  the card keeps its last known state (same posture as the health poll). */
+  public async loadSchedule() {
+    try {
+      const res = await rpc<KbScheduleData>("kb.scheduleGet", {});
+      this.produce((d) => {
+        d.schedule = res;
+      });
+    } catch {
+      // Non-fatal: an old engine (pre-schedule RPC) answers unknown_method.
+    }
+  }
+
+  /**
+   * Enable/disable the background compile agent, or change its interval
+   * (`kb.scheduleSet`). `intervalSecs` omitted on enable = keep the installed
+   * interval (engine falls back to its default).
+   */
+  public async setSchedule(enabled: boolean, intervalSecs?: number) {
+    if (this.state.scheduleBusy) return;
+    this.produce((d) => {
+      d.scheduleBusy = true;
+    });
+    try {
+      const res = await rpc<KbScheduleData>("kb.scheduleSet", {
+        enabled,
+        ...(intervalSecs != null ? { intervalSecs } : {}),
+      });
+      this.produce((d) => {
+        d.schedule = res;
+        d.scheduleBusy = false;
+      });
+      this.flash(
+        enabled
+          ? `Background compilation on — every ${formatInterval(res.intervalSecs ?? 300)}`
+          : "Background compilation paused",
+      );
+    } catch (e) {
+      this.produce((d) => {
+        d.scheduleBusy = false;
+      });
+      this.flash(e instanceof Error ? e.message : "Schedule update failed");
+      void this.loadSchedule();
+    }
+  }
+
+  /**
+   * Full rebuild + reindex on the home (`kb.rebuild`) — required after an
+   * embedding provider/model switch. Fire-and-forget engine-side; progress
+   * shows up in `kb.status` (chunksWithVectors climbing), so the Status page
+   * reflects it. Busy clears after the trigger, not after completion.
+   */
+  public async rebuildIndex() {
+    if (this.state.rebuildBusy) return;
+    this.produce((d) => {
+      d.rebuildBusy = true;
+    });
+    try {
+      await rpc("kb.rebuild", {});
+      this.flash("Rebuild started on your home computer — progress on the Status page");
+      setTimeout(() => {
+        void this.loadStatus({ silent: true });
+        this.produce((d) => {
+          d.rebuildBusy = false;
+        });
+      }, 3000);
+    } catch (e) {
+      this.produce((d) => {
+        d.rebuildBusy = false;
+      });
+      this.flash(e instanceof Error ? e.message : "Rebuild failed to start");
     }
   }
 

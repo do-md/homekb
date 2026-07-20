@@ -41,6 +41,9 @@ pub const RPC_METHODS: &[&str] = &[
     "kb.listTypes",
     "kb.suggestions",
     "kb.reindex",
+    "kb.rebuild",
+    "kb.scheduleGet",
+    "kb.scheduleSet",
     "kb.configGet",
     "kb.configSetAi",
     "kb.shareCreate",
@@ -190,6 +193,58 @@ pub async fn dispatch(config: &Config, method: &str, params: &Value) -> Result<V
                 }
             });
             Ok(json!({ "started": true }))
+        }
+        "kb.rebuild" => {
+            // Full rebuild + reindex after an embedding provider/model switch
+            // (docs "RPC methods"): fire-and-forget like kb.reindex — rebuild
+            // resets the live db to the current embedding config, then a full
+            // reindex re-embeds everything. The compile lock serializes against
+            // a concurrent scheduled compile; the existing rebuild guards keep
+            // the last good snapshot if the new endpoint turns out broken.
+            let cfg = config.clone();
+            tokio::spawn(async move {
+                let reset = {
+                    let cfg = cfg.clone();
+                    tokio::task::spawn_blocking(move || crate::api::rebuild(&cfg)).await
+                };
+                match reset {
+                    Ok(Ok(())) => match reindex(&cfg, true).await {
+                        Ok(r) => tracing::info!(
+                            "rpc-triggered rebuild+reindex done, generation={}",
+                            r.generation
+                        ),
+                        Err(e) => tracing::warn!("rpc-triggered rebuild: reindex failed: {e:#}"),
+                    },
+                    Ok(Err(e)) => tracing::warn!("rpc-triggered rebuild failed: {e:#}"),
+                    Err(e) => tracing::warn!("rpc-triggered rebuild panicked: {e}"),
+                }
+            });
+            Ok(json!({ "started": true }))
+        }
+        "kb.scheduleGet" => {
+            let st = crate::schedule::schedule_status()
+                .map_err(|e| RpcFailure::new("schedule_failed", format!("{e:#}")))?;
+            to_value(&st)
+        }
+        "kb.scheduleSet" => {
+            if !cfg!(target_os = "macos") {
+                return Err(RpcFailure::new(
+                    "unsupported_platform",
+                    "background compile scheduling is currently macOS-only (launchd); run `homekb watch` on the home machine instead",
+                ));
+            }
+            let enabled = params
+                .get("enabled")
+                .and_then(|v| v.as_bool())
+                .ok_or_else(|| RpcFailure::new("invalid_params", "missing param: enabled"))?;
+            let interval = params.get("intervalSecs").and_then(|v| v.as_u64());
+            let st = if enabled {
+                crate::schedule::schedule_enable(interval)
+            } else {
+                crate::schedule::schedule_disable()
+            }
+            .map_err(|e| RpcFailure::new("schedule_failed", format!("{e:#}")))?;
+            to_value(&st)
         }
         "kb.configGet" => {
             // Masked config summary (docs "Settings over RPC") — built from the

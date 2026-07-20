@@ -421,45 +421,10 @@ async fn tunnel_status() -> Result<DaemonStatus, String> {
     .await
 }
 
-// ---------- compile scheduler (launchd-managed, single source of truth) ----------
-//
-// Thin wrappers around `homekb watch --install/--uninstall/--status` — the
-// com.homekb.compile LaunchAgent is the sole scheduled-compile source
-// (docs/ARCHITECTURE.md "compile lifecycle"). Drives the Status scheduler card
-// and the Settings engine toggle.
-
-/// Enable the compile scheduler: `homekb watch --install`.
-#[tauri::command]
-async fn compile_start() -> Result<(), String> {
-    blocking(|| {
-        let bin = require_engine()?;
-        engine::run_cli(&bin, &["watch", "--install"])?;
-        Ok(())
-    })
-    .await
-}
-
-/// Disable the compile scheduler: `homekb watch --uninstall`.
-#[tauri::command]
-async fn compile_stop() -> Result<(), String> {
-    blocking(|| {
-        let bin = require_engine()?;
-        engine::run_cli(&bin, &["watch", "--uninstall"])?;
-        Ok(())
-    })
-    .await
-}
-
-/// Compile scheduler status: parse `homekb watch --status --json`.
-#[tauri::command]
-async fn compile_status() -> Result<DaemonStatus, String> {
-    blocking(|| {
-        let bin = require_engine()?;
-        let out = engine::run_cli(&bin, &["watch", "--status", "--json"])?;
-        parse_daemon_status(&out, "watch")
-    })
-    .await
-}
+// The compile scheduler has no Tauri commands: the Status page's shared
+// ScheduleCard manages the com.homekb.compile LaunchAgent over RPC
+// (`kb.scheduleGet`/`kb.scheduleSet` against local serve) — one
+// implementation for desktop and web (docs/ARCHITECTURE.md "compile lifecycle").
 
 // ---------- local connection service (this machine, port 8787; default off) ----------
 //
@@ -595,9 +560,6 @@ fn main() {
             tunnel_status,
             tunnel_start,
             tunnel_stop,
-            compile_status,
-            compile_start,
-            compile_stop,
             local_relay_status,
             local_relay_start,
             local_relay_stop,

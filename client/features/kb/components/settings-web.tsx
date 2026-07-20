@@ -3,13 +3,14 @@
 /**
  * Web Settings (design 7a "(all platforms)", remote subset — docs "Settings
  * over RPC"): the AI endpoint editors + home paths rendered from
- * `kb.configGet`, saves via `kb.configSetAi`. Reads are masked (key presence
- * only) and the stored key is bound to its (provider, baseUrl) endpoint
- * identity engine-side, so this surface carries the same security posture as
- * the desktop Settings. Machine-local cards (engine install/updates, launchd
- * toggles, rebuild) stay desktop-only — they manage processes on the home
- * machine; the rebuild step after an embedding switch is pointed at, not
- * offered.
+ * `kb.configGet`, saves via `kb.configSetAi`, and the rebuild card via
+ * `kb.rebuild` + `kb.status` (so an embedding switch made here isn't stranded
+ * without its mandatory re-embed). Reads are masked (key presence only) and
+ * the stored key is bound to its (provider, baseUrl) endpoint identity
+ * engine-side, so this surface carries the same security posture as the
+ * desktop Settings. Trust-anchor cards (engine install/updates, tunnel,
+ * registration) stay desktop-only. The background-compile schedule lives on
+ * the Status page (shared card, all platforms).
  */
 
 import { useEffect } from "react";
@@ -20,6 +21,7 @@ import {
   SettingsRow as Row,
   SettingsSection as Section,
 } from "./ai-endpoint-editor";
+import { estimateReindexCost } from "./rebuild-estimate";
 import { Spinner } from "./icons";
 
 /** Web binding of the shared editor: KbStore state + `kb.configSetAi` save. */
@@ -45,6 +47,69 @@ function WebAiEndpointEditor({ section, title, note }: { section: AiSection; tit
   );
 }
 
+/**
+ * Web rebuild card: same drift warning + cost estimate as the desktop card,
+ * fed by `kb.status` (docs/chunks/embedding identity) instead of the Tauri
+ * `index_stats` command; the action fires `kb.rebuild` on the home.
+ */
+function WebRebuildCard() {
+  const api = useKbStoreApi();
+  const embedding = useKbStore((s) => s.state.config?.ai?.embedding ?? null);
+  const status = useKbStore((s) => s.state.status);
+  const busy = useKbStore((s) => s.state.rebuildBusy);
+
+  if (!embedding) return null;
+
+  const available = !!status?.available;
+  const built = available
+    ? `${status?.embeddingProvider || "openai"} · ${status?.embeddingModel || "?"}`
+    : null;
+  const drift =
+    available &&
+    (status?.embeddingProvider !== embedding.provider || status?.embeddingModel !== embedding.model);
+  const chunks = status?.chunks ?? 0;
+  const docs = status?.docs ?? 0;
+  const cost = available && chunks > 0 ? estimateReindexCost(chunks, docs, embedding.model) : null;
+
+  return (
+    <Section title="Index — rebuild after changing the embedding model">
+      <Row label="Built with" value={built ?? "No index yet — run compile first"} />
+      {available && <Row label="Size" value={`${docs} docs · ${chunks} chunks`} />}
+      {drift && (
+        <p className="mt-1 rounded-lg bg-primary/10 px-3 py-2 text-xs leading-relaxed text-primary">
+          Config now uses{" "}
+          <b>
+            {embedding.provider} · {embedding.model}
+          </b>
+          , but the index was built with <b>{built}</b>. Rebuild to apply the new model.
+        </p>
+      )}
+      <p className="mt-1 text-xs leading-relaxed text-base-content/35">
+        Runs on your home computer; embedding vectors are model-specific and can’t be reused, so
+        changing the model requires re-embedding every note. Your Markdown files are untouched.
+        {cost && (
+          <>
+            {" "}
+            Estimated embedding cost: <b>{cost}</b> ({chunks} chunks with {embedding.model}).
+            Summaries are regenerated too, billed at the Summary provider’s rate.
+          </>
+        )}{" "}
+        Progress shows on the Status page.
+      </p>
+      <div className="mt-2 flex justify-end">
+        <button
+          className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-[13.5px] font-semibold text-primary-content transition-colors hover:bg-primary/90 disabled:opacity-50"
+          disabled={busy}
+          onClick={() => void api.rebuildIndex()}
+        >
+          {busy && <Spinner size={13} />}
+          {busy ? "Starting…" : "Rebuild & reindex"}
+        </button>
+      </div>
+    </Section>
+  );
+}
+
 export function WebSettingsView() {
   const api = useKbStoreApi();
   const config = useKbStore((s) => s.state.config);
@@ -54,6 +119,8 @@ export function WebSettingsView() {
 
   useEffect(() => {
     void api.loadConfig();
+    // The rebuild card's drift/cost figures come from kb.status.
+    void api.loadStatus({ silent: true });
   }, [api]);
 
   return (
@@ -99,8 +166,9 @@ export function WebSettingsView() {
             <WebAiEndpointEditor
               section="embedding"
               title="Embedding — turns notes into search vectors (required)"
-              note="Switching provider or model changes the vector space — run “Rebuild & reindex” from the desktop app or `homekb rebuild --force` on the home computer afterwards."
+              note="Switching provider or model changes the vector space — run “Rebuild & reindex” below afterwards."
             />
+            <WebRebuildCard />
             <WebAiEndpointEditor
               section="summary"
               title="Summary — compile-time summaries and categories (required)"

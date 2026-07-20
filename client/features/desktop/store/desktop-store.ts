@@ -109,11 +109,6 @@ interface DesktopState {
   tunnelManaged: boolean;
   tunnelBusy: boolean;
 
-  // Status: compile scheduler (com.homekb.compile LaunchAgent)
-  schedulerRunning: boolean;
-  schedulerManaged: boolean;
-  schedulerBusy: boolean;
-
   // Remote: paired devices (relay grants)
   grants: RelayGrant[];
   grantsLoaded: boolean;
@@ -157,9 +152,6 @@ export class DesktopStore extends ZenithStore<DesktopState> {
       tunnelRunning: false,
       tunnelManaged: false,
       tunnelBusy: false,
-      schedulerRunning: false,
-      schedulerManaged: false,
-      schedulerBusy: false,
       grants: [],
       grantsLoaded: false,
       grantsError: null,
@@ -203,16 +195,11 @@ export class DesktopStore extends ZenithStore<DesktopState> {
       });
       await invoke<string>("serve_ensure");
       engine = await invoke<EngineStatus>("engine_status");
-      const [tunnel, scheduler] = await Promise.all([
-        invoke<DaemonStatus>("tunnel_status"),
-        invoke<DaemonStatus>("compile_status"),
-      ]);
+      const tunnel = await invoke<DaemonStatus>("tunnel_status");
       this.produce((d) => {
         d.engine = engine;
         d.tunnelRunning = tunnel.running;
         d.tunnelManaged = tunnel.managed;
-        d.schedulerRunning = scheduler.running;
-        d.schedulerManaged = scheduler.managed;
         d.phase = "ready";
       });
     } catch (e) {
@@ -226,17 +213,14 @@ export class DesktopStore extends ZenithStore<DesktopState> {
   public async refreshEngine() {
     try {
       const engine = await invoke<EngineStatus>("engine_status");
-      const [tunnel, scheduler, indexStats] = await Promise.all([
+      const [tunnel, indexStats] = await Promise.all([
         invoke<DaemonStatus>("tunnel_status"),
-        invoke<DaemonStatus>("compile_status"),
         invoke<IndexStats>("index_stats").catch(() => null),
       ]);
       this.produce((d) => {
         d.engine = engine;
         d.tunnelRunning = tunnel.running;
         d.tunnelManaged = tunnel.managed;
-        d.schedulerRunning = scheduler.running;
-        d.schedulerManaged = scheduler.managed;
         d.indexStats = indexStats;
       });
     } catch (e) {
@@ -559,40 +543,9 @@ export class DesktopStore extends ZenithStore<DesktopState> {
     }
   }
 
-  // ---------- Compile scheduler (Status card, design 6a/6b) ----------
-  public async refreshScheduler() {
-    try {
-      const scheduler = await invoke<DaemonStatus>("compile_status");
-      this.produce((d) => {
-        d.schedulerRunning = scheduler.running;
-        d.schedulerManaged = scheduler.managed;
-      });
-    } catch {
-      // Non-fatal: the card simply keeps its last known state.
-    }
-  }
-
-  public async toggleScheduler() {
-    if (this.state.schedulerBusy) return;
-    this.produce((d) => {
-      d.schedulerBusy = true;
-    });
-    try {
-      await invoke(this.state.schedulerManaged ? "compile_stop" : "compile_start");
-      const scheduler = await invoke<DaemonStatus>("compile_status");
-      this.produce((d) => {
-        d.schedulerBusy = false;
-        d.schedulerRunning = scheduler.running;
-        d.schedulerManaged = scheduler.managed;
-      });
-    } catch (e) {
-      this.produce((d) => {
-        d.schedulerBusy = false;
-      });
-      this.flash(invokeErrorMessage(e, "Scheduler operation failed"));
-      void this.refreshScheduler();
-    }
-  }
+  // The compile scheduler is no longer managed here: the Status page's shared
+  // ScheduleCard drives it over RPC (`kb.scheduleGet`/`kb.scheduleSet` against
+  // local serve) on every platform — docs "RPC methods".
 
   // ---------- Paired devices (relay grants, design 7b) ----------
   public async loadGrants() {
