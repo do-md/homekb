@@ -66,9 +66,10 @@ function ConnBadge() {
 /**
  * Primary dot on the Settings tab while the engine still lacks a required AI key
  * ([embedding] or [summary]) — the quiet nudge that pairs with the full
- * "Add your AI keys" guide on the Search screen. Desktop only: it is rendered
- * solely for the Settings tab, which itself only exists in desktop mode, so the
- * DesktopStore provider is always mounted when this runs.
+ * "Add your AI keys" guide on the Search screen. Desktop only: the Settings tab
+ * now renders on all platforms (docs "Settings over RPC"), so the caller gates
+ * this badge on desktop mode — the DesktopStore provider it reads only mounts
+ * there.
  */
 function SettingsBadge() {
   const needsSetup = useDesktopStore((s) => s.aiSetupNeeded);
@@ -102,7 +103,8 @@ function Header() {
   const desktop = useKbStore((s) => s.state.desktop);
   const active = activeTab(pathname);
 
-  const items = NAV.filter((n) => (desktop ? true : n.href !== "/settings"));
+  // Settings renders on all platforms now (docs "Settings over RPC").
+  const items = NAV;
 
   const goTab = (href: string) => {
     if (href === active) {
@@ -118,8 +120,11 @@ function Header() {
   };
 
   const goCompose = () => {
-    // Entering compose resumes the in-progress buffer (clears stale banners).
-    api.composeResume();
+    // "New note" is always a blank canvas — never resurrect a previously
+    // opened draft / edited note left in the compose buffer. In-progress work
+    // is auto-stashed to the Drafts list on view-switch, so nothing is lost;
+    // the user resumes it explicitly from Drafts (`/new#draft=<id>`), not here.
+    api.composeNew();
     router.push("/new");
   };
 
@@ -148,7 +153,8 @@ function Header() {
                 <span className="relative flex">
                   <Icon size={16} strokeWidth={1.7} />
                   {href === "/remote" && <ConnBadge />}
-                  {href === "/settings" && <SettingsBadge />}
+                  {/* Badge reads the DesktopStore — its provider only mounts in desktop mode. */}
+                  {href === "/settings" && desktop && <SettingsBadge />}
                 </span>
                 {/* No fade on the label: full-opacity text is revealed/clipped by the
                     animating width — a fade reads as sluggish color change here. */}

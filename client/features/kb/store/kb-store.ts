@@ -8,8 +8,12 @@ import {
   getConnection,
 } from "@/lib/client/connection";
 import { stripHash } from "@/lib/client/hash-route";
-import { isDesktop } from "@/lib/client/desktop";
+import { isDesktop, type AiSection } from "@/lib/client/desktop";
 import { checkHealth, RelayError, rpc, rpcAskStream } from "@/lib/client/rpc";
+import {
+  emptyAiEndpointDraft,
+  type AiEndpointDraft,
+} from "../components/ai-endpoint-editor";
 import type {
   AskStage,
   ConnState,
@@ -17,6 +21,7 @@ import type {
   DocMeta,
   Draft,
   KbAnswer,
+  KbConfigData,
   KbHit,
   KbStatusData,
   KbSuggestion,
@@ -194,6 +199,14 @@ interface KbState {
   status: KbStatusData | null;
   statusLoading: boolean;
   actionNotice: string | null;
+
+  // settings (web Settings surface over RPC — docs "Settings over RPC";
+  // the desktop Settings uses Tauri commands + DesktopStore instead)
+  config: KbConfigData | null;
+  configLoading: boolean;
+  configError: string | null;
+  aiDrafts: Record<AiSection, AiEndpointDraft>;
+  aiBusy: AiSection | null;
 }
 
 const memo = createMemo<KbStore>();
@@ -274,6 +287,15 @@ export class KbStore extends ZenithStore<KbState> {
       status: null,
       statusLoading: false,
       actionNotice: null,
+      config: null,
+      configLoading: false,
+      configError: null,
+      aiDrafts: {
+        embedding: emptyAiEndpointDraft(),
+        summary: emptyAiEndpointDraft(),
+        ask: emptyAiEndpointDraft(),
+      },
+      aiBusy: null,
     });
   }
 
@@ -809,7 +831,10 @@ export class KbStore extends ZenithStore<KbState> {
     persistCompose(null);
   }
 
-  /** Re-enter the compose tab keeping whatever session was in progress. */
+  /** Return to an in-progress compose *keeping* the current buffer — only for
+   *  "Back" out of the Drafts list (the user peeked at drafts, not abandoned
+   *  their note). The header "New note" (+) entry uses composeNew() instead:
+   *  New note is always blank (see shell.tsx goCompose). */
   public composeResume() {
     this.produce((d) => {
       d.newSavedPath = null;
@@ -1154,6 +1179,94 @@ export class KbStore extends ZenithStore<KbState> {
       setTimeout(() => void this.loadStatus({ silent: true }), 1500);
     } catch (e) {
       this.flash(e instanceof Error ? e.message : "Failed to trigger reindex");
+    }
+  }
+
+  // ---------- Settings (web surface over RPC — docs "Settings over RPC") ----------
+  /** Masked config summary from the home (`kb.configGet`) — never contains a key. */
+  public async loadConfig() {
+    this.produce((d) => {
+      d.configLoading = true;
+      d.configError = null;
+    });
+    try {
+      const res = await rpc<KbConfigData>("kb.configGet", {});
+      this.produce((d) => {
+        d.config = res;
+        d.configLoading = false;
+      });
+    } catch (e) {
+      this.produce((d) => {
+        d.configLoading = false;
+        d.configError = e instanceof Error ? e.message : "Failed to load settings";
+      });
+    }
+  }
+
+  public setAiDraft(section: AiSection, patch: Partial<AiEndpointDraft>) {
+    this.produce((d) => {
+      d.aiDrafts[section] = { ...d.aiDrafts[section], ...patch };
+    });
+  }
+
+  /**
+   * Persist one config section on the home via `kb.configSetAi`. Empty draft
+   * fields are omitted so the engine keeps the stored key / provider default
+   * model — subject to the key ↔ endpoint binding rule (a changed provider or
+   * base URL drops the stored key engine-side; see docs "Settings over RPC").
+   */
+  public async saveAiEndpoint(section: AiSection) {
+    const draft = this.state.aiDrafts[section];
+    const current = this.state.config?.ai?.[section];
+    const provider = (draft.provider || current?.provider || "openai").trim();
+    const dim = draft.dim.trim() ? Number.parseInt(draft.dim, 10) : null;
+    this.produce((d) => {
+      d.aiBusy = section;
+    });
+    try {
+      const res = await rpc<{ ai: KbConfigData["ai"] }>("kb.configSetAi", {
+        section,
+        provider,
+        apiKey: draft.apiKey.trim() || undefined,
+        model: draft.model.trim() || undefined,
+        baseUrl: draft.baseUrl.trim() || undefined,
+        dim: dim && Number.isFinite(dim) ? dim : undefined,
+      });
+      this.produce((d) => {
+        d.aiBusy = null;
+        d.aiDrafts[section] = emptyAiEndpointDraft();
+        if (d.config) d.config.ai = res.ai;
+      });
+      this.flash(`[${section}] saved on ${this.state.homeName || "your home computer"}`);
+    } catch (e) {
+      this.produce((d) => {
+        d.aiBusy = null;
+      });
+      this.flash(e instanceof Error ? e.message : "Save failed");
+    }
+  }
+
+  /** Delete [ask] — back to answering with the [summary] endpoint. */
+  public async resetAsk() {
+    this.produce((d) => {
+      d.aiBusy = "ask";
+    });
+    try {
+      const res = await rpc<{ ai: KbConfigData["ai"] }>("kb.configSetAi", {
+        section: "ask",
+        provider: "",
+      });
+      this.produce((d) => {
+        d.aiBusy = null;
+        d.aiDrafts.ask = emptyAiEndpointDraft();
+        if (d.config) d.config.ai = res.ai;
+      });
+      this.flash("Ask now uses the Summary endpoint");
+    } catch (e) {
+      this.produce((d) => {
+        d.aiBusy = null;
+      });
+      this.flash(e instanceof Error ? e.message : "Reset failed");
     }
   }
 

@@ -9,141 +9,34 @@
 
 import { useEffect } from "react";
 import { Spinner, StatusDot } from "@/features/kb/components/icons";
+import {
+  AiEndpointEditor,
+  SettingsRow as Row,
+  SettingsSection as Section,
+} from "@/features/kb/components/ai-endpoint-editor";
 import type { AiSection } from "@/lib/client/desktop";
 import { useDesktopStore, useDesktopStoreApi } from "../store/desktop-store";
 import { DesktopNotice } from "./notice";
 
-// Mirrors the engine preset table (docs "AI provider presets"). deepseek is
-// chat-only (no embeddings API); qwen = Alibaba DashScope compatible mode.
-const EMBEDDING_PROVIDERS = ["openai", "gemini", "voyage", "cohere", "qwen", "custom"] as const;
-const CHAT_PROVIDERS = ["openai", "gemini", "deepseek", "qwen", "custom"] as const;
-
-const inputCls =
-  "min-w-0 flex-1 rounded-xl border border-base-300 bg-transparent px-3 py-2 font-mono text-[13px] text-base-content outline-none placeholder:text-base-content/45 focus:border-base-content/30";
-
-/** One [embedding]/[summary]/[ask] editor: provider select + key/model (+ custom fields). */
-function AiEndpointEditor({ section, title, note }: { section: AiSection; title: string; note?: string }) {
+/** Desktop binding of the shared editor: DesktopStore state + Tauri command save. */
+function DesktopAiEndpointEditor({ section, title, note }: { section: AiSection; title: string; note?: string }) {
   const api = useDesktopStoreApi();
   const current = useDesktopStore((s) => s.state.engine?.ai?.[section] ?? null);
   const draft = useDesktopStore((s) => s.state.aiDrafts[section]);
   const busy = useDesktopStore((s) => s.state.aiBusy === section);
 
-  const isAsk = section === "ask";
-  const providers = section === "embedding" ? EMBEDDING_PROVIDERS : CHAT_PROVIDERS;
-  // "" on ask = summary fallback (deletes the section on save)
-  const provider = draft.provider || (isAsk && !current?.configured ? "" : (current?.provider ?? "openai"));
-  const fallbackActive = isAsk && provider === "";
-  const dirty =
-    draft.apiKey.trim() !== "" ||
-    draft.model.trim() !== "" ||
-    draft.baseUrl.trim() !== "" ||
-    draft.dim.trim() !== "" ||
-    (draft.provider !== "" && draft.provider !== (current?.provider ?? "openai"));
-
   return (
-    <Section title={title}>
-      <Row
-        label="Current"
-        value={
-          fallbackActive ? (
-            "Uses the Summary endpoint"
-          ) : current?.keyPresent ? (
-            <span className="inline-flex items-center gap-1.5">
-              <span className="text-success">
-                <StatusDot className="h-1.5! w-1.5!" />
-              </span>
-              {current.provider} · {current.model}
-            </span>
-          ) : (
-            `${current?.provider ?? "openai"} · key missing`
-          )
-        }
-      />
-      <div className="mt-1.5 flex flex-col gap-2">
-        <select
-          className={inputCls}
-          value={provider}
-          onChange={(e) => api.setAiDraft(section, { provider: e.target.value })}
-        >
-          {isAsk && <option value="">Same as Summary (default)</option>}
-          {providers.map((p) => (
-            <option key={p} value={p}>
-              {p}
-            </option>
-          ))}
-        </select>
-        {!fallbackActive && (
-          <>
-            <input
-              type="password"
-              className={inputCls}
-              placeholder={current?.configured && draft.provider === "" ? "API key — blank keeps the stored key" : "API key — stored locally in config.toml"}
-              value={draft.apiKey}
-              onChange={(e) => api.setAiDraft(section, { apiKey: e.target.value })}
-              autoComplete="off"
-            />
-            <input
-              type="text"
-              className={inputCls}
-              placeholder={`Model — blank = ${provider === "custom" ? "required" : "provider default"}`}
-              value={draft.model}
-              onChange={(e) => api.setAiDraft(section, { model: e.target.value })}
-              autoComplete="off"
-            />
-            {provider === "custom" && (
-              <input
-                type="text"
-                className={inputCls}
-                placeholder="Base URL — any OpenAI-compatible endpoint"
-                value={draft.baseUrl}
-                onChange={(e) => api.setAiDraft(section, { baseUrl: e.target.value })}
-                autoComplete="off"
-              />
-            )}
-            {provider === "custom" && section === "embedding" && (
-              <input
-                type="text"
-                inputMode="numeric"
-                className={inputCls}
-                placeholder="Vector dimension (e.g. 1024)"
-                value={draft.dim}
-                onChange={(e) => api.setAiDraft(section, { dim: e.target.value })}
-                autoComplete="off"
-              />
-            )}
-          </>
-        )}
-        <div className="flex items-center justify-between gap-2">
-          {note ? <p className="text-xs leading-relaxed text-base-content/35">{note}</p> : <span />}
-          <button
-            className="flex shrink-0 items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-[13.5px] font-semibold text-primary-content transition-colors hover:bg-primary/90 disabled:opacity-50"
-            disabled={busy || (fallbackActive ? !current?.configured : !dirty)}
-            onClick={() => void (fallbackActive ? api.resetAsk() : api.saveAiEndpoint(section))}
-          >
-            {busy && <Spinner size={13} />}
-            Save
-          </button>
-        </div>
-      </div>
-    </Section>
-  );
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="rounded-xl border border-base-300 bg-base-200 p-4">
-      <div className="hk-label">{title}</div>
-      <div className="mt-3 flex flex-col gap-1.5">{children}</div>
-    </section>
-  );
-}
-
-function Row({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="flex items-baseline justify-between gap-4 text-[13.5px]">
-      <span className="shrink-0 text-base-content/45">{label}</span>
-      <span className="truncate text-right font-mono text-[12px] text-base-content/60">{value}</span>
-    </div>
+    <AiEndpointEditor
+      section={section}
+      title={title}
+      note={note}
+      current={current}
+      draft={draft}
+      busy={busy}
+      onDraft={(patch) => api.setAiDraft(section, patch)}
+      onSave={() => void api.saveAiEndpoint(section)}
+      onResetAsk={() => void api.resetAsk()}
+    />
   );
 }
 
@@ -341,17 +234,17 @@ export function SettingsView() {
           <Row label="Config" value={engine?.configPath ?? "–"} />
         </Section>
 
-        <AiEndpointEditor
+        <DesktopAiEndpointEditor
           section="embedding"
           title="Embedding — turns notes into search vectors (required)"
           note="Switching provider or model changes the vector space — a full reindex (rebuild) is required afterwards."
         />
         <RebuildIndexCard />
-        <AiEndpointEditor
+        <DesktopAiEndpointEditor
           section="summary"
           title="Summary — compile-time summaries and categories (required)"
         />
-        <AiEndpointEditor
+        <DesktopAiEndpointEditor
           section="ask"
           title="Ask — answers questions over your notes (optional)"
           note="Agents connected over MCP bring their own model; this only powers the built-in Q&A."

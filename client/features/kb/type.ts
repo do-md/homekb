@@ -17,6 +17,28 @@ export interface KbAnswer {
   hits?: KbHit[];
 }
 
+/** `kb.configGet` result (docs "Settings over RPC") — masked, never a key. */
+export interface KbConfigData {
+  root: string;
+  notesDir: string;
+  configPath: string;
+  ai: {
+    embedding: KbAiEndpoint;
+    summary: KbAiEndpoint;
+    ask: KbAiEndpoint;
+  };
+}
+
+export interface KbAiEndpoint {
+  provider: string;
+  model: string;
+  keyPresent: boolean;
+  /** Whether the section exists in config.toml ([ask]: false = summary fallback). */
+  configured: boolean;
+  baseUrl?: string;
+  dim?: number;
+}
+
 export interface KbStatusData {
   available?: boolean;
   generation?: number;
