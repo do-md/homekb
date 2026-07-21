@@ -464,6 +464,59 @@ pub fn serve_health() -> bool {
     String::from_utf8_lossy(&buf[..n]).starts_with("HTTP/1.1 200")
 }
 
+/// Identity a running serve reports on `/health` (docs/ARCHITECTURE.md
+/// "HTTP RPC (homekb serve)"): the binary it is executing and that file's
+/// mtime as of process start. Both `None` on an engine predating the fields —
+/// the caller must treat that as a stale serve ("serve lifecycle").
+pub struct ServeIdentity {
+    pub bin_path: Option<String>,
+    pub bin_mtime: Option<u64>,
+}
+
+/// GET /health and parse the identity fields. `None` = no healthy serve on 8765.
+pub fn serve_probe() -> Option<ServeIdentity> {
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
+    use std::time::Duration;
+
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 8765));
+    let mut stream = TcpStream::connect_timeout(&addr, Duration::from_millis(300)).ok()?;
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(800)));
+    stream
+        .write_all(b"GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+        .ok()?;
+    let mut raw = Vec::new();
+    // Connection: close → EOF ends the response; a read timeout just leaves us
+    // with whatever arrived (the body is a tiny JSON object, one packet).
+    let _ = stream.read_to_end(&mut raw);
+    let text = String::from_utf8_lossy(&raw);
+    if !text.starts_with("HTTP/1.1 200") {
+        return None;
+    }
+    let body = text.split("\r\n\r\n").nth(1)?;
+    let v: serde_json::Value = serde_json::from_str(body.trim()).ok()?;
+    if v.get("ok").and_then(|b| b.as_bool()) != Some(true) {
+        return None;
+    }
+    Some(ServeIdentity {
+        bin_path: v
+            .get("binPath")
+            .and_then(|s| s.as_str())
+            .map(str::to_string),
+        bin_mtime: v.get("binMtime").and_then(|n| n.as_u64()),
+    })
+}
+
+/// Epoch-seconds mtime of a file — the freshness token the serve identity
+/// check compares against (docs "serve lifecycle").
+pub fn file_mtime_secs(p: &Path) -> Option<u64> {
+    fs::metadata(p)
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+}
+
 /// Run an engine CLI subcommand; returns stdout on success or the last few stderr lines on failure.
 pub fn run_cli(bin: &Path, args: &[&str]) -> Result<String, String> {
     let out = Command::new(bin)

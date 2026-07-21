@@ -3,7 +3,7 @@
 //! POST /rpc {method, params} → {ok, result} | {ok:false, error, message}
 //! GET  /assets/<path>        → streams a file under <root>/assets/
 //! POST /assets/<path>        → asset upload (raw bytes → final path)
-//! GET  /health               → {ok:true} (always unauthenticated)
+//! GET  /health               → {ok:true, version, binPath, binMtime} (always unauthenticated)
 //!
 //! Bind address decides the mode:
 //! - loopback (default 127.0.0.1): no auth, fixed CORS allowlist — desktop data source.
@@ -127,7 +127,17 @@ pub fn run(host: Option<String>, port: Option<u16>) -> Result<()> {
                     // Uploads are raw image/attachment bytes — axum's 2 MB default is far too small.
                     .layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES)),
             )
-            .route("/health", get(|| async { Json(json!({ "ok": true })) }))
+            .route("/health", {
+                // Identity is captured once at startup on purpose: binMtime must be
+                // the mtime of the binary this process is *executing*, not whatever
+                // lands at that path later — the whole point is that a prober can
+                // compare it against the file's current mtime to spot a stale image.
+                let health = health_identity();
+                get(move || {
+                    let body = health.clone();
+                    async move { Json(body) }
+                })
+            })
             .layer(cors)
             .with_state(state);
         let listener = tokio::net::TcpListener::bind((ip, port)).await?;
@@ -144,6 +154,26 @@ pub fn run(host: Option<String>, port: Option<u16>) -> Result<()> {
         .await?;
         Ok(())
     })
+}
+
+/// `/health` payload with the identity fields (docs/ARCHITECTURE.md `GET /health`):
+/// engine version + the serving binary's path + that file's mtime as of process
+/// start. The desktop shell compares binMtime against the on-disk binary to detect
+/// a serve still executing a replaced binary's stale in-memory image (the aftermath
+/// of every rm+cp engine upgrade — see "serve lifecycle").
+fn health_identity() -> Value {
+    let mut body = json!({ "ok": true, "version": env!("CARGO_PKG_VERSION") });
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(mtime) = std::fs::metadata(&exe)
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        {
+            body["binPath"] = json!(exe.to_string_lossy());
+            body["binMtime"] = json!(mtime.as_secs());
+        }
+    }
+    body
 }
 
 fn generate_serve_token() -> Result<String> {

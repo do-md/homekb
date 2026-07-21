@@ -205,14 +205,81 @@ fn spawn_serve() -> Result<String, String> {
     Err("homekb serve did not become ready within 5 seconds (see ~/Library/Logs/HomeKB/serve.log)".to_string())
 }
 
-/// Already running (external process) → attach; not running → spawn child and wait for healthy.
+/// A healthy serve is *stale* when it is executing a replaced binary's old
+/// in-memory image (docs/ARCHITECTURE.md "serve lifecycle"): identity fields
+/// absent (pre-identity engine), or it reports the same binary path as the
+/// shell's engine but a different mtime than the file on disk. A serve running
+/// a *different* binary path is a deliberate dev build — left alone.
+fn serve_is_stale(id: &engine::ServeIdentity) -> bool {
+    let Some(bin) = engine::engine_path() else {
+        // No engine on disk to compare against (or to respawn with) — attach as-is.
+        return false;
+    };
+    let (Some(reported), Some(reported_mtime)) = (id.bin_path.as_deref(), id.bin_mtime) else {
+        // Pre-identity engine: by definition older than the shell's contract.
+        return true;
+    };
+    let reported = std::path::Path::new(reported);
+    let same_binary = match (std::fs::canonicalize(reported), std::fs::canonicalize(&bin)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => reported == bin.as_path(),
+    };
+    same_binary && engine::file_mtime_secs(&bin) != Some(reported_mtime)
+}
+
+/// Take over a stale external serve on 8765 (docs "serve lifecycle"): pid via
+/// lsof, TERM, wait for the port to free, KILL as a last resort. Absolute tool
+/// paths — the GUI process PATH is minimal.
+fn kill_stale_serve() -> Result<(), String> {
+    let out = Command::new("/usr/sbin/lsof")
+        .args(["-ti", "tcp:8765", "-sTCP:LISTEN"])
+        .output()
+        .map_err(|e| format!("cannot run lsof: {e}"))?;
+    let pids: Vec<String> = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect();
+    if pids.is_empty() {
+        return Ok(());
+    }
+    for sig in ["-TERM", "-KILL"] {
+        for pid in &pids {
+            let _ = Command::new("/bin/kill").args([sig, pid]).status();
+        }
+        for _ in 0..10 {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            if !engine::serve_health() {
+                return Ok(());
+            }
+        }
+    }
+    Err("could not stop the stale homekb serve on port 8765".to_string())
+}
+
+/// Not running → spawn child and wait for healthy. Running and fresh (external
+/// process) → attach. Running but stale → take over: kill + respawn, so a serve
+/// started before an engine upgrade can never keep serving an old protocol
+/// (the desktop would render answers but no note list — see "serve lifecycle").
 #[tauri::command]
 async fn serve_ensure() -> Result<String, String> {
-    blocking(|| {
-        if engine::serve_health() {
-            return Ok("external".to_string());
+    blocking(|| match engine::serve_probe() {
+        None => spawn_serve(),
+        Some(id) if serve_is_stale(&id) => {
+            // Reclaim an owned child first (kill via the handle so it is waited
+            // on, not zombied), then sweep whatever external listener remains.
+            {
+                let mut procs = PROCS.lock().unwrap();
+                if let Some(mut c) = procs.serve.take() {
+                    let _ = c.kill();
+                    let _ = c.wait();
+                }
+            }
+            kill_stale_serve()?;
+            spawn_serve()?;
+            Ok("replaced_stale".to_string())
         }
-        spawn_serve()
+        Some(_) => Ok("external".to_string()),
     })
     .await
 }
