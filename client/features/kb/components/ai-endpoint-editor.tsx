@@ -93,15 +93,20 @@ export function AiEndpointEditor({
   const { t } = useTranslation();
   const isAsk = section === "ask";
   const providers = section === "embedding" ? EMBEDDING_PROVIDERS : CHAT_PROVIDERS;
-  // "" on ask = summary fallback (deletes the section on save)
-  const provider = draft.provider || (isAsk && !current?.configured ? "" : (current?.provider ?? "openai"));
+  // Unconfigured means unconfigured (docs): an unconfigured section starts
+  // with NO provider selected — the engine's effective default (openai) is a
+  // fill-in, never an active choice, and must not be presented as one.
+  // "" on ask = summary fallback (deletes the section on save).
+  const provider = draft.provider || (current?.configured ? (current?.provider ?? "openai") : "");
   const fallbackActive = isAsk && provider === "";
+  const unchosen = !isAsk && provider === "";
   const dirty =
     draft.apiKey.trim() !== "" ||
     draft.model.trim() !== "" ||
     draft.baseUrl.trim() !== "" ||
     draft.dim.trim() !== "" ||
-    (draft.provider !== "" && draft.provider !== (current?.provider ?? "openai"));
+    (draft.provider !== "" &&
+      (!current?.configured || draft.provider !== (current?.provider ?? "openai")));
 
   return (
     <SettingsSection title={title}>
@@ -110,6 +115,8 @@ export function AiEndpointEditor({
         value={
           fallbackActive ? (
             t("aiEndpoint.usesSummary")
+          ) : !current?.configured ? (
+            t("aiEndpoint.notConfigured")
           ) : current?.keyPresent ? (
             <span className="inline-flex items-center gap-1.5">
               <span className="text-success">
@@ -129,13 +136,18 @@ export function AiEndpointEditor({
           onChange={(e) => onDraft({ provider: e.target.value })}
         >
           {isAsk && <option value="">{t("aiEndpoint.sameAsSummary")}</option>}
+          {!isAsk && !current?.configured && (
+            <option value="" disabled>
+              {t("aiEndpoint.chooseProvider")}
+            </option>
+          )}
           {providers.map((p) => (
             <option key={p} value={p}>
               {p}
             </option>
           ))}
         </select>
-        {!fallbackActive && (
+        {!fallbackActive && !unchosen && (
           <>
             <input
               type="password"
@@ -188,7 +200,7 @@ export function AiEndpointEditor({
           {note ? <p className="text-xs leading-relaxed text-base-content/35">{note}</p> : <span />}
           <button
             className="flex shrink-0 items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-[13.5px] font-semibold text-primary-content transition-colors hover:bg-primary/90 disabled:opacity-50"
-            disabled={busy || (fallbackActive ? !current?.configured : !dirty)}
+            disabled={busy || unchosen || (fallbackActive ? !current?.configured : !dirty)}
             onClick={() => void (fallbackActive ? onResetAsk?.() : onSave())}
           >
             {busy && <Spinner size={13} />}

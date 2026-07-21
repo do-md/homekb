@@ -51,6 +51,9 @@ export interface KbStatusData {
   lastCompileHost?: string | null;
   embeddingModel?: string | null;
   embeddingProvider?: string | null;
+  /** False = no [embedding] endpoint configured on the home yet (fresh
+   * setup): compile idles; render "not configured", never a preset default. */
+  aiConfigured?: boolean;
 }
 
 /**
