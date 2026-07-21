@@ -104,6 +104,20 @@ Your Markdown files now stay on the home computer while the paired browser can s
 
 ---
 
+## Desktop app for macOS
+
+Prefer a native window on the Mac that hosts your knowledge base? [Download the latest HomeKB desktop app](https://github.com/do-md/homekb/releases/latest/download/HomeKB_aarch64.dmg). The current desktop release supports Apple Silicon Macs; the engine and Web UI remain the primary cross-platform path.
+
+The desktop app is a native shell over the same local engine and interface:
+
+- If HomeKB Engine is already installed through Homebrew, the install script, or another supported location, the app finds and reuses it — no duplicate engine is installed.
+- If no engine is found, the app downloads the latest compatible engine, installs it locally, and starts it for you.
+- App updates arrive through the built-in updater, while engine updates can be checked and installed separately from **Settings**.
+
+Your notes, index, and AI credentials stay in the same local HomeKB directories whether you use the desktop app, CLI, or Web UI.
+
+---
+
 ## Use it from the CLI
 
 The browser-first path needs no manual initialization. Use `homekb init` when you want to configure providers in the terminal or point HomeKB at an existing Markdown directory:
