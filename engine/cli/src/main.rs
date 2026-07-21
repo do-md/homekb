@@ -128,8 +128,33 @@ enum Cmd {
         /// Markdown file to import; omit to read stdin.
         file: Option<PathBuf>,
     },
-    /// Local MCP server over stdio (for Claude Code / Codex: `claude mcp add homekb -- homekb mcp`).
-    Mcp,
+    /// Local MCP server over stdio (for Claude Code / Codex).
+    ///
+    /// No flag = run the server (this is what the agent launches).
+    /// --install/--uninstall manage the registration in agent CLIs using this
+    /// binary's ABSOLUTE path (agent MCP launchers don't necessarily share the
+    /// shell's PATH; a bare `homekb` registration fails to connect). Omit the
+    /// AGENT value to target every supported agent CLI found on PATH.
+    Mcp {
+        /// Register this engine as an MCP server in an agent CLI (claude, codex).
+        #[arg(
+            long,
+            value_name = "AGENT",
+            num_args = 0..=1,
+            default_missing_value = "auto",
+            group = "mcp_mode"
+        )]
+        install: Option<commands::mcp::McpAgent>,
+        /// Remove the `homekb` MCP registration from an agent CLI (claude, codex).
+        #[arg(
+            long,
+            value_name = "AGENT",
+            num_args = 0..=1,
+            default_missing_value = "auto",
+            group = "mcp_mode"
+        )]
+        uninstall: Option<commands::mcp::McpAgent>,
+    },
     /// HTTP RPC + /assets. Loopback bind (default) = desktop data source, no auth;
     /// a non-loopback --host enables the authenticated public bind (Bearer serveToken).
     Serve {
@@ -281,10 +306,15 @@ fn main() -> Result<()> {
             init_tracing(true);
             commands::new::run(title, file)
         }
-        Cmd::Mcp => {
-            // stdout is the MCP protocol channel; logging goes to stderr only (quiet)
+        Cmd::Mcp { install, uninstall } => {
+            // stdout is the MCP protocol channel (server mode) / result lines
+            // (management mode); logging goes to stderr only (quiet)
             init_tracing(true);
-            commands::mcp::run()
+            match (install, uninstall) {
+                (Some(agent), _) => commands::mcp::run_install(agent),
+                (_, Some(agent)) => commands::mcp::run_uninstall(agent),
+                _ => commands::mcp::run(),
+            }
         }
         Cmd::Serve { host, port } => {
             init_tracing(false);

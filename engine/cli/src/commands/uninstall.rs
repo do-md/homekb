@@ -81,6 +81,9 @@ pub fn run(yes: bool) -> Result<()> {
     if cfg!(target_os = "macos") {
         println!("  - stop + remove launchd services (com.homekb.tunnel, com.homekb.compile)");
     }
+    if super::mcp::any_agent_cli_on_path() {
+        println!("  - remove the `homekb` MCP registration from agent CLIs (claude, codex)");
+    }
     for f in &working_files {
         println!("  - delete {}", f.display());
     }
@@ -117,6 +120,9 @@ pub fn run(yes: bool) -> Result<()> {
 
     // Compile service is independent of registration — remove it either way.
     remove_service_if_present(Service::Compile);
+
+    // No dangling dead MCP server after the binary is gone (best-effort).
+    super::mcp::deregister_all_quiet();
 
     for f in &working_files {
         remove_file_reporting(f);

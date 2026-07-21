@@ -149,17 +149,13 @@ HomeKB exposes the same tools to every MCP client:
 
 `kb_search` · `kb_read` · `kb_create` · `kb_update` · `kb_list` · `kb_status` · `kb_share`
 
-Claude Code:
+One command registers the engine with Claude Code and Codex (whichever is installed):
 
 ```bash
-claude mcp add homekb -- homekb mcp
+homekb mcp --install
 ```
 
-Codex:
-
-```bash
-codex mcp add homekb -- homekb mcp
-```
+Pass a value to target one agent (`homekb mcp --install claude` / `codex`); `homekb mcp --uninstall` removes the registration again. The engine registers its own absolute path, so it works even when `~/.local/bin` isn't on the agent's PATH — registering the bare `homekb` command by hand is the classic way to get an opaque "Failed to connect".
 
 This local MCP server runs over stdio and calls the engine directly. No connection service is involved.
 

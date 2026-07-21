@@ -4,15 +4,229 @@
 //! docs/ARCHITECTURE.md "MCP tools"); every tool maps onto the shared
 //! [`homekb_core::dispatch`] RPC dispatcher.
 //!
-//! Wire in Claude Code: `claude mcp add homekb -- homekb mcp`
+//! Wire in with one command: `homekb mcp --install` (registers this binary by
+//! ABSOLUTE path in `claude` / `codex` — agent MCP launchers don't necessarily
+//! share the shell's PATH, so a bare `homekb` registration fails with an opaque
+//! "Failed to connect"). See docs/ARCHITECTURE.md "CLI".
 
-use anyhow::Result;
+use anyhow::{Context, Result, bail};
 use homekb_core::Config;
 use serde_json::{Value, json};
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 const PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
 const DEFAULT_PROTOCOL: &str = "2025-03-26";
+
+/// Target for `homekb mcp --install/--uninstall`.
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum McpAgent {
+    /// Every supported agent CLI found on PATH (the bare-flag default).
+    #[value(hide = true)]
+    Auto,
+    /// Claude Code (`claude mcp add`, user scope).
+    Claude,
+    /// Codex CLI (`codex mcp add`).
+    Codex,
+}
+
+/// `homekb mcp --install [AGENT]` — register this binary as an MCP server.
+///
+/// Always registers the engine's ABSOLUTE path (`current_exe`, kept as launched
+/// so a Homebrew symlink stays stable across upgrades), never the bare command:
+/// the agent's MCP launcher does not necessarily share the shell's PATH (e.g.
+/// `~/.local/bin` is missing from a GUI-launched agent), and a bare-command
+/// registration then fails with an opaque "Failed to connect".
+pub fn run_install(agent: McpAgent) -> Result<()> {
+    let exe = current_exe_str()?;
+    let mut installed = 0;
+    for target in resolve_targets(agent)? {
+        match target {
+            McpAgent::Claude => {
+                let cli = require_cli("claude", agent, &manual_claude(&exe))?;
+                let Some(cli) = cli else { continue };
+                // Best-effort remove first so a re-run is idempotent (a stale
+                // path from a previous install location would otherwise stick).
+                let _ = run_cli(&cli, &["mcp", "remove", "homekb", "-s", "user"]);
+                run_cli_checked(
+                    &cli,
+                    &["mcp", "add", "homekb", "-s", "user", "--", &exe, "mcp"],
+                )?;
+                println!("Claude Code: registered `homekb` (user scope) -> {exe} mcp");
+                println!("  New Claude Code sessions pick it up automatically.");
+                installed += 1;
+            }
+            McpAgent::Codex => {
+                let cli = require_cli("codex", agent, &manual_codex(&exe))?;
+                let Some(cli) = cli else { continue };
+                let _ = run_cli(&cli, &["mcp", "remove", "homekb"]);
+                run_cli_checked(&cli, &["mcp", "add", "homekb", "--", &exe, "mcp"])?;
+                println!("Codex: registered `homekb` -> {exe} mcp");
+                installed += 1;
+            }
+            McpAgent::Auto => unreachable!("resolve_targets never yields Auto"),
+        }
+    }
+    if installed == 0 {
+        bail!(
+            "no supported agent CLI (claude, codex) found on PATH. Register manually:\n  {}\n  {}",
+            manual_claude(&exe),
+            manual_codex(&exe)
+        );
+    }
+    Ok(())
+}
+
+/// `homekb mcp --uninstall [AGENT]` — remove the registration again.
+pub fn run_uninstall(agent: McpAgent) -> Result<()> {
+    let mut removed = 0;
+    for target in resolve_targets(agent)? {
+        let (name, args): (&str, &[&str]) = match target {
+            McpAgent::Claude => ("claude", &["mcp", "remove", "homekb", "-s", "user"]),
+            McpAgent::Codex => ("codex", &["mcp", "remove", "homekb"]),
+            McpAgent::Auto => unreachable!("resolve_targets never yields Auto"),
+        };
+        let manual = format!("{name} mcp remove homekb");
+        let Some(cli) = require_cli(name, agent, &manual)? else { continue };
+        // "not registered" is a fine outcome for an uninstall — stay quiet on failure.
+        match run_cli(&cli, args) {
+            Ok(out) if out.status.success() => {
+                println!("{}: removed the `homekb` MCP registration", agent_label(target));
+                removed += 1;
+            }
+            _ => println!("{}: no `homekb` MCP registration found", agent_label(target)),
+        }
+    }
+    if removed == 0 {
+        println!("Nothing removed.");
+    }
+    Ok(())
+}
+
+/// Best-effort removal from every agent CLI on PATH — used by `homekb uninstall`
+/// so no dangling dead MCP server outlives the binary. Never fails.
+pub fn deregister_all_quiet() {
+    for (name, args) in [
+        ("claude", ["mcp", "remove", "homekb", "-s", "user"].as_slice()),
+        ("codex", ["mcp", "remove", "homekb"].as_slice()),
+    ] {
+        if let Some(cli) = find_on_path(name) {
+            let _ = run_cli(&cli, args);
+        }
+    }
+}
+
+/// True when at least one supported agent CLI is on PATH (for uninstall's plan).
+pub fn any_agent_cli_on_path() -> bool {
+    find_on_path("claude").is_some() || find_on_path("codex").is_some()
+}
+
+fn agent_label(a: McpAgent) -> &'static str {
+    match a {
+        McpAgent::Claude => "Claude Code",
+        McpAgent::Codex => "Codex",
+        McpAgent::Auto => "auto",
+    }
+}
+
+fn manual_claude(exe: &str) -> String {
+    format!("claude mcp add homekb -s user -- {exe} mcp")
+}
+
+fn manual_codex(exe: &str) -> String {
+    format!("codex mcp add homekb -- {exe} mcp")
+}
+
+fn current_exe_str() -> Result<String> {
+    let exe = std::env::current_exe().context("cannot resolve the engine's own path")?;
+    Ok(exe.to_string_lossy().into_owned())
+}
+
+/// Explicit agent -> just that one; Auto -> every agent whose CLI is on PATH.
+fn resolve_targets(agent: McpAgent) -> Result<Vec<McpAgent>> {
+    Ok(match agent {
+        McpAgent::Claude => vec![McpAgent::Claude],
+        McpAgent::Codex => vec![McpAgent::Codex],
+        McpAgent::Auto => [McpAgent::Claude, McpAgent::Codex]
+            .into_iter()
+            .filter(|a| {
+                let name = match a {
+                    McpAgent::Claude => "claude",
+                    _ => "codex",
+                };
+                find_on_path(name).is_some()
+            })
+            .collect(),
+    })
+}
+
+/// Resolve the agent CLI. Explicit request + missing CLI = hard error with the
+/// manual command; Auto mode skips silently (resolve_targets already filtered,
+/// so a miss here is a race at worst).
+fn require_cli(name: &str, requested: McpAgent, manual: &str) -> Result<Option<PathBuf>> {
+    match find_on_path(name) {
+        Some(p) => Ok(Some(p)),
+        None if requested == McpAgent::Auto => Ok(None),
+        None => bail!("`{name}` CLI not found on PATH. Register manually:\n  {manual}"),
+    }
+}
+
+/// PATH lookup without executing anything (also honours Windows .exe/.cmd/.bat).
+fn find_on_path(name: &str) -> Option<PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path) {
+        if dir.as_os_str().is_empty() {
+            continue;
+        }
+        let candidates: &[String] = if cfg!(windows) {
+            &[
+                format!("{name}.exe"),
+                format!("{name}.cmd"),
+                format!("{name}.bat"),
+                name.to_string(),
+            ]
+        } else {
+            &[name.to_string()]
+        };
+        for c in candidates {
+            let p = dir.join(c);
+            if p.is_file() {
+                return Some(p);
+            }
+        }
+    }
+    None
+}
+
+fn run_cli(cli: &Path, args: &[&str]) -> std::io::Result<std::process::Output> {
+    // Windows .cmd/.bat shims (npm installs) can't be spawned directly.
+    let ext = cli.extension().and_then(|e| e.to_str()).unwrap_or("");
+    if cfg!(windows) && matches!(ext.to_ascii_lowercase().as_str(), "cmd" | "bat") {
+        let mut cmd = Command::new("cmd");
+        cmd.arg("/C").arg(cli).args(args);
+        cmd.output()
+    } else {
+        Command::new(cli).args(args).output()
+    }
+}
+
+fn run_cli_checked(cli: &Path, args: &[&str]) -> Result<()> {
+    let out = run_cli(cli, args)
+        .with_context(|| format!("failed to run {}", cli.display()))?;
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let detail = if stderr.trim().is_empty() { stdout } else { stderr };
+        bail!(
+            "`{} {}` failed: {}",
+            cli.display(),
+            args.join(" "),
+            detail.trim()
+        );
+    }
+    Ok(())
+}
 
 pub fn run() -> Result<()> {
     let config = Config::load()?;
