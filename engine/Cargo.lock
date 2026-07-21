@@ -772,7 +772,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "homekb-cli"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -799,7 +799,7 @@ dependencies = [
 
 [[package]]
 name = "homekb-core"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "async-openai",
