@@ -1,0 +1,601 @@
+{
+  "common": {
+    "back": "返回",
+    "close": "关闭",
+    "open": "打开",
+    "retry": "重试",
+    "loading": "加载中",
+    "edit": "编辑",
+    "share": "分享",
+    "settings": "设置",
+    "copied": "已复制",
+    "copyLink": "复制链接"
+  },
+  "aiEndpoint": {
+    "current": "当前",
+    "usesSummary": "使用 Summary 端点",
+    "keyMissing": "{{provider}} · 未设置密钥",
+    "sameAsSummary": "与 Summary 相同（默认）",
+    "keyKeepPlaceholder": "API 密钥 — 留空则保留已存密钥",
+    "keyDefaultPlaceholder": "API 密钥 — 本地存储在 config.toml 中",
+    "modelPlaceholderCustom": "模型 — 必填",
+    "modelPlaceholderDefault": "模型 — 留空使用 provider 默认值",
+    "baseUrlPlaceholder": "Base URL — 任意 OpenAI 兼容端点",
+    "dimPlaceholder": "向量维度（如 1024）",
+    "save": "保存"
+  },
+  "compose": {
+    "newNote": "新建笔记",
+    "editNote": "编辑笔记",
+    "saveDraft": "保存草稿",
+    "saveToLibrary": "存入知识库",
+    "savedToLibrary": "已存入你的知识库",
+    "offlineDraftTooltip": "家中电脑离线——重新连接前，内容会保留在此设备上",
+    "offlineSaveTooltip": "家中电脑离线——重新连接后才能保存",
+    "editorPlaceholder": "开始书写——第一行会成为标题…",
+    "imageUploadFailed": "图片上传失败"
+  },
+  "composer": {
+    "send": "发送",
+    "notAvailable": "当前不可用",
+    "entryPlaceholder": "搜索笔记或随便提问 —— “旅行笔记”“怎么缓解背痛？”",
+    "followupPlaceholder": "继续追问…"
+  },
+  "desktop": {
+    "boot": {
+      "checking": "正在检测本地引擎…",
+      "installing": "首次运行：正在下载 HomeKB 引擎（几 MB）…",
+      "starting": "正在启动本地服务（homekb serve）…",
+      "fallback": "正在启动…"
+    },
+    "settings": {
+      "version": "版本",
+      "checking": "正在检查…",
+      "engine": {
+        "title": "引擎",
+        "unknown": "未知",
+        "binary": "二进制文件",
+        "notInstalled": "未安装",
+        "localService": "本地服务",
+        "running": "运行中 · 127.0.0.1:8765",
+        "notRunning": "未运行",
+        "available": "可用更新",
+        "updating": "正在更新…",
+        "updateTo": "更新到 {{version}}",
+        "checkUpdates": "检查引擎更新"
+      },
+      "data": {
+        "title": "数据目录 — 你的数据保存在这台电脑上",
+        "notes": "笔记",
+        "root": "数据根目录",
+        "config": "配置文件"
+      },
+      "ai": {
+        "embeddingTitle": "Embedding — 把笔记转换为检索向量（必需）",
+        "embeddingNote": "切换 provider 或模型会改变向量空间 — 之后需要完整重建索引。",
+        "summaryTitle": "Summary — 编译时生成摘要与类目（必需）",
+        "askTitle": "Ask — 基于你的笔记回答问题（可选）",
+        "askNote": "通过 MCP 连接的 Agent 使用自己的模型；这里只作用于内置问答。"
+      },
+      "index": {
+        "title": "索引 — 更换嵌入模型后需要重建",
+        "builtWith": "构建所用模型",
+        "noIndex": "还没有索引 — 请先运行编译",
+        "size": "规模",
+        "docsCount_other": "{{count}} 篇文档",
+        "chunksCount_other": "{{count}} 个文本块",
+        "drift": "配置现在使用 <b>{{config}}</b>，但索引是用 <b>{{built}}</b> 构建的。重建后新模型才会生效。",
+        "explain": "嵌入向量与模型绑定，无法复用 — 更换模型需要对每篇笔记重新嵌入。你的 Markdown 文件不会被改动。",
+        "costNote_other": "预计嵌入费用：<b>{{cost}}</b>（{{count}} 个文本块，使用 {{model}}）。摘要也会重新生成，按 Summary provider 的价格计费。",
+        "reindexing": "正在重建索引…（需要几分钟）",
+        "rebuildButton": "重建并重新索引"
+      },
+      "appearance": {
+        "title": "外观",
+        "theme": "主题",
+        "followsSystem": "跟随系统",
+        "note": "浅色与深色随系统自动切换 — 没有手动开关。"
+      }
+    },
+    "updater": {
+      "title": "应用更新",
+      "ready": "已就绪",
+      "readyValue": "{{version}} — 重启后生效",
+      "note": "更新会在后台下载并安装；HomeKB 会在下次启动时切换到新版本。",
+      "restartToUpdate": "重启以更新",
+      "checkForUpdates": "检查更新",
+      "bannerReady": "HomeKB {{version}} 已就绪",
+      "restart": "重启"
+    },
+    "messages": {
+      "startupFailed": "启动失败",
+      "refreshFailed": "刷新失败",
+      "sectionSaved": "[{{section}}] 已保存到 config.toml",
+      "saveFailed": "保存失败",
+      "askUsesSummary": "Ask 现在使用 Summary 端点",
+      "resetFailed": "重置失败",
+      "reindexComplete": "重建索引完成",
+      "rebuildFailed": "重建失败",
+      "serviceUrlInvalid": "服务地址必须是公网 https:// URL",
+      "noServiceReachable": "当前没有可连接的服务",
+      "connectedToService": "已连接到服务",
+      "connectFailed": "无法连接到服务",
+      "disconnected": "已断开 — 请选择一个服务",
+      "disconnectFailed": "无法断开连接",
+      "localServiceStarted": "本机服务已启动",
+      "localServiceStopped": "本机服务已停止",
+      "serviceOperationFailed": "服务操作失败",
+      "pairCodeFailed": "生成配对码失败",
+      "tunnelOperationFailed": "隧道操作失败",
+      "loadGrantsFailed": "加载已配对设备失败",
+      "deviceUnpaired": "设备已取消配对",
+      "unpairFailed": "取消配对失败",
+      "latestVersion": "你已在使用最新版本",
+      "downloadingVersion": "正在下载 v{{version}}…",
+      "updateCheckFailed": "检查更新失败",
+      "restartFailed": "重启失败 — 请退出并重新打开 HomeKB",
+      "engineUpToDate": "引擎 {{version}} 已是最新",
+      "engineUpdateCheckFailed": "检查引擎更新失败",
+      "engineUpdated": "引擎已更新到 {{version}}",
+      "engineUpdateFailed": "引擎更新失败",
+      "openFolderFailed": "打开文件夹失败"
+    }
+  },
+  "drafts": {
+    "title": "草稿",
+    "description": "在存入知识库之前，草稿保存在你家中的电脑上，并在你的设备间共享。",
+    "emptyTitle": "还没有草稿",
+    "emptyHint": "写了但没保存的内容会出现在这里。",
+    "untitled": "无标题",
+    "edited": "{{time}}编辑",
+    "words_other": "{{count}} 字",
+    "resume": "继续",
+    "deleteConfirm": "删除？",
+    "deleteDraft": "删除草稿",
+    "time": {
+      "justNow": "刚刚",
+      "minutesAgo_other": "{{count}} 分钟前",
+      "hoursAgo_other": "{{count}} 小时前",
+      "daysAgo_other": "{{count}} 天前"
+    }
+  },
+  "kb": {
+    "thisMachine": "这台电脑",
+    "homeFallback": "家中电脑",
+    "yourHomeComputer": "你家中的电脑",
+    "pairingFailed": "配对失败",
+    "searchFailed": "搜索失败",
+    "interval": {
+      "hours": "{{count}} 小时",
+      "minutes": "{{count}} 分钟",
+      "seconds": "{{count}} 秒"
+    },
+    "reader": {
+      "loadFailed": "加载失败",
+      "loadNoteFailed": "无法加载笔记"
+    },
+    "draft": {
+      "saved": "草稿已保存",
+      "keptOffline": "家中电脑离线 —— 草稿已留在本设备，重新连接后再同步",
+      "deleteOffline": "家中电脑离线 —— 无法删除草稿"
+    },
+    "note": {
+      "saveFailed": "笔记保存失败"
+    },
+    "import": {
+      "emptyFile": "没有可导入的内容 —— 文件是空的",
+      "failed": "导入失败",
+      "partial": "已导入 {{count}} 个，随后失败 —— {{error}}",
+      "addedOne": "已添加到知识库：{{title}}",
+      "addedMany_other": "已添加 {{count}} 篇笔记到知识库"
+    },
+    "shares": {
+      "loadFailed": "无法加载分享链接",
+      "revoked": "分享已撤销 —— 链接已失效",
+      "revokeOffline": "家中电脑离线 —— 无法撤销分享"
+    },
+    "status": {
+      "loadFailed": "无法加载状态"
+    },
+    "reindex": {
+      "started": "已开始重建索引",
+      "failed": "无法触发重建索引"
+    },
+    "schedule": {
+      "on": "后台编译已开启 —— 每 {{interval}}",
+      "paused": "后台编译已暂停",
+      "updateFailed": "定时设置更新失败"
+    },
+    "rebuild": {
+      "started": "已在你家中的电脑上开始重建 —— 进度见「状态」页",
+      "failed": "重建未能启动"
+    },
+    "settings": {
+      "loadFailed": "无法加载设置",
+      "sectionSaved": "[{{section}}] 已保存到 {{home}}",
+      "saveFailed": "保存失败",
+      "askUsesSummary": "Ask 现在使用 Summary 端点",
+      "resetFailed": "重置失败"
+    },
+    "devices": {
+      "mintFailed": "无法生成配对码",
+      "loadFailed": "无法加载设备列表",
+      "unpaired": "设备已取消配对",
+      "unpairFailed": "取消配对失败"
+    }
+  },
+  "mdDrop": {
+    "tooLarge": "文件太大，无法导入为笔记：{{name}}",
+    "onlyMarkdown": "只能导入 Markdown（.md）文件",
+    "dropTitle": "拖放 Markdown 文件",
+    "dropSubtitle": "会直接添加到你的知识库"
+  },
+  "nav": {
+    "search": "搜索",
+    "shares": "分享",
+    "remote": "远程",
+    "status": "状态",
+    "more": "更多",
+    "newNote": "新建笔记",
+    "main": "主导航"
+  },
+  "net": {
+    "notAuthorized": "未获授权 —— 请重新配对",
+    "authRetrying": "授权出现波动 —— 正在重试",
+    "notPaired": "尚未配对",
+    "serverNotResponding": "服务器没有响应",
+    "streamEndedEarly": "回答流提前中断",
+    "serviceUnreachable": "无法连接到连接服务",
+    "serviceUnreachableCheckAddress": "无法连接到连接服务 —— 请检查服务地址",
+    "serviceRequestFailed": "连接服务请求失败（{{status}}）",
+    "malformedServiceResponse": "连接服务返回了异常响应",
+    "pairCodeInvalid": "配对码无效或已过期"
+  },
+  "offline": {
+    "title": "家中电脑离线",
+    "subtitle": "现在无法连接你家中的电脑。你的笔记安全地保存在它上面——只是在它恢复之前无法从这里搜索。",
+    "steps": {
+      "title": "如何唤醒它",
+      "wake": "确认你家中的电脑处于唤醒状态并已连接互联网。",
+      "running": "检查 HomeKB（或 `homekb tunnel`）是否正在它上面运行。",
+      "retry": "然后在这里重试连接。"
+    },
+    "retryConnection": "重试连接",
+    "retrying": "重试中…",
+    "help": {
+      "title": "连接帮助",
+      "checkTunnel": "在家中电脑上运行 <code>homekb tunnel --status</code>——应显示 <strong>running</strong>。如果没有，运行 <code>homekb tunnel --install</code>（或在 HomeKB 应用的「远程」页打开「保持隧道连接」）。",
+      "reconnects": "电脑休眠或网络变化后，隧道会自动重连——电脑唤醒后请稍等片刻。",
+      "repair": "还是不行？在「远程」页断开连接，然后用家中电脑生成的新配对码重新配对。"
+    },
+    "disconnectAndRepair": "断开连接，用新配对码重新配对",
+    "lastConnected": "上次连接 · {{time}}",
+    "time": {
+      "justNow": "刚刚",
+      "minutesAgo_other": "{{count}} 分钟前",
+      "hoursAgo_other": "{{count}} 小时前",
+      "daysAgo_other": "{{count}} 天前"
+    }
+  },
+  "pair": {
+    "tagline": "你的知识库就在你自己的电脑上。",
+    "getCodeHint": "在你家中的电脑上打开 HomeKB（「远程」页）获取配对码，或运行 <code>homekb pair</code>。",
+    "pairingCode": "配对码",
+    "serviceAddress": "服务地址",
+    "serviceAddressHint": "你家中的电脑所连接的服务——显示在其「远程」页配对码旁边。扫描二维码会自动填好所有内容。",
+    "connect": "连接",
+    "privacyNote": "中间不会存储任何内容——连接服务只在你和你的电脑之间传递数据。",
+    "scanInstead": "改为扫描二维码",
+    "scanInsteadDesktop": "在手机上？改为扫描二维码",
+    "enterCodeManually": "手动输入配对码",
+    "scanner": {
+      "cameraDenied": "相机权限被拒绝——请改为手动输入配对码。",
+      "cameraNotFound": "此设备上没有找到相机——请改为手动输入配对码。",
+      "cameraFailed": "相机无法启动——请改为手动输入配对码。",
+      "notPairingQr": "这不是 HomeKB 配对二维码——请扫描家中电脑上显示的那个。",
+      "pointCamera": "将相机对准家中电脑上 HomeKB 显示的二维码。"
+    }
+  },
+  "reader": {},
+  "rebuild": {
+    "title": "索引 — 更换向量嵌入模型后请重建",
+    "builtWith": "构建所用模型",
+    "noIndexYet": "尚无索引 — 请先运行 compile",
+    "size": "规模",
+    "docsCount_other": "{{count}} 篇文档",
+    "chunksCount_other": "{{count}} 个文本块",
+    "driftWarning": "配置现在使用 <b>{{next}}</b>，但索引是用 <b>{{built}}</b> 构建的。重建以应用新模型。",
+    "bodyWeb": "在你家中的电脑上运行；向量嵌入结果与模型绑定、无法复用，因此更换模型需要对每篇笔记重新嵌入。你的 Markdown 文件不会被改动。",
+    "estimate_other": "预计向量嵌入费用：<b>{{cost}}</b>（{{count}} 个文本块，模型 {{model}}）。摘要也会重新生成，按 Summary provider 的费率计费。",
+    "progressNote": "进度会显示在状态页。",
+    "starting": "正在启动…",
+    "action": "重建并重新索引",
+    "costLessThanCent": "不到 $0.01",
+    "costApprox": "约 ${{cost}}"
+  },
+  "recall": {
+    "stage": {
+      "searching": "正在搜索你的笔记…",
+      "thinking": "正在分析你的问题…",
+      "answering": "正在撰写回答…"
+    },
+    "note": {
+      "matchingSections_other": "{{count}} 个匹配片段"
+    },
+    "answer": {
+      "writing": "撰写中…",
+      "title": "回答",
+      "fromNotes_other": "来自 {{count}} 篇笔记",
+      "fromYourNotes": "来自你的 {{count}} 篇笔记",
+      "expand": "展开回答",
+      "showMore": "展开更多",
+      "basedOnYourNotes": "基于你的笔记",
+      "noAnswerNeeded": "无需 AI 回答——这些笔记直接匹配。",
+      "answerAnyway": "仍然回答"
+    },
+    "list": {
+      "all": "全部",
+      "countByRelevance_other": "{{count}} 篇笔记 · 按相关度排序"
+    },
+    "noResults": {
+      "title": "没有匹配的笔记",
+      "body": "知识库中没有与“{{query}}”匹配的内容——试试换个说法。",
+      "bodyWithAsk": "知识库中没有与“{{query}}”匹配的内容——试试换个说法，或让 AI 来回答。",
+      "answerWithAi": "改用 AI 回答"
+    },
+    "empty": {
+      "title": "你的知识库还是空的",
+      "subtitle": "三种方式添加你的第一批笔记：",
+      "addFiles": {
+        "title": "添加 Markdown 文件",
+        "desc": "把 <md>.md</md> 文件放进你家中的电脑上的 <dir/>。"
+      },
+      "writeHere": {
+        "title": "在这里写一篇",
+        "desc": "从「新建笔记」标签页开始——第一行会成为标题。"
+      },
+      "letClaude": {
+        "title": "让 Claude 来写",
+        "desc": "通过 MCP 连接 Claude，它就能把你们一起学到的内容保存下来。"
+      },
+      "newNote": "新建笔记",
+      "openFolder": "打开 HomeKB 文件夹"
+    },
+    "aiSetup": {
+      "title": "添加 AI 密钥即可开始",
+      "subtitle": "HomeKB 用 AI 让你的笔记可被搜索。建立索引前需要两个密钥——它们都只保存在这台电脑上。",
+      "embeddingKey": {
+        "title": "Embedding 密钥",
+        "desc": "把你的笔记转换成每次查询都要用到的搜索向量。"
+      },
+      "summaryKey": {
+        "title": "摘要密钥",
+        "desc": "在构建索引时为每篇笔记生成摘要和分类。"
+      },
+      "configured": "已配置",
+      "required": "必需",
+      "keysNote": "密钥保存在这台电脑的 <code>config.toml</code> 中。无论密钥还是笔记，都不会离开你的电脑。",
+      "setUpInSettings": "去设置中配置"
+    },
+    "health": {
+      "docs_other": "<b>{{count}}</b> 篇文档",
+      "chunksVectorized_other": "<b>{{count}}</b> 个分块 · 已向量化 <pct>{{pct}}%</pct>",
+      "indexed": "索引于 {{date}}",
+      "reindex": "重建索引"
+    },
+    "entry": {
+      "tryAsking": "试试这样问",
+      "recentlyOpened": "最近打开",
+      "recentlyUpdated": "最近更新"
+    },
+    "clear": "清除",
+    "composer": {
+      "offlinePlaceholder": "家中电脑已离线——重新连接后即可提问",
+      "emptyPlaceholder": "先添加几篇笔记，然后随便问…"
+    }
+  },
+  "remote": {
+    "title": "远程",
+    "subtitle": "把你的手机或 Claude 连接到这个家。连接服务只转发流量——不会存储你的笔记。",
+    "thisDevice": "此设备",
+    "disconnect": "断开连接",
+    "pairing": {
+      "title": "配对新设备",
+      "qrAlt": "配对二维码",
+      "copyCode": "复制配对码",
+      "expiresIn": "{{time}} 后过期",
+      "scanHint": "用手机扫描，或在连接页面输入配对码",
+      "codeExpired": "配对码已过期。",
+      "generateHint": "生成配对码后用手机扫描二维码，或把配对码输入 HomeKB 连接页面或 Claude 的连接器授权页。",
+      "generate": "生成配对码",
+      "generateNew": "生成新配对码"
+    },
+    "devices": {
+      "title": "已配对设备",
+      "empty": "还没有配对任何设备——在上方生成配对码后用手机扫描，或用它授权 Claude 的连接器。",
+      "unnamed": "未命名设备",
+      "keep": "保留",
+      "unpair": "解除配对",
+      "pairedOn": "{{date}} 配对",
+      "neverUsed": "从未使用",
+      "activeJustNow": "刚刚活跃",
+      "activeMinutesAgo_other": "{{count}} 分钟前活跃",
+      "activeHoursAgo_other": "{{count}} 小时前活跃",
+      "activeDaysAgo_other": "{{count}} 天前活跃"
+    },
+    "service": {
+      "title": "连接服务",
+      "defaultIntro": "生成配对码会把这台电脑连接到 HomeKB 默认连接服务，让你的手机和 Claude 能够访问它——服务只转发流量，从不存储你的笔记。想自己托管或使用别人共享的服务？选择其他服务：",
+      "checking": "检测中…",
+      "unreachable": "无法访问",
+      "emptyList": "暂无可用服务。添加一个你自己托管（或他人共享给你）的服务，或在下方启动这台电脑自己的服务。",
+      "builtIn": "内置",
+      "thisMachine": "本机",
+      "inUse": "使用中",
+      "use": "使用",
+      "removeFromList": "从列表中移除",
+      "add": "添加",
+      "addressHint": "服务地址必须是公网可访问的 <mono>https://</mono> 地址——它是你手机连接的目标。",
+      "autoSelect": "自动选择最佳服务"
+    },
+    "connection": {
+      "title": "连接",
+      "service": "服务",
+      "connectedTo": "已连接到",
+      "homeFallback": "家",
+      "notHttpsWarning": "这不是公网 <mono>https://</mono> 地址——在本机所在网络里测试没问题，但其他网络中的手机无法访问。分享前请切换到 https 服务。",
+      "keepTunnelAlive": "保持隧道连接",
+      "tunnelRequiredFor": "手机 / 远程 MCP 需要保持开启",
+      "changeService": "更换服务…",
+      "hideServiceList": "隐藏服务列表",
+      "switchWarning": "更换服务会重新注册这台电脑——通过旧服务配对的设备需要重新配对。",
+      "homeReachable": "家中电脑在线",
+      "connectingToHome": "正在连接家中电脑…",
+      "homeOffline": "家中电脑离线"
+    },
+    "localService": {
+      "title": "本机上的服务",
+      "runHere": "在这台电脑上运行连接服务",
+      "noThirdParty": "手机直接连接这台电脑——没有第三方",
+      "runningHint": "服务正在端口 8787 上运行。要使用它，这台电脑需要一个指向它的公网 <mono>https://</mono> 域名（反向代理或 Cloudflare 类隧道——由你自行搭建）。然后把该域名添加到这里；自动选择会优先使用它。",
+      "addAsService": "添加为服务"
+    },
+    "disconnectCard": {
+      "hint": "断开连接会移除此设备的访问令牌。你随时可以用家中电脑——或任何其他已配对设备——生成的新配对码重新配对。",
+      "keepConnected": "保持连接",
+      "disconnectThisDevice": "断开此设备连接…"
+    }
+  },
+  "schedule": {
+    "unsupported": {
+      "title": "定时编译",
+      "beforeCode": "你家中电脑的平台还不能远程管理后台定时任务（目前仅支持 macOS）——请改为在那台电脑上运行 ",
+      "afterCode": "。"
+    },
+    "compilingEvery": "每 {{interval}} 编译一次",
+    "stalled": "定时任务已安装，但未运行",
+    "off": "定时编译已关闭",
+    "toggleAria": "后台编译",
+    "recompileEvery": "重新编译笔记的间隔",
+    "intervalAria": "编译间隔",
+    "noteAfterCode": " 会在你家中的电脑上按计划索引新增和编辑的笔记，让搜索保持最新。关闭后笔记仍会保存，但在下次编译前无法被搜索到。"
+  },
+  "settingsWeb": {
+    "aiKeyPlaceholder": "API 密钥 — 存储在你家中电脑的 config.toml 中",
+    "loadingFrom": "正在从 {{home}} 加载设置…",
+    "yourHomeComputer": "你家中的电脑",
+    "unreachable": "无法连接你家中的电脑：{{error}}",
+    "homeSection": {
+      "title": "家中电脑 — 你的数据始终留在那里",
+      "home": "家中电脑",
+      "notes": "笔记",
+      "dataRoot": "数据根目录",
+      "config": "配置文件",
+      "note": "这些设置保存在你家中电脑的 config.toml 中。在此处的修改会应用到那台电脑 — 密钥只写入，绝不会回传到本设备。"
+    },
+    "embedding": {
+      "title": "Embedding — 把笔记转换成搜索向量（必需）",
+      "note": "切换 provider 或模型会改变向量空间 — 之后请运行下方的「重建并重新索引」。"
+    },
+    "summary": {
+      "title": "Summary — 编译时生成摘要与类目（必需）"
+    },
+    "ask": {
+      "title": "Ask — 基于你的笔记回答问题（可选）",
+      "note": "通过 MCP 接入的 Agent 使用它们自己的模型；这里只用于内置问答。"
+    },
+    "appearance": {
+      "title": "外观",
+      "theme": "主题",
+      "followsSystem": "跟随系统",
+      "note": "浅色与深色随系统自动切换 — 没有手动开关。"
+    }
+  },
+  "share": {
+    "title": "分享这篇笔记",
+    "passwordLabel": "密码（可选）",
+    "passwordPlaceholder": "留空则凭链接即可访问",
+    "expiresLabel": "过期时间",
+    "expiryNever": "永不",
+    "expiryDays_other": "{{count}} 天",
+    "createButton": "创建分享链接",
+    "createFailed": "创建分享链接失败",
+    "anyoneWithLink": "任何拥有此链接的人都能阅读这篇笔记",
+    "createdNote": "由你家里的电脑实时提供——电脑在线时链接可用，在「分享」标签页撤销后立即失效。",
+    "done": "完成",
+    "existingLinks": "这篇笔记已有的链接",
+    "passwordBadge": "密码",
+    "manageHint": "可在「分享」标签页管理或撤销。"
+  },
+  "shares": {
+    "title": "已分享的笔记",
+    "subtitle": "由你家里的电脑实时提供——不会存储在其他任何地方。",
+    "justNow": "刚刚",
+    "minutesAgo_other": "{{count}} 分钟前",
+    "hoursAgo_other": "{{count}} 小时前",
+    "daysAgo_other": "{{count}} 天前",
+    "createdAgo": "{{ago}}创建",
+    "expired": "已过期",
+    "expiresIn_other": "{{count}} 天后过期",
+    "passwordBadge": "密码",
+    "noLink": "没有链接——家里的电脑尚未注册连接服务。",
+    "revokeConfirm": "撤销？",
+    "revokeAria": "撤销分享",
+    "emptyTitle": "暂无分享",
+    "emptyBody": "打开一篇笔记并点击「分享」即可创建公开链接——可选设置密码和过期时间。"
+  },
+  "shareViewer": {
+    "missingId": "这个链接缺少分享 ID。",
+    "missingRelay": "这个链接没有指明要访问哪个连接服务。",
+    "wrongPassword": "密码错误——请重试。",
+    "loadFailedStatus": "无法加载该分享（{{status}}）。",
+    "relayUnreachable": "无法访问连接服务。",
+    "protectedTitle": "这篇笔记受密码保护",
+    "protectedBody": "请输入作者提供的密码。",
+    "passwordPlaceholder": "密码",
+    "openNote": "打开笔记",
+    "expiredTitle": "链接已过期",
+    "expiredBody": "作者为该分享设置了过期时间，现已过期。",
+    "notFoundTitle": "这里什么都没有",
+    "notFoundBody": "该分享不存在，或已被作者撤销。",
+    "offlineTitle": "作者的知识库不在线",
+    "offlineBody": "这篇笔记由作者自己的电脑实时提供，目前电脑未连接。请稍后再试。",
+    "errorTitle": "无法加载该分享",
+    "footer": "由作者自己的电脑实时提供",
+    "tryAgain": "重试"
+  },
+  "status": {
+    "title": "索引状态",
+    "reindexNow": "立即重建索引",
+    "meta": {
+      "generation": "世代 {{n}}",
+      "lastIndexed": "最近索引于 {{time}}"
+    },
+    "compiling": {
+      "title": "正在向量化分块…",
+      "progress": "{{vectorized}}/{{chunks}} · 剩余约 {{left}}",
+      "note": "编译期间，搜索和问答仍可正常使用。"
+    },
+    "chunks": "分块",
+    "vectorizedOf": "/ {{total}} 已向量化",
+    "docs": "文档",
+    "pending": "待处理",
+    "failuresLabel": "失败",
+    "generation": "世代",
+    "dataFlow": {
+      "title": "数据流",
+      "note": "笔记在你自己的电脑上编译成只读快照——搜索在本地对它运行，不会上传任何内容。"
+    },
+    "paths": {
+      "title": "路径",
+      "notes": "笔记",
+      "dataRoot": "数据根目录",
+      "config": "配置"
+    },
+    "failures": {
+      "none": "无失败 · 所有分块均已向量化",
+      "failed_other": "{{count}} 个分块向量化失败——重建索引通常可以解决。"
+    },
+    "noData": "暂无状态数据"
+  }
+}

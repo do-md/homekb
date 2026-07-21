@@ -14,6 +14,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import jsQR from "jsqr";
+import { useTranslation } from "react-i18next";
+import i18n from "@/lib/i18n";
 import { parsePairingLink, type PairingLink } from "@/lib/client/connection";
 import { IconQr } from "./icons";
 
@@ -34,12 +36,12 @@ export function isCoarsePointer(): boolean {
 function cameraErrorMessage(e: unknown): string {
   const name = e instanceof DOMException ? e.name : "";
   if (name === "NotAllowedError" || name === "SecurityError") {
-    return "Camera access was denied — enter the code manually instead.";
+    return i18n.t("pair.scanner.cameraDenied");
   }
   if (name === "NotFoundError" || name === "OverconstrainedError") {
-    return "No camera found on this device — enter the code manually instead.";
+    return i18n.t("pair.scanner.cameraNotFound");
   }
-  return "The camera could not be started — enter the code manually instead.";
+  return i18n.t("pair.scanner.cameraFailed");
 }
 
 /** One corner bracket of the viewfinder (rotated for each corner). */
@@ -61,9 +63,11 @@ export function QrScanner({
   /** Camera failed to start (denied / missing) — caller falls back to manual entry. */
   onUnavailable: (message: string) => void;
 }) {
+  const { t } = useTranslation();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [starting, setStarting] = useState(true);
-  const [hint, setHint] = useState<string | null>(null);
+  // A QR was decoded but it isn't a HomeKB pairing link — show a hint.
+  const [badQr, setBadQr] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -103,7 +107,7 @@ export function QrScanner({
           const now = Date.now();
           if (now - lastMiss > 2000) {
             lastMiss = now;
-            setHint("That QR isn't a HomeKB pairing code — scan the one on your home computer.");
+            setBadQr(true);
           }
         }
       }
@@ -163,11 +167,11 @@ export function QrScanner({
         )}
       </div>
       <p className="mt-4 max-w-[260px] text-center text-[13px] leading-relaxed text-base-content/60">
-        Point your camera at the QR code shown in HomeKB on your home computer.
+        {t("pair.scanner.pointCamera")}
       </p>
-      {hint && (
+      {badQr && (
         <p className="mt-2 max-w-[260px] text-center text-[12px] leading-relaxed text-hk-orange-text">
-          {hint}
+          {t("pair.scanner.notPairingQr")}
         </p>
       )}
     </div>

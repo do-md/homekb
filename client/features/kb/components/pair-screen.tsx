@@ -18,6 +18,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { Trans, useTranslation } from "react-i18next";
 import { defaultRelayUrl, type PairingLink } from "@/lib/client/connection";
 import { useKbStore, useKbStoreApi } from "../store/kb-store";
 import { Spinner } from "./icons";
@@ -27,6 +28,7 @@ const inputCls =
   "w-full rounded-xl border border-base-300 bg-base-200 px-3.5 py-2.5 text-[14px] text-base-content outline-none placeholder:text-base-content/45 focus:border-base-content/30";
 
 export function PairScreen() {
+  const { t } = useTranslation();
   const api = useKbStoreApi();
   const busy = useKbStore((s) => s.state.pairBusy);
   const error = useKbStore((s) => s.state.pairError);
@@ -73,7 +75,7 @@ export function PairScreen() {
             HomeKB
           </h1>
           <p className="mt-2 text-center text-[14px] text-base-content/60">
-            Your knowledge base lives on your own computer.
+            {t("pair.tagline")}
           </p>
           <div className="mt-8 flex flex-col items-center">
             <QrScanner
@@ -88,7 +90,7 @@ export function PairScreen() {
               onClick={() => setScanning(false)}
               className="mt-6 text-[14px] font-semibold text-primary transition-colors hover:text-primary"
             >
-              Enter code manually
+              {t("pair.enterCodeManually")}
             </button>
           </div>
         </main>
@@ -103,7 +105,7 @@ export function PairScreen() {
           HomeKB
         </h1>
         <p className="mt-2 text-center text-[14px] text-base-content/60">
-          Your knowledge base lives on your own computer.
+          {t("pair.tagline")}
         </p>
         {cameraNote && (
           <p className="mt-3 text-center text-[12.5px] text-hk-orange-text">{cameraNote}</p>
@@ -117,11 +119,17 @@ export function PairScreen() {
           }}
         >
           <p className="text-[12.5px] leading-relaxed text-base-content/45">
-            Get a pairing code from HomeKB on your home computer (the Remote tab), or run{" "}
-            <code className="font-mono text-[11.5px] text-base-content/60">homekb pair</code>.
+            <Trans
+              i18nKey="pair.getCodeHint"
+              components={{
+                code: <code className="font-mono text-[11.5px] text-base-content/60" />,
+              }}
+            />
           </p>
           <label className="flex flex-col gap-1.5">
-            <span className="text-[12px] font-medium text-base-content/45">Pairing code</span>
+            <span className="text-[12px] font-medium text-base-content/45">
+              {t("pair.pairingCode")}
+            </span>
             <input
               value={code}
               onChange={(e) => setCode(e.target.value.toUpperCase())}
@@ -133,7 +141,9 @@ export function PairScreen() {
             />
           </label>
           <label className="flex flex-col gap-1.5">
-            <span className="text-[12px] font-medium text-base-content/45">Service address</span>
+            <span className="text-[12px] font-medium text-base-content/45">
+              {t("pair.serviceAddress")}
+            </span>
             <input
               value={serviceUrl}
               onChange={(e) => setServiceUrl(e.target.value)}
@@ -143,8 +153,7 @@ export function PairScreen() {
               autoCorrect="off"
             />
             <span className="text-[11.5px] leading-relaxed text-base-content/35">
-              The service your home computer is connected to — shown next to the pairing
-              code in its Remote tab. Scanning the QR fills everything in automatically.
+              {t("pair.serviceAddressHint")}
             </span>
           </label>
           {error && <p className="text-center text-[13px] text-hk-orange-text">{error}</p>}
@@ -154,11 +163,10 @@ export function PairScreen() {
             className="mt-1 flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-[15px] font-semibold text-primary-content transition-colors hover:bg-primary/90 disabled:opacity-50"
           >
             {busy && <Spinner size={15} />}
-            Connect
+            {t("pair.connect")}
           </button>
           <p className="text-center text-[11.5px] leading-relaxed text-base-content/35">
-            Nothing is stored in between — the service only moves data between you and
-            your computer.
+            {t("pair.privacyNote")}
           </p>
         </form>
 
@@ -171,7 +179,7 @@ export function PairScreen() {
             }}
             className="mt-5 text-center text-[13.5px] font-semibold text-primary transition-colors hover:text-primary"
           >
-            {isCoarsePointer() ? "Scan the QR code instead" : "On your phone? Scan the QR instead"}
+            {isCoarsePointer() ? t("pair.scanInstead") : t("pair.scanInsteadDesktop")}
           </button>
         )}
       </main>

@@ -12,6 +12,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { DOMD, DOMDProvider } from "@do-md/core-react";
 import type { ImageLoader } from "./domd";
 import { isExternalSrc, resolveAssetRef } from "@/lib/client/asset-ref";
@@ -73,6 +74,7 @@ function makeShareImageLoader(
 }
 
 export function ShareViewer() {
+  const { t } = useTranslation();
   const [{ shareId, relayUrl }] = useState(readParams);
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
   const [passwordInput, setPasswordInput] = useState("");
@@ -85,9 +87,7 @@ export function ShareViewer() {
       if (!shareId || !relayUrl) {
         setPhase({
           kind: "error",
-          message: !shareId
-            ? "This link is missing its share id."
-            : "This link does not say which connection service to ask.",
+          message: !shareId ? t("shareViewer.missingId") : t("shareViewer.missingRelay"),
         });
         return;
       }
@@ -114,7 +114,7 @@ export function ShareViewer() {
             setPhase({ kind: "password" });
             return;
           case "share_password_wrong":
-            setPhase({ kind: "password", error: "Wrong password — try again." });
+            setPhase({ kind: "password", error: t("shareViewer.wrongPassword") });
             return;
           case "share_not_found":
           case "share_expired":
@@ -126,16 +126,16 @@ export function ShareViewer() {
           default:
             setPhase({
               kind: "error",
-              message: body.message || `The share could not be loaded (${res.status}).`,
+              message: body.message || t("shareViewer.loadFailedStatus", { status: res.status }),
             });
         }
       } catch {
-        setPhase({ kind: "error", message: "The connection service could not be reached." });
+        setPhase({ kind: "error", message: t("shareViewer.relayUnreachable") });
       } finally {
         setBusy(false);
       }
     },
-    [shareId, relayUrl],
+    [shareId, relayUrl, t],
   );
 
   useEffect(() => {
@@ -173,9 +173,11 @@ export function ShareViewer() {
               if (passwordInput) void load(passwordInput);
             }}
           >
-            <h1 className="text-[17px] font-semibold text-base-content">This note is protected</h1>
+            <h1 className="text-[17px] font-semibold text-base-content">
+              {t("shareViewer.protectedTitle")}
+            </h1>
             <p className="mt-1 text-[13.5px] text-base-content/60">
-              Enter the password the author gave you.
+              {t("shareViewer.protectedBody")}
             </p>
             <input
               type="password"
@@ -183,7 +185,7 @@ export function ShareViewer() {
               value={passwordInput}
               onChange={(e) => setPasswordInput(e.target.value)}
               className="mt-4 w-full rounded-xl border border-base-300 bg-base-200 px-3.5 py-2.5 text-[14px] text-base-content outline-none focus:border-base-content/30"
-              placeholder="Password"
+              placeholder={t("shareViewer.passwordPlaceholder")}
             />
             {phase.error && (
               <p className="mt-2 text-[13px] text-hk-orange-text">{phase.error}</p>
@@ -194,26 +196,30 @@ export function ShareViewer() {
               className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-xl bg-primary px-3.5 py-2.5 text-[13.5px] font-semibold text-primary-content transition-colors hover:bg-primary/90 disabled:opacity-60"
             >
               {busy && <Spinner size={12} />}
-              Open note
+              {t("shareViewer.openNote")}
             </button>
           </form>
         )}
 
         {phase.kind === "gone" && (
           <StatusCard
-            title={phase.error === "share_expired" ? "This link has expired" : "Nothing here"}
+            title={
+              phase.error === "share_expired"
+                ? t("shareViewer.expiredTitle")
+                : t("shareViewer.notFoundTitle")
+            }
             body={
               phase.error === "share_expired"
-                ? "The author set an expiry on this share and it has passed."
-                : "This share does not exist or has been revoked by its author."
+                ? t("shareViewer.expiredBody")
+                : t("shareViewer.notFoundBody")
             }
           />
         )}
 
         {phase.kind === "offline" && (
           <StatusCard
-            title="The author's library is offline"
-            body="This note is served live from its author's own computer, which is not connected right now. Try again later."
+            title={t("shareViewer.offlineTitle")}
+            body={t("shareViewer.offlineBody")}
             retry={() => {
               setPhase({ kind: "loading" });
               void load(unlockedPassword ?? undefined);
@@ -223,7 +229,7 @@ export function ShareViewer() {
 
         {phase.kind === "error" && (
           <StatusCard
-            title="Could not load this share"
+            title={t("shareViewer.errorTitle")}
             body={phase.message}
             retry={() => {
               setPhase({ kind: "loading" });
@@ -244,8 +250,7 @@ export function ShareViewer() {
               </DOMDProvider>
             </article>
             <footer className="mt-12 border-t border-base-300 pt-4 text-center text-[12px] text-base-content/35">
-              Served live from the author&apos;s own computer ·{" "}
-              <span className="font-semibold">HomeKB</span>
+              {t("shareViewer.footer")} · <span className="font-semibold">HomeKB</span>
             </footer>
           </>
         )}
@@ -263,6 +268,7 @@ function StatusCard({
   body: string;
   retry?: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="mx-auto mt-16 max-w-sm rounded-xl border border-base-300 bg-base-200 p-6 text-center">
       <h1 className="text-[17px] font-semibold text-base-content">{title}</h1>
@@ -272,7 +278,7 @@ function StatusCard({
           onClick={retry}
           className="mt-4 rounded-xl border border-base-300 px-3.5 py-1.5 text-[13px] font-semibold text-base-content/60 transition-colors hover:bg-base-200"
         >
-          Try again
+          {t("shareViewer.tryAgain")}
         </button>
       )}
     </div>

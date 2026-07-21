@@ -1,0 +1,629 @@
+{
+  "common": {
+    "back": "Back",
+    "close": "Close",
+    "open": "Open",
+    "retry": "Retry",
+    "loading": "Loading",
+    "edit": "Edit",
+    "share": "Share",
+    "settings": "Settings",
+    "copied": "Copied",
+    "copyLink": "Copy link"
+  },
+  "aiEndpoint": {
+    "current": "Current",
+    "usesSummary": "Uses the Summary endpoint",
+    "keyMissing": "{{provider}} · key missing",
+    "sameAsSummary": "Same as Summary (default)",
+    "keyKeepPlaceholder": "API key — blank keeps the stored key",
+    "keyDefaultPlaceholder": "API key — stored locally in config.toml",
+    "modelPlaceholderCustom": "Model — blank = required",
+    "modelPlaceholderDefault": "Model — blank = provider default",
+    "baseUrlPlaceholder": "Base URL — any OpenAI-compatible endpoint",
+    "dimPlaceholder": "Vector dimension (e.g. 1024)",
+    "save": "Save"
+  },
+  "compose": {
+    "newNote": "New note",
+    "editNote": "Edit note",
+    "saveDraft": "Save draft",
+    "saveToLibrary": "Save to library",
+    "savedToLibrary": "Saved to your library",
+    "offlineDraftTooltip": "Home is offline — text is kept on this device until you reconnect",
+    "offlineSaveTooltip": "Home is offline — reconnect to save",
+    "editorPlaceholder": "Start writing — the first line becomes the title…",
+    "imageUploadFailed": "Image upload failed"
+  },
+  "composer": {
+    "send": "Send",
+    "notAvailable": "Not available right now",
+    "entryPlaceholder": "Search notes or ask anything — 'trip notes', 'how do I ease back pain?'",
+    "followupPlaceholder": "Ask a follow-up…"
+  },
+  "desktop": {
+    "boot": {
+      "checking": "Detecting local engine…",
+      "installing": "First run: downloading the HomeKB engine (a few MB) …",
+      "starting": "Starting local service (homekb serve)…",
+      "fallback": "Starting…"
+    },
+    "settings": {
+      "version": "Version",
+      "checking": "Checking…",
+      "engine": {
+        "title": "Engine",
+        "unknown": "Unknown",
+        "binary": "Binary",
+        "notInstalled": "Not installed",
+        "localService": "Local service",
+        "running": "Running · 127.0.0.1:8765",
+        "notRunning": "Not running",
+        "available": "Available",
+        "updating": "Updating…",
+        "updateTo": "Update to {{version}}",
+        "checkUpdates": "Check for engine updates"
+      },
+      "data": {
+        "title": "Data directory — your data stays on this machine",
+        "notes": "Notes",
+        "root": "Data root",
+        "config": "Config"
+      },
+      "ai": {
+        "embeddingTitle": "Embedding — turns notes into search vectors (required)",
+        "embeddingNote": "Switching provider or model changes the vector space — a full reindex (rebuild) is required afterwards.",
+        "summaryTitle": "Summary — compile-time summaries and categories (required)",
+        "askTitle": "Ask — answers questions over your notes (optional)",
+        "askNote": "Agents connected over MCP bring their own model; this only powers the built-in Q&A."
+      },
+      "index": {
+        "title": "Index — rebuild after changing the embedding model",
+        "builtWith": "Built with",
+        "noIndex": "No index yet — run compile first",
+        "size": "Size",
+        "docsCount_one": "{{count}} doc",
+        "docsCount_other": "{{count}} docs",
+        "chunksCount_one": "{{count}} chunk",
+        "chunksCount_other": "{{count}} chunks",
+        "drift": "Config now uses <b>{{config}}</b>, but the index was built with <b>{{built}}</b>. Rebuild to apply the new model.",
+        "explain": "Embedding vectors are model-specific and can’t be reused — changing the model requires re-embedding every note. Your Markdown files are untouched.",
+        "costNote_one": "Estimated embedding cost: <b>{{cost}}</b> ({{count}} chunk with {{model}}). Summaries are regenerated too, billed at the Summary provider’s rate.",
+        "costNote_other": "Estimated embedding cost: <b>{{cost}}</b> ({{count}} chunks with {{model}}). Summaries are regenerated too, billed at the Summary provider’s rate.",
+        "reindexing": "Reindexing… (a few minutes)",
+        "rebuildButton": "Rebuild & reindex"
+      },
+      "appearance": {
+        "title": "Appearance",
+        "theme": "Theme",
+        "followsSystem": "Follows your system",
+        "note": "Light and dark switch automatically with the OS — there is no manual toggle."
+      }
+    },
+    "updater": {
+      "title": "App updates",
+      "ready": "Ready",
+      "readyValue": "{{version}} — restart to apply",
+      "note": "Updates download and install in the background; HomeKB switches to the new version the next time it starts.",
+      "restartToUpdate": "Restart to update",
+      "checkForUpdates": "Check for updates",
+      "bannerReady": "HomeKB {{version}} is ready",
+      "restart": "Restart"
+    },
+    "messages": {
+      "startupFailed": "Startup failed",
+      "refreshFailed": "Refresh failed",
+      "sectionSaved": "[{{section}}] saved to config.toml",
+      "saveFailed": "Save failed",
+      "askUsesSummary": "Ask now uses the Summary endpoint",
+      "resetFailed": "Reset failed",
+      "reindexComplete": "Reindex complete",
+      "rebuildFailed": "Rebuild failed",
+      "serviceUrlInvalid": "A service address must be a public https:// URL",
+      "noServiceReachable": "No service is reachable right now",
+      "connectedToService": "Connected to the service",
+      "connectFailed": "Could not connect to the service",
+      "disconnected": "Disconnected — choose a service",
+      "disconnectFailed": "Could not disconnect",
+      "localServiceStarted": "Service on this machine started",
+      "localServiceStopped": "Service on this machine stopped",
+      "serviceOperationFailed": "Service operation failed",
+      "pairCodeFailed": "Failed to generate pairing code",
+      "tunnelOperationFailed": "Tunnel operation failed",
+      "loadGrantsFailed": "Failed to load paired devices",
+      "deviceUnpaired": "Device unpaired",
+      "unpairFailed": "Failed to unpair device",
+      "latestVersion": "You're on the latest version",
+      "downloadingVersion": "Downloading v{{version}}…",
+      "updateCheckFailed": "Update check failed",
+      "restartFailed": "Restart failed — quit and reopen HomeKB",
+      "engineUpToDate": "Engine {{version}} is up to date",
+      "engineUpdateCheckFailed": "Engine update check failed",
+      "engineUpdated": "Engine updated to {{version}}",
+      "engineUpdateFailed": "Engine update failed",
+      "openFolderFailed": "Failed to open folder"
+    }
+  },
+  "drafts": {
+    "title": "Drafts",
+    "description": "Kept on your computer and shared across your devices until you save them to your library.",
+    "emptyTitle": "No drafts yet",
+    "emptyHint": "Anything you write but don't save shows up here.",
+    "untitled": "Untitled",
+    "edited": "edited {{time}}",
+    "words_one": "{{count}} word",
+    "words_other": "{{count}} words",
+    "resume": "Resume",
+    "deleteConfirm": "Delete?",
+    "deleteDraft": "Delete draft",
+    "time": {
+      "justNow": "just now",
+      "minutesAgo_one": "{{count}} min ago",
+      "minutesAgo_other": "{{count}} min ago",
+      "hoursAgo_one": "{{count}} h ago",
+      "hoursAgo_other": "{{count}} h ago",
+      "daysAgo_one": "{{count}} d ago",
+      "daysAgo_other": "{{count}} d ago"
+    }
+  },
+  "kb": {
+    "thisMachine": "This machine",
+    "homeFallback": "Home",
+    "yourHomeComputer": "your home computer",
+    "pairingFailed": "Pairing failed",
+    "searchFailed": "Search failed",
+    "interval": {
+      "hours": "{{count}} h",
+      "minutes": "{{count}} min",
+      "seconds": "{{count}} s"
+    },
+    "reader": {
+      "loadFailed": "Failed to load",
+      "loadNoteFailed": "Failed to load note"
+    },
+    "draft": {
+      "saved": "Draft saved",
+      "keptOffline": "Home offline — draft kept here until you reconnect",
+      "deleteOffline": "Home offline — couldn't delete draft"
+    },
+    "note": {
+      "saveFailed": "Failed to save note"
+    },
+    "import": {
+      "emptyFile": "Nothing to import — the file is empty",
+      "failed": "Import failed",
+      "partial": "Imported {{count}}, then failed — {{error}}",
+      "addedOne": "Added to library: {{title}}",
+      "addedMany_one": "Added {{count}} note to library",
+      "addedMany_other": "Added {{count}} notes to library"
+    },
+    "shares": {
+      "loadFailed": "Failed to load shares",
+      "revoked": "Share revoked — the link is dead",
+      "revokeOffline": "Home offline — couldn't revoke the share"
+    },
+    "status": {
+      "loadFailed": "Failed to load status"
+    },
+    "reindex": {
+      "started": "Reindex started",
+      "failed": "Failed to trigger reindex"
+    },
+    "schedule": {
+      "on": "Background compilation on — every {{interval}}",
+      "paused": "Background compilation paused",
+      "updateFailed": "Schedule update failed"
+    },
+    "rebuild": {
+      "started": "Rebuild started on your home computer — progress on the Status page",
+      "failed": "Rebuild failed to start"
+    },
+    "settings": {
+      "loadFailed": "Failed to load settings",
+      "sectionSaved": "[{{section}}] saved on {{home}}",
+      "saveFailed": "Save failed",
+      "askUsesSummary": "Ask now uses the Summary endpoint",
+      "resetFailed": "Reset failed"
+    },
+    "devices": {
+      "mintFailed": "Failed to generate a pairing code",
+      "loadFailed": "Failed to load devices",
+      "unpaired": "Device unpaired",
+      "unpairFailed": "Failed to unpair"
+    }
+  },
+  "mdDrop": {
+    "tooLarge": "Too large to import as a note: {{name}}",
+    "onlyMarkdown": "Only Markdown (.md) files can be imported",
+    "dropTitle": "Drop Markdown file",
+    "dropSubtitle": "Added straight to your library"
+  },
+  "nav": {
+    "search": "Search",
+    "shares": "Shares",
+    "remote": "Remote",
+    "status": "Status",
+    "more": "More",
+    "newNote": "New note",
+    "main": "Main"
+  },
+  "net": {
+    "notAuthorized": "Not authorized — please pair again",
+    "authRetrying": "Authorization hiccup — retrying",
+    "notPaired": "Not paired",
+    "serverNotResponding": "Server is not responding",
+    "streamEndedEarly": "Answer stream ended early",
+    "serviceUnreachable": "The connection service is not reachable",
+    "serviceUnreachableCheckAddress": "The connection service is not reachable — check the service address",
+    "serviceRequestFailed": "Request to the connection service failed ({{status}})",
+    "malformedServiceResponse": "Malformed response from the connection service",
+    "pairCodeInvalid": "Pairing code is invalid or has expired"
+  },
+  "offline": {
+    "title": "Home is offline",
+    "subtitle": "Your home computer isn't reachable right now. Your notes are safe on it — they just can't be searched from here until it comes back.",
+    "steps": {
+      "title": "How to wake it up",
+      "wake": "Make sure your home computer is awake and connected to the internet.",
+      "running": "Check that HomeKB (or `homekb tunnel`) is running on it.",
+      "retry": "Then retry the connection here."
+    },
+    "retryConnection": "Retry connection",
+    "retrying": "Retrying…",
+    "help": {
+      "title": "Connection help",
+      "checkTunnel": "On your home computer, run <code>homekb tunnel --status</code> — it should say <strong>running</strong>. If not, <code>homekb tunnel --install</code> (or turn on “Keep tunnel alive” in the HomeKB app’s Remote tab).",
+      "reconnects": "The tunnel reconnects on its own after sleep or a network change — give it a minute after the computer wakes.",
+      "repair": "Still stuck? Disconnect on the Remote tab and pair again with a fresh code from your home computer."
+    },
+    "disconnectAndRepair": "Disconnect & pair again with a new code",
+    "lastConnected": "Last connected · {{time}}",
+    "time": {
+      "justNow": "just now",
+      "minutesAgo_one": "{{count}} min ago",
+      "minutesAgo_other": "{{count}} min ago",
+      "hoursAgo_one": "{{count}} h ago",
+      "hoursAgo_other": "{{count}} h ago",
+      "daysAgo_one": "{{count}} d ago",
+      "daysAgo_other": "{{count}} d ago"
+    }
+  },
+  "pair": {
+    "tagline": "Your knowledge base lives on your own computer.",
+    "getCodeHint": "Get a pairing code from HomeKB on your home computer (the Remote tab), or run <code>homekb pair</code>.",
+    "pairingCode": "Pairing code",
+    "serviceAddress": "Service address",
+    "serviceAddressHint": "The service your home computer is connected to — shown next to the pairing code in its Remote tab. Scanning the QR fills everything in automatically.",
+    "connect": "Connect",
+    "privacyNote": "Nothing is stored in between — the service only moves data between you and your computer.",
+    "scanInstead": "Scan the QR code instead",
+    "scanInsteadDesktop": "On your phone? Scan the QR instead",
+    "enterCodeManually": "Enter code manually",
+    "scanner": {
+      "cameraDenied": "Camera access was denied — enter the code manually instead.",
+      "cameraNotFound": "No camera found on this device — enter the code manually instead.",
+      "cameraFailed": "The camera could not be started — enter the code manually instead.",
+      "notPairingQr": "That QR isn't a HomeKB pairing code — scan the one on your home computer.",
+      "pointCamera": "Point your camera at the QR code shown in HomeKB on your home computer."
+    }
+  },
+  "reader": {},
+  "rebuild": {
+    "title": "Index — rebuild after changing the embedding model",
+    "builtWith": "Built with",
+    "noIndexYet": "No index yet — run compile first",
+    "size": "Size",
+    "docsCount_one": "{{count}} doc",
+    "docsCount_other": "{{count}} docs",
+    "chunksCount_one": "{{count}} chunk",
+    "chunksCount_other": "{{count}} chunks",
+    "driftWarning": "Config now uses <b>{{next}}</b>, but the index was built with <b>{{built}}</b>. Rebuild to apply the new model.",
+    "bodyWeb": "Runs on your home computer; embedding vectors are model-specific and can’t be reused, so changing the model requires re-embedding every note. Your Markdown files are untouched.",
+    "estimate_one": "Estimated embedding cost: <b>{{cost}}</b> ({{count}} chunk with {{model}}). Summaries are regenerated too, billed at the Summary provider’s rate.",
+    "estimate_other": "Estimated embedding cost: <b>{{cost}}</b> ({{count}} chunks with {{model}}). Summaries are regenerated too, billed at the Summary provider’s rate.",
+    "progressNote": "Progress shows on the Status page.",
+    "starting": "Starting…",
+    "action": "Rebuild & reindex",
+    "costLessThanCent": "<$0.01",
+    "costApprox": "≈ ${{cost}}"
+  },
+  "recall": {
+    "stage": {
+      "searching": "Searching your notes…",
+      "thinking": "Analyzing your question…",
+      "answering": "Writing an answer…"
+    },
+    "note": {
+      "matchingSections_one": "{{count}} matching section",
+      "matchingSections_other": "{{count}} matching sections"
+    },
+    "answer": {
+      "writing": "Writing…",
+      "title": "Answer",
+      "fromNotes_one": "from {{count}} note",
+      "fromNotes_other": "from {{count}} notes",
+      "fromYourNotes": "from {{count}} of your notes",
+      "expand": "Expand answer",
+      "showMore": "Show more",
+      "basedOnYourNotes": "Based on your notes",
+      "noAnswerNeeded": "No AI answer needed — these notes match directly.",
+      "answerAnyway": "Answer anyway"
+    },
+    "list": {
+      "all": "All",
+      "countByRelevance_one": "{{count}} note · By relevance",
+      "countByRelevance_other": "{{count}} notes · By relevance"
+    },
+    "noResults": {
+      "title": "No notes matched",
+      "body": "Nothing in your library matches “{{query}}” — try different words.",
+      "bodyWithAsk": "Nothing in your library matches “{{query}}” — try different words, or ask the AI to answer.",
+      "answerWithAi": "Answer with AI instead"
+    },
+    "empty": {
+      "title": "Your knowledge base is empty",
+      "subtitle": "Three ways to add your first notes:",
+      "addFiles": {
+        "title": "Add Markdown files",
+        "desc": "Drop <md>.md</md> files into <dir/> on your home computer."
+      },
+      "writeHere": {
+        "title": "Write one here",
+        "desc": "Start with the New note tab — the first line becomes the title."
+      },
+      "letClaude": {
+        "title": "Let Claude write",
+        "desc": "Connect Claude over MCP and it can save what you learn together."
+      },
+      "newNote": "New note",
+      "openFolder": "Open HomeKB folder"
+    },
+    "aiSetup": {
+      "title": "Add your AI keys to get started",
+      "subtitle": "HomeKB uses AI to make your notes searchable. It needs two keys before it can index anything — both stay on this computer.",
+      "embeddingKey": {
+        "title": "Embedding key",
+        "desc": "Turns your notes into the search vectors every query runs against."
+      },
+      "summaryKey": {
+        "title": "Summary key",
+        "desc": "Writes each note's summary and category when the index is built."
+      },
+      "configured": "Configured",
+      "required": "Required",
+      "keysNote": "Your keys live in <code>config.toml</code> on this machine. Nothing — keys or notes — ever leaves your computer.",
+      "setUpInSettings": "Set up in Settings"
+    },
+    "health": {
+      "docs_one": "<b>{{count}}</b> doc",
+      "docs_other": "<b>{{count}}</b> docs",
+      "chunksVectorized_one": "<b>{{count}}</b> chunk · <pct>{{pct}}%</pct> vectorized",
+      "chunksVectorized_other": "<b>{{count}}</b> chunks · <pct>{{pct}}%</pct> vectorized",
+      "indexed": "indexed {{date}}",
+      "reindex": "Reindex"
+    },
+    "entry": {
+      "tryAsking": "Try asking",
+      "recentlyOpened": "Recently opened",
+      "recentlyUpdated": "Recently updated"
+    },
+    "clear": "Clear",
+    "composer": {
+      "offlinePlaceholder": "Home is offline — reconnect to ask",
+      "emptyPlaceholder": "Add a few notes, then ask anything…"
+    }
+  },
+  "remote": {
+    "title": "Remote",
+    "subtitle": "Connect your phone or Claude to this home. The connection service only forwards traffic — it never stores your notes.",
+    "thisDevice": "This device",
+    "disconnect": "Disconnect",
+    "pairing": {
+      "title": "Pair a new device",
+      "qrAlt": "Pairing QR code",
+      "copyCode": "Copy code",
+      "expiresIn": "Expires in {{time}}",
+      "scanHint": "scan with your phone, or enter the code on the connect screen",
+      "codeExpired": "The code expired.",
+      "generateHint": "Generate a code, then scan the QR with your phone — or type the code into the HomeKB connect screen or Claude's connector authorization page.",
+      "generate": "Generate pairing code",
+      "generateNew": "Generate new code"
+    },
+    "devices": {
+      "title": "Paired devices",
+      "empty": "Nothing is paired yet — generate a code above and scan it with your phone, or authorize Claude's connector with it.",
+      "unnamed": "Unnamed device",
+      "keep": "Keep",
+      "unpair": "Unpair",
+      "pairedOn": "Paired {{date}}",
+      "neverUsed": "never used",
+      "activeJustNow": "active just now",
+      "activeMinutesAgo_one": "active {{count}} min ago",
+      "activeMinutesAgo_other": "active {{count}} min ago",
+      "activeHoursAgo_one": "active {{count}} h ago",
+      "activeHoursAgo_other": "active {{count}} h ago",
+      "activeDaysAgo_one": "active {{count}} d ago",
+      "activeDaysAgo_other": "active {{count}} d ago"
+    },
+    "service": {
+      "title": "Connection service",
+      "defaultIntro": "Generating a code connects this computer to the default HomeKB service so your phone and Claude can reach it — the service only forwards traffic, it never stores your notes. Prefer to host your own or use one shared with you? Pick a different service:",
+      "checking": "checking…",
+      "unreachable": "unreachable",
+      "emptyList": "No services available yet. Add one you host (or someone shared with you), or start this machine's own service below.",
+      "builtIn": "Built-in",
+      "thisMachine": "This machine",
+      "inUse": "In use",
+      "use": "Use",
+      "removeFromList": "Remove from the list",
+      "add": "Add",
+      "addressHint": "A service address must be publicly reachable over <mono>https://</mono> — it is what your phone connects to.",
+      "autoSelect": "Auto-select the best service"
+    },
+    "connection": {
+      "title": "Connection",
+      "service": "Service",
+      "connectedTo": "Connected to",
+      "homeFallback": "Home",
+      "notHttpsWarning": "Not a public <mono>https://</mono> address — fine for testing on this machine's network, but a phone elsewhere can't reach it. Switch to an https service before sharing.",
+      "keepTunnelAlive": "Keep tunnel alive",
+      "tunnelRequiredFor": "Required for mobile / remote MCP",
+      "changeService": "Change service…",
+      "hideServiceList": "Hide service list",
+      "switchWarning": "Switching services re-registers this computer — devices paired through the old service will need to pair again.",
+      "homeReachable": "Home is reachable",
+      "connectingToHome": "Connecting to home…",
+      "homeOffline": "Home is offline"
+    },
+    "localService": {
+      "title": "Service on this machine",
+      "runHere": "Run a connection service here",
+      "noThirdParty": "Phones connect straight to this computer — no third party",
+      "runningHint": "The service is running on port 8787. To use it, this machine needs a public <mono>https://</mono> domain pointing at it (reverse proxy or a Cloudflare-style tunnel — your setup). Then add that domain here; auto-select will prefer it.",
+      "addAsService": "Add as service"
+    },
+    "disconnectCard": {
+      "hint": "Disconnecting removes this device's access token. You can pair again anytime with a fresh code from your home computer — or from any other paired device.",
+      "keepConnected": "Keep connected",
+      "disconnectThisDevice": "Disconnect this device…"
+    }
+  },
+  "schedule": {
+    "unsupported": {
+      "title": "Scheduled compilation",
+      "beforeCode": "Your home computer’s platform can’t manage a background schedule remotely yet (macOS only for now) — run ",
+      "afterCode": " there instead."
+    },
+    "compilingEvery": "Compiling every {{interval}}",
+    "stalled": "Schedule installed, not running",
+    "off": "Scheduled compilation off",
+    "toggleAria": "Background compilation",
+    "recompileEvery": "Recompile notes every",
+    "intervalAria": "Compile interval",
+    "noteAfterCode": " on your home computer — indexes new and edited notes on a schedule so search stays fresh. Off = notes still save, but they aren’t searchable until the next compile."
+  },
+  "settingsWeb": {
+    "aiKeyPlaceholder": "API key — stored in config.toml on your home computer",
+    "loadingFrom": "Loading settings from {{home}}…",
+    "yourHomeComputer": "your home computer",
+    "unreachable": "Couldn’t reach your home computer: {{error}}",
+    "homeSection": {
+      "title": "Home computer — your data stays there",
+      "home": "Home",
+      "notes": "Notes",
+      "dataRoot": "Data root",
+      "config": "Config",
+      "note": "These settings live in config.toml on your home computer. Edits made here are applied there — keys are write-only and are never sent back to this device."
+    },
+    "embedding": {
+      "title": "Embedding — turns notes into search vectors (required)",
+      "note": "Switching provider or model changes the vector space — run “Rebuild & reindex” below afterwards."
+    },
+    "summary": {
+      "title": "Summary — compile-time summaries and categories (required)"
+    },
+    "ask": {
+      "title": "Ask — answers questions over your notes (optional)",
+      "note": "Agents connected over MCP bring their own model; this only powers the built-in Q&A."
+    },
+    "appearance": {
+      "title": "Appearance",
+      "theme": "Theme",
+      "followsSystem": "Follows your system",
+      "note": "Light and dark switch automatically with the OS — there is no manual toggle."
+    }
+  },
+  "share": {
+    "title": "Share this note",
+    "passwordLabel": "Password (optional)",
+    "passwordPlaceholder": "Leave empty for link-only access",
+    "expiresLabel": "Expires",
+    "expiryNever": "Never",
+    "expiryDays_one": "{{count}} day",
+    "expiryDays_other": "{{count}} days",
+    "createButton": "Create share link",
+    "createFailed": "Failed to create the share link",
+    "anyoneWithLink": "Anyone with this link can read the note",
+    "createdNote": "Served live from your home machine — the link works while it's online, and revoking it (Shares tab) kills it instantly.",
+    "done": "Done",
+    "existingLinks": "Existing links for this note",
+    "passwordBadge": "password",
+    "manageHint": "Manage or revoke them in the Shares tab."
+  },
+  "shares": {
+    "title": "Shared notes",
+    "subtitle": "Served live from your home machine — nothing is stored anywhere else.",
+    "justNow": "just now",
+    "minutesAgo_one": "{{count}} min ago",
+    "minutesAgo_other": "{{count}} min ago",
+    "hoursAgo_one": "{{count}} h ago",
+    "hoursAgo_other": "{{count}} h ago",
+    "daysAgo_one": "{{count}} d ago",
+    "daysAgo_other": "{{count}} d ago",
+    "createdAgo": "created {{ago}}",
+    "expired": "expired",
+    "expiresIn_one": "expires in {{count}} day",
+    "expiresIn_other": "expires in {{count}} days",
+    "passwordBadge": "password",
+    "noLink": "No link — the home isn't registered with a connection service.",
+    "revokeConfirm": "Revoke?",
+    "revokeAria": "Revoke share",
+    "emptyTitle": "No active shares",
+    "emptyBody": "Open a note and tap Share to create a public link — with an optional password and expiry."
+  },
+  "shareViewer": {
+    "missingId": "This link is missing its share id.",
+    "missingRelay": "This link does not say which connection service to ask.",
+    "wrongPassword": "Wrong password — try again.",
+    "loadFailedStatus": "The share could not be loaded ({{status}}).",
+    "relayUnreachable": "The connection service could not be reached.",
+    "protectedTitle": "This note is protected",
+    "protectedBody": "Enter the password the author gave you.",
+    "passwordPlaceholder": "Password",
+    "openNote": "Open note",
+    "expiredTitle": "This link has expired",
+    "expiredBody": "The author set an expiry on this share and it has passed.",
+    "notFoundTitle": "Nothing here",
+    "notFoundBody": "This share does not exist or has been revoked by its author.",
+    "offlineTitle": "The author's library is offline",
+    "offlineBody": "This note is served live from its author's own computer, which is not connected right now. Try again later.",
+    "errorTitle": "Could not load this share",
+    "footer": "Served live from the author's own computer",
+    "tryAgain": "Try again"
+  },
+  "status": {
+    "title": "Index status",
+    "reindexNow": "Reindex now",
+    "meta": {
+      "generation": "Generation {{n}}",
+      "lastIndexed": "last indexed {{time}}"
+    },
+    "compiling": {
+      "title": "Vectorizing chunks…",
+      "progress": "{{vectorized}}/{{chunks}} · ~{{left}} left",
+      "note": "Search and answers keep working while it compiles."
+    },
+    "chunks": "Chunks",
+    "vectorizedOf": "/ {{total}} vectorized",
+    "docs": "Docs",
+    "pending": "Pending",
+    "failuresLabel": "Failures",
+    "generation": "Generation",
+    "dataFlow": {
+      "title": "Data flow",
+      "note": "Notes compile into a read-only snapshot on your computer — search runs against it locally; nothing is uploaded."
+    },
+    "paths": {
+      "title": "Paths",
+      "notes": "Notes",
+      "dataRoot": "Data root",
+      "config": "Config"
+    },
+    "failures": {
+      "none": "No failures · every chunk vectorized",
+      "failed_one": "{{count}} chunk failed to vectorize — a reindex usually clears this.",
+      "failed_other": "{{count}} chunks failed to vectorize — a reindex usually clears this."
+    },
+    "noData": "No status data available"
+  }
+}

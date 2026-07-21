@@ -9,6 +9,7 @@
  * travels to the home's own relay.
  */
 
+import i18n from "../i18n";
 import { normalizeBaseUrl } from "./connection";
 
 /** One paired device / MCP grant, as the relay reports it (labels + timestamps only). */
@@ -34,11 +35,11 @@ async function relayFetch(
       headers: { Authorization: `Bearer ${bearer}`, ...init?.headers },
     });
   } catch {
-    throw new Error("Relay is not reachable");
+    throw new Error(i18n.t("net.serviceUnreachable"));
   }
   if (!res.ok) {
     const data = await res.json().catch(() => ({}) as { error?: string });
-    throw new Error(data.error ?? `Relay request failed (${res.status})`);
+    throw new Error(data.error ?? i18n.t("net.serviceRequestFailed", { status: res.status }));
   }
   return res;
 }
@@ -73,6 +74,6 @@ export async function mintPairCode(
     body: JSON.stringify({ action: "new" }),
   });
   const data = (await res.json()) as { code?: string; expiresAt?: number };
-  if (!data.code || !data.expiresAt) throw new Error("Malformed relay response");
+  if (!data.code || !data.expiresAt) throw new Error(i18n.t("net.malformedServiceResponse"));
   return { code: data.code, expiresAt: data.expiresAt };
 }

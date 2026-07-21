@@ -3,6 +3,8 @@
  * `index_stats`) and the web Settings rebuild card (`kb.status` over RPC).
  */
 
+import i18n from "@/lib/i18n";
+
 /**
  * Rough embedding price per 1M input tokens (USD) by model, for the rebuild
  * estimate. Order-of-magnitude only — actual token counts vary by content.
@@ -24,6 +26,6 @@ export function estimateReindexCost(chunks: number, docs: number, model: string)
   const tokens = chunks * 600 + docs * 130;
   const rate = EMBEDDING_RATE_PER_M[model] ?? 0.1;
   const usd = (tokens / 1_000_000) * rate;
-  if (usd < 0.01) return "<$0.01";
-  return `≈ $${usd.toFixed(2)}`;
+  if (usd < 0.01) return i18n.t("rebuild.costLessThanCent");
+  return i18n.t("rebuild.costApprox", { cost: usd.toFixed(2) });
 }

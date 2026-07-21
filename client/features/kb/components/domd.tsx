@@ -22,6 +22,7 @@ import {
 import { assetRefFromNote, isExternalSrc, resolveAssetRef } from "@/lib/client/asset-ref";
 import { isDesktop } from "@/lib/client/desktop";
 import { fetchAssetUrl, SERVE_BASE, uploadAsset } from "@/lib/client/rpc";
+import i18n from "@/lib/i18n";
 import { useKbStoreApi } from "../store/kb-store";
 
 /** The npm build of @do-md/core-react does not export this type by name —
@@ -180,7 +181,7 @@ function ImagePasteDropBridge({
           const assetPath = await uploadAsset(`images/${suggestUploadName(file)}`, file);
           store.insertImage(assetRefFromNote(notePath, assetPath), file.name || "image");
         } catch (e) {
-          kb.notify(e instanceof Error ? e.message : "Image upload failed");
+          kb.notify(e instanceof Error ? e.message : i18n.t("compose.imageUploadFailed"));
           break; // one notice, not one per file, when the home is unreachable
         }
       }

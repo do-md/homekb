@@ -1,15 +1,17 @@
 "use client";
+import { useTranslation } from "react-i18next";
 import { Spinner } from "@/features/kb/components/icons";
 import { useDesktopStore, useDesktopStoreApi } from "../store/desktop-store";
 
-const PHASE_TEXT: Record<string, string> = {
-  checking: "Detecting local engine…",
-  installing: "First run: downloading the HomeKB engine (a few MB) …",
-  starting: "Starting local service (homekb serve)…",
+const PHASE_KEY: Record<string, string> = {
+  checking: "desktop.boot.checking",
+  installing: "desktop.boot.installing",
+  starting: "desktop.boot.starting",
 };
 
 /** Desktop startup screen: detect/install engine then launch serve. No system dialogs. */
 export function BootScreen() {
+  const { t } = useTranslation();
   const api = useDesktopStoreApi();
   const phase = useDesktopStore((s) => s.state.phase);
   const bootError = useDesktopStore((s) => s.state.bootError);
@@ -27,7 +29,7 @@ export function BootScreen() {
               className="rounded-xl bg-primary px-4 py-2 text-[13.5px] font-semibold text-primary-content transition-colors hover:bg-primary/90"
               onClick={() => void api.bootstrap()}
             >
-              Retry
+              {t("common.retry")}
             </button>
           </>
         ) : (
@@ -35,7 +37,7 @@ export function BootScreen() {
             <span className="text-primary">
               <Spinner size={20} />
             </span>
-            <p className="text-[13.5px] text-base-content/60">{PHASE_TEXT[phase] ?? "Starting…"}</p>
+            <p className="text-[13.5px] text-base-content/60">{t(PHASE_KEY[phase] ?? "desktop.boot.fallback")}</p>
           </>
         )}
       </div>

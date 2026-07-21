@@ -24,6 +24,7 @@
 
 import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { useTranslation } from "react-i18next";
 import { isDesktop } from "@/lib/client/desktop";
 import { closeHashOverlay, getHashParam } from "@/lib/client/hash-route";
 import { BootScreen } from "@/features/desktop/components/boot-screen";
@@ -86,14 +87,15 @@ function SettingsBadge() {
   );
 }
 
-type NavItem = { href: string; label: string; icon: typeof IconSearch };
+// Labels are i18n keys (translated at render, where the resolved language lives).
+type NavItem = { href: string; labelKey: string; icon: typeof IconSearch };
 
 const NAV: NavItem[] = [
-  { href: "/search", label: "Search", icon: IconSearch },
-  { href: "/shares", label: "Shares", icon: IconLink },
-  { href: "/remote", label: "Remote", icon: IconPhoneSignal },
-  { href: "/status", label: "Status", icon: IconActivity },
-  { href: "/settings", label: "Settings", icon: IconGear },
+  { href: "/search", labelKey: "nav.search", icon: IconSearch },
+  { href: "/shares", labelKey: "nav.shares", icon: IconLink },
+  { href: "/remote", labelKey: "nav.remote", icon: IconPhoneSignal },
+  { href: "/status", labelKey: "nav.status", icon: IconActivity },
+  { href: "/settings", labelKey: "common.settings", icon: IconGear },
 ];
 
 // The two lowest-frequency destinations collapse into a "More" dropdown on phones.
@@ -134,7 +136,9 @@ function NavTab({
   desktop: boolean;
   onSelect: (href: string) => void;
 }) {
-  const { href, label, icon: Icon } = item;
+  const { t } = useTranslation();
+  const { href, labelKey, icon: Icon } = item;
+  const label = t(labelKey);
   return (
     <button
       onClick={() => onSelect(href)}
@@ -173,8 +177,10 @@ function OverflowMenu({
   desktop: boolean;
   onSelect: (href: string) => void;
 }) {
+  const { t } = useTranslation();
   const current = OVERFLOW_NAV.find((n) => n.href === active);
   const CurrentIcon = current?.icon;
+  const triggerLabel = current ? t(current.labelKey) : t("nav.more");
   const select = (href: string) => {
     onSelect(href);
     // Close the focus-driven daisyUI dropdown after choosing.
@@ -186,9 +192,9 @@ function OverflowMenu({
         tabIndex={0}
         role="button"
         aria-haspopup="menu"
-        aria-label={current ? current.label : "More"}
+        aria-label={triggerLabel}
         className={pillClass(Boolean(current))}
-        title={current ? current.label : "More"}
+        title={triggerLabel}
       >
         <span className="relative flex">
           {CurrentIcon ? (
@@ -203,14 +209,14 @@ function OverflowMenu({
             current ? "ml-1.5 max-w-[72px]" : "ml-0 max-w-0"
           }`}
         >
-          {current?.label}
+          {current && t(current.labelKey)}
         </span>
       </div>
       <ul
         tabIndex={0}
         className="dropdown-content menu z-50 mt-2 w-44 rounded-2xl bg-base-100 p-1.5 shadow-lg ring-1 ring-base-200"
       >
-        {OVERFLOW_NAV.map(({ href, label, icon: Icon }) => {
+        {OVERFLOW_NAV.map(({ href, labelKey, icon: Icon }) => {
           const isActive = active === href;
           return (
             <li key={href}>
@@ -223,7 +229,7 @@ function OverflowMenu({
                   <Icon size={16} strokeWidth={1.7} />
                   {href === "/settings" && desktop && <SettingsBadge />}
                 </span>
-                <span className="text-[13px]">{label}</span>
+                <span className="text-[13px]">{t(labelKey)}</span>
               </button>
             </li>
           );
@@ -234,6 +240,7 @@ function OverflowMenu({
 }
 
 function Header() {
+  const { t } = useTranslation();
   const api = useKbStoreApi();
   const router = useRouter();
   const pathname = usePathname();
@@ -265,7 +272,7 @@ function Header() {
   return (
     <header className="bg-base-100 pt-safe-top">
       <div className="mx-auto flex h-16 max-w-3xl items-center gap-1 px-3">
-        <nav className="flex items-center gap-1.5" aria-label="Main">
+        <nav className="flex items-center gap-1.5" aria-label={t("nav.main")}>
           {/* Notion-style tabs (deci-a3542e): inactive ones keep a faint circular backdrop
               (visibly tappable), the active one widens into a labeled pill. */}
           {PRIMARY_NAV.map((item) => (
@@ -295,10 +302,10 @@ function Header() {
         <button
           onClick={goCompose}
           className="ml-auto btn btn-primary btn-sm rounded-full"
-          title="New note"
+          title={t("nav.newNote")}
         >
           <IconPlus size={15} strokeWidth={2} />
-          <span className="hidden min-[420px]:inline">New note</span>
+          <span className="hidden min-[420px]:inline">{t("nav.newNote")}</span>
         </button>
       </div>
     </header>

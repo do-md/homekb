@@ -7,6 +7,7 @@
  * "your data stays local" story.
  */
 
+import { useTranslation } from "react-i18next";
 import { isDesktop } from "@/lib/client/desktop";
 import { useDesktopStore } from "@/features/desktop/store/desktop-store";
 import { useKbStore, useKbStoreApi } from "../../store/kb-store";
@@ -46,16 +47,17 @@ function StatCard({
 
 /** Paths table (design 6a: label · monospace path · tag) — desktop only. */
 function PathsCard() {
+  const { t } = useTranslation();
   const engine = useDesktopStore((s) => s.state.engine);
   if (!engine) return null;
   const rows: [string, string, string][] = [
-    ["Notes", engine.notesDir, "md"],
-    ["Data root", engine.root, "data"],
-    ["Config", engine.configPath, "toml"],
+    [t("status.paths.notes"), engine.notesDir, "md"],
+    [t("status.paths.dataRoot"), engine.root, "data"],
+    [t("status.paths.config"), engine.configPath, "toml"],
   ];
   return (
     <div className="rounded-xl border border-base-300 bg-base-200 p-4">
-      <div className="hk-label">Paths</div>
+      <div className="hk-label">{t("status.paths.title")}</div>
       <div className="mt-2 flex flex-col">
         {rows.map(([label, path, tag], i) => (
           <div
@@ -93,6 +95,7 @@ function FlowBox({ label, highlight = false }: { label: string; highlight?: bool
 }
 
 export function StatusView() {
+  const { t } = useTranslation();
   const api = useKbStoreApi();
   const status = useKbStore((s) => s.state.status);
   const loading = useKbStore((s) => s.state.statusLoading);
@@ -107,9 +110,11 @@ export function StatusView() {
   const pct = chunks > 0 ? Math.min(100, Math.round((vectorized / chunks) * 100)) : 0;
 
   const metaBits = [
-    status?.generation != null ? `Generation ${status.generation}` : null,
+    status?.generation != null ? t("status.meta.generation", { n: status.generation }) : null,
     status?.lastCompileAt
-      ? `last indexed ${new Date(status.lastCompileAt * 1000).toLocaleString()}`
+      ? t("status.meta.lastIndexed", {
+          time: new Date(status.lastCompileAt * 1000).toLocaleString(),
+        })
       : null,
     status?.lastCompileHost ?? homeName ?? null,
   ].filter(Boolean);
@@ -119,7 +124,9 @@ export function StatusView() {
       <div className="mx-auto w-full max-w-2xl px-4 py-5 pb-[max(env(safe-area-inset-bottom),24px)]">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h1 className="text-[21px] font-bold tracking-tight text-base-content">Index status</h1>
+            <h1 className="text-[21px] font-bold tracking-tight text-base-content">
+              {t("status.title")}
+            </h1>
             {metaBits.length > 0 && (
               <p className="mt-1 text-[12.5px] text-base-content/45">{metaBits.join(" · ")}</p>
             )}
@@ -128,7 +135,7 @@ export function StatusView() {
             className="btn rounded-lg btn-md"
             onClick={() => void api.reindex()}
           >
-            <IconRefresh size={13} /> Reindex now
+            <IconRefresh size={13} /> {t("status.reindexNow")}
           </button>
         </div>
 
@@ -149,7 +156,7 @@ export function StatusView() {
                   <span className="text-primary">
                     <Spinner size={14} />
                   </span>
-                  Vectorizing chunks…
+                  {t("status.compiling.title")}
                 </div>
                 <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-base-300">
                   <div
@@ -159,9 +166,13 @@ export function StatusView() {
                 </div>
                 <div className="mt-2 flex items-center justify-between text-xs text-base-content/35">
                   <span className="tabular-nums">
-                    {vectorized}/{chunks} · ~{Math.max(chunks - vectorized, pending)} left
+                    {t("status.compiling.progress", {
+                      vectorized,
+                      chunks,
+                      left: Math.max(chunks - vectorized, pending),
+                    })}
                   </span>
-                  <span>Search and answers keep working while it compiles.</span>
+                  <span>{t("status.compiling.note")}</span>
                 </div>
               </div>
             )}
@@ -169,7 +180,7 @@ export function StatusView() {
             {/* Hero CHUNKS card */}
             <div className="rounded-xl bg-base-200 p-4">
               <div className="hk-label flex items-center gap-1.5">
-                Chunks
+                {t("status.chunks")}
                 {allVectorized && (
                   <span className="text-success">
                     <StatusDot className="h-1.5! w-1.5!" />
@@ -180,7 +191,9 @@ export function StatusView() {
                 <span className="text-[33px] leading-none font-bold text-base-content tabular-nums">
                   {vectorized}
                 </span>
-                <span className="text-[15px] text-base-content/45 tabular-nums">/ {chunks} vectorized</span>
+                <span className="text-[15px] text-base-content/45 tabular-nums">
+                  {t("status.vectorizedOf", { total: chunks })}
+                </span>
               </div>
               <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-base-300">
                 <div
@@ -191,19 +204,19 @@ export function StatusView() {
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <StatCard label="Docs" value={status.docs ?? "–"} />
+              <StatCard label={t("status.docs")} value={status.docs ?? "–"} />
               <StatCard
-                label="Pending"
+                label={t("status.pending")}
                 value={pending}
                 dot={pending === 0 ? "green" : "amber"}
               />
               <StatCard
-                label="Failures"
+                label={t("status.failuresLabel")}
                 value={failures}
                 dot={failures === 0 ? "green" : "orange"}
               />
               <StatCard
-                label="Generation"
+                label={t("status.generation")}
                 value={status.generation ?? "–"}
                 sub={status.embeddingModel ?? undefined}
               />
@@ -211,7 +224,7 @@ export function StatusView() {
 
             {/* Data flow: the primary index.db box = read-only snapshot, data stays local */}
             <div className="rounded-xl bg-base-200 p-4">
-              <div className="hk-label">Data flow</div>
+              <div className="hk-label">{t("status.dataFlow.title")}</div>
               <div className="mt-3 flex flex-wrap items-center gap-1.5">
                 <FlowBox label="*.md" />
                 <span className="text-base-content/35">→</span>
@@ -222,8 +235,7 @@ export function StatusView() {
                 <FlowBox label="homekb query" />
               </div>
               <p className="mt-2.5 text-xs leading-relaxed text-base-content/35">
-                Notes compile into a read-only snapshot on your computer — search runs
-                against it locally; nothing is uploaded.
+                {t("status.dataFlow.note")}
               </p>
             </div>
 
@@ -237,22 +249,21 @@ export function StatusView() {
                   <span className="text-success">
                     <IconCheck size={14} strokeWidth={2} />
                   </span>
-                  No failures · every chunk vectorized
+                  {t("status.failures.none")}
                 </>
               ) : (
                 <>
                   <span className="text-hk-orange">
                     <StatusDot />
                   </span>
-                  {failures} {failures === 1 ? "chunk" : "chunks"} failed to vectorize — a
-                  reindex usually clears this.
+                  {t("status.failures.failed", { count: failures })}
                 </>
               )}
             </div>
           </div>
         ) : (
           <p className="py-14 text-center text-[13.5px] text-base-content/45">
-            No status data available
+            {t("status.noData")}
           </p>
         )}
       </div>

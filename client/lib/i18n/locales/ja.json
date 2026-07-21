@@ -1,0 +1,601 @@
+{
+  "common": {
+    "back": "戻る",
+    "close": "閉じる",
+    "open": "開く",
+    "retry": "再試行",
+    "loading": "読み込み中",
+    "edit": "編集",
+    "share": "共有",
+    "settings": "設定",
+    "copied": "コピーしました",
+    "copyLink": "リンクをコピー"
+  },
+  "aiEndpoint": {
+    "current": "現在",
+    "usesSummary": "Summary エンドポイントを使用",
+    "keyMissing": "{{provider}} · キー未設定",
+    "sameAsSummary": "Summary と同じ（既定）",
+    "keyKeepPlaceholder": "API キー — 空欄なら保存済みのキーを維持",
+    "keyDefaultPlaceholder": "API キー — config.toml にローカル保存されます",
+    "modelPlaceholderCustom": "モデル — 必須",
+    "modelPlaceholderDefault": "モデル — 空欄ならプロバイダーの既定値",
+    "baseUrlPlaceholder": "Base URL — OpenAI 互換の任意のエンドポイント",
+    "dimPlaceholder": "ベクトル次元（例: 1024）",
+    "save": "保存"
+  },
+  "compose": {
+    "newNote": "新規ノート",
+    "editNote": "ノートを編集",
+    "saveDraft": "下書きを保存",
+    "saveToLibrary": "ライブラリに保存",
+    "savedToLibrary": "ライブラリに保存しました",
+    "offlineDraftTooltip": "自宅のパソコンはオフラインです。再接続するまで、テキストはこの端末に保持されます",
+    "offlineSaveTooltip": "自宅のパソコンはオフラインです。保存するには再接続してください",
+    "editorPlaceholder": "書き始めましょう。1 行目がタイトルになります…",
+    "imageUploadFailed": "画像のアップロードに失敗しました"
+  },
+  "composer": {
+    "send": "送信",
+    "notAvailable": "現在は利用できません",
+    "entryPlaceholder": "ノートを検索、または何でも質問 —「旅行のメモ」「背中の痛みを和らげるには？」",
+    "followupPlaceholder": "続けて質問…"
+  },
+  "desktop": {
+    "boot": {
+      "checking": "ローカルエンジンを検出しています…",
+      "installing": "初回起動：HomeKB エンジンをダウンロードしています（数 MB）…",
+      "starting": "ローカルサービス（homekb serve）を起動しています…",
+      "fallback": "起動しています…"
+    },
+    "settings": {
+      "version": "バージョン",
+      "checking": "確認しています…",
+      "engine": {
+        "title": "エンジン",
+        "unknown": "不明",
+        "binary": "バイナリ",
+        "notInstalled": "未インストール",
+        "localService": "ローカルサービス",
+        "running": "稼働中 · 127.0.0.1:8765",
+        "notRunning": "停止中",
+        "available": "利用可能なアップデート",
+        "updating": "アップデートしています…",
+        "updateTo": "{{version}} にアップデート",
+        "checkUpdates": "エンジンのアップデートを確認"
+      },
+      "data": {
+        "title": "データディレクトリ — データはこのコンピューターに保存されます",
+        "notes": "ノート",
+        "root": "データルート",
+        "config": "設定ファイル"
+      },
+      "ai": {
+        "embeddingTitle": "Embedding — ノートを検索ベクトルに変換します（必須）",
+        "embeddingNote": "プロバイダーやモデルを切り替えるとベクトル空間が変わるため、その後に完全な再インデックス（再構築）が必要です。",
+        "summaryTitle": "Summary — コンパイル時の要約とカテゴリー生成（必須）",
+        "askTitle": "Ask — ノートに基づいて質問に答えます（任意）",
+        "askNote": "MCP で接続する Agent は独自のモデルを使用します。この設定は内蔵の Q&A のみに使われます。"
+      },
+      "index": {
+        "title": "インデックス — 埋め込みモデル変更後に再構築",
+        "builtWith": "構築時のモデル",
+        "noIndex": "インデックスがまだありません — まずコンパイルを実行してください",
+        "size": "サイズ",
+        "docsCount_other": "{{count}} 件のドキュメント",
+        "chunksCount_other": "{{count}} 個のチャンク",
+        "drift": "設定は現在 <b>{{config}}</b> を使用していますが、インデックスは <b>{{built}}</b> で構築されています。新しいモデルを適用するには再構築してください。",
+        "explain": "埋め込みベクトルはモデル固有のため再利用できません — モデルを変更するとすべてのノートの再埋め込みが必要です。Markdown ファイルはそのまま保持されます。",
+        "costNote_other": "推定埋め込みコスト：<b>{{cost}}</b>（{{model}} で {{count}} 個のチャンク）。要約も再生成され、Summary プロバイダーの料金で課金されます。",
+        "reindexing": "再インデックス中…（数分かかります）",
+        "rebuildButton": "再構築して再インデックス"
+      },
+      "appearance": {
+        "title": "外観",
+        "theme": "テーマ",
+        "followsSystem": "システムに追従",
+        "note": "ライトとダークは OS に合わせて自動で切り替わります — 手動の切り替えはありません。"
+      }
+    },
+    "updater": {
+      "title": "アプリのアップデート",
+      "ready": "準備完了",
+      "readyValue": "{{version}} — 再起動で適用",
+      "note": "アップデートはバックグラウンドでダウンロードとインストールが行われ、次回起動時に新しいバージョンへ切り替わります。",
+      "restartToUpdate": "再起動してアップデート",
+      "checkForUpdates": "アップデートを確認",
+      "bannerReady": "HomeKB {{version}} の準備ができました",
+      "restart": "再起動"
+    },
+    "messages": {
+      "startupFailed": "起動に失敗しました",
+      "refreshFailed": "再読み込みに失敗しました",
+      "sectionSaved": "[{{section}}] を config.toml に保存しました",
+      "saveFailed": "保存に失敗しました",
+      "askUsesSummary": "Ask は Summary エンドポイントを使用するようになりました",
+      "resetFailed": "リセットに失敗しました",
+      "reindexComplete": "再インデックスが完了しました",
+      "rebuildFailed": "再構築に失敗しました",
+      "serviceUrlInvalid": "サービスアドレスは公開の https:// URL である必要があります",
+      "noServiceReachable": "現在接続できるサービスがありません",
+      "connectedToService": "サービスに接続しました",
+      "connectFailed": "サービスに接続できませんでした",
+      "disconnected": "切断しました — サービスを選択してください",
+      "disconnectFailed": "切断できませんでした",
+      "localServiceStarted": "このコンピューターのサービスを開始しました",
+      "localServiceStopped": "このコンピューターのサービスを停止しました",
+      "serviceOperationFailed": "サービスの操作に失敗しました",
+      "pairCodeFailed": "ペアリングコードの生成に失敗しました",
+      "tunnelOperationFailed": "トンネルの操作に失敗しました",
+      "loadGrantsFailed": "ペアリング済みデバイスの読み込みに失敗しました",
+      "deviceUnpaired": "デバイスのペアリングを解除しました",
+      "unpairFailed": "デバイスのペアリング解除に失敗しました",
+      "latestVersion": "最新バージョンです",
+      "downloadingVersion": "v{{version}} をダウンロードしています…",
+      "updateCheckFailed": "アップデートの確認に失敗しました",
+      "restartFailed": "再起動に失敗しました — HomeKB を終了して開き直してください",
+      "engineUpToDate": "エンジン {{version}} は最新です",
+      "engineUpdateCheckFailed": "エンジンのアップデート確認に失敗しました",
+      "engineUpdated": "エンジンを {{version}} にアップデートしました",
+      "engineUpdateFailed": "エンジンのアップデートに失敗しました",
+      "openFolderFailed": "フォルダーを開けませんでした"
+    }
+  },
+  "drafts": {
+    "title": "下書き",
+    "description": "ライブラリに保存するまで、下書きは自宅のパソコンに保管され、各端末間で共有されます。",
+    "emptyTitle": "下書きはまだありません",
+    "emptyHint": "書いたまま保存していない内容がここに表示されます。",
+    "untitled": "無題",
+    "edited": "編集: {{time}}",
+    "words_other": "{{count}} 文字",
+    "resume": "再開",
+    "deleteConfirm": "削除しますか？",
+    "deleteDraft": "下書きを削除",
+    "time": {
+      "justNow": "たった今",
+      "minutesAgo_other": "{{count}} 分前",
+      "hoursAgo_other": "{{count}} 時間前",
+      "daysAgo_other": "{{count}} 日前"
+    }
+  },
+  "kb": {
+    "thisMachine": "このパソコン",
+    "homeFallback": "自宅のパソコン",
+    "yourHomeComputer": "自宅のパソコン",
+    "pairingFailed": "ペアリングに失敗しました",
+    "searchFailed": "検索に失敗しました",
+    "interval": {
+      "hours": "{{count}} 時間",
+      "minutes": "{{count}} 分",
+      "seconds": "{{count}} 秒"
+    },
+    "reader": {
+      "loadFailed": "読み込みに失敗しました",
+      "loadNoteFailed": "ノートを読み込めませんでした"
+    },
+    "draft": {
+      "saved": "下書きを保存しました",
+      "keptOffline": "自宅のパソコンがオフラインです — 再接続まで下書きはこの端末に保持されます",
+      "deleteOffline": "自宅のパソコンがオフラインです — 下書きを削除できませんでした"
+    },
+    "note": {
+      "saveFailed": "ノートを保存できませんでした"
+    },
+    "import": {
+      "emptyFile": "取り込む内容がありません — ファイルが空です",
+      "failed": "インポートに失敗しました",
+      "partial": "{{count}} 件をインポートした後に失敗しました — {{error}}",
+      "addedOne": "ライブラリに追加しました：{{title}}",
+      "addedMany_other": "{{count}} 件のノートをライブラリに追加しました"
+    },
+    "shares": {
+      "loadFailed": "共有リンクを読み込めませんでした",
+      "revoked": "共有を取り消しました — リンクは無効になりました",
+      "revokeOffline": "自宅のパソコンがオフラインです — 共有を取り消せませんでした"
+    },
+    "status": {
+      "loadFailed": "ステータスを読み込めませんでした"
+    },
+    "reindex": {
+      "started": "再インデックスを開始しました",
+      "failed": "再インデックスを開始できませんでした"
+    },
+    "schedule": {
+      "on": "バックグラウンドコンパイルをオンにしました — {{interval}} ごと",
+      "paused": "バックグラウンドコンパイルを一時停止しました",
+      "updateFailed": "スケジュールの更新に失敗しました"
+    },
+    "rebuild": {
+      "started": "自宅のパソコンで再構築を開始しました — 進行状況はステータスページで確認できます",
+      "failed": "再構築を開始できませんでした"
+    },
+    "settings": {
+      "loadFailed": "設定を読み込めませんでした",
+      "sectionSaved": "[{{section}}] を {{home}} に保存しました",
+      "saveFailed": "保存に失敗しました",
+      "askUsesSummary": "Ask は Summary エンドポイントを使用します",
+      "resetFailed": "リセットに失敗しました"
+    },
+    "devices": {
+      "mintFailed": "ペアリングコードを生成できませんでした",
+      "loadFailed": "デバイスを読み込めませんでした",
+      "unpaired": "デバイスのペアリングを解除しました",
+      "unpairFailed": "ペアリング解除に失敗しました"
+    }
+  },
+  "mdDrop": {
+    "tooLarge": "サイズが大きすぎてノートとして取り込めません：{{name}}",
+    "onlyMarkdown": "インポートできるのは Markdown（.md）ファイルのみです",
+    "dropTitle": "Markdown ファイルをドロップ",
+    "dropSubtitle": "そのままライブラリに追加されます"
+  },
+  "nav": {
+    "search": "検索",
+    "shares": "共有",
+    "remote": "リモート",
+    "status": "ステータス",
+    "more": "その他",
+    "newNote": "新規ノート",
+    "main": "メイン"
+  },
+  "net": {
+    "notAuthorized": "認証されていません — もう一度ペアリングしてください",
+    "authRetrying": "認証に一時的な問題が発生 — 再試行しています",
+    "notPaired": "未ペアリングです",
+    "serverNotResponding": "サーバーが応答していません",
+    "streamEndedEarly": "回答ストリームが途中で終了しました",
+    "serviceUnreachable": "接続サービスに到達できません",
+    "serviceUnreachableCheckAddress": "接続サービスに到達できません — サービスのアドレスを確認してください",
+    "serviceRequestFailed": "接続サービスへのリクエストが失敗しました（{{status}}）",
+    "malformedServiceResponse": "接続サービスからの応答が不正です",
+    "pairCodeInvalid": "ペアリングコードが無効か、有効期限切れです"
+  },
+  "offline": {
+    "title": "自宅のパソコンはオフラインです",
+    "subtitle": "現在、自宅のパソコンに接続できません。ノートはその中に安全に保存されています。復帰するまで、ここから検索できないだけです。",
+    "steps": {
+      "title": "復帰させるには",
+      "wake": "自宅のパソコンがスリープしておらず、インターネットに接続されていることを確認してください。",
+      "running": "そのパソコンで HomeKB（または `homekb tunnel`）が動作しているか確認してください。",
+      "retry": "その後、ここで接続を再試行してください。"
+    },
+    "retryConnection": "接続を再試行",
+    "retrying": "再試行中…",
+    "help": {
+      "title": "接続ヘルプ",
+      "checkTunnel": "自宅のパソコンで <code>homekb tunnel --status</code> を実行してください。<strong>running</strong> と表示されるはずです。表示されない場合は <code>homekb tunnel --install</code> を実行するか、HomeKB アプリの「リモート」タブで「トンネルを維持」をオンにしてください。",
+      "reconnects": "スリープやネットワーク変更のあと、トンネルは自動的に再接続します。パソコンの復帰後は少しお待ちください。",
+      "repair": "それでも解決しない場合は、「リモート」タブで接続を解除し、自宅のパソコンで発行した新しいコードで再ペアリングしてください。"
+    },
+    "disconnectAndRepair": "接続を解除して新しいコードで再ペアリング",
+    "lastConnected": "前回の接続 · {{time}}",
+    "time": {
+      "justNow": "たった今",
+      "minutesAgo_other": "{{count}} 分前",
+      "hoursAgo_other": "{{count}} 時間前",
+      "daysAgo_other": "{{count}} 日前"
+    }
+  },
+  "pair": {
+    "tagline": "ナレッジベースは自分のパソコンの中にあります。",
+    "getCodeHint": "自宅のパソコンの HomeKB（「リモート」タブ）でペアリングコードを取得するか、<code>homekb pair</code> を実行してください。",
+    "pairingCode": "ペアリングコード",
+    "serviceAddress": "サービスアドレス",
+    "serviceAddressHint": "自宅のパソコンが接続しているサービスです。「リモート」タブのペアリングコードの横に表示されます。QRコードをスキャンすればすべて自動で入力されます。",
+    "connect": "接続",
+    "privacyNote": "途中では何も保存されません。接続サービスはあなたとパソコンの間でデータを転送するだけです。",
+    "scanInstead": "QRコードをスキャンする",
+    "scanInsteadDesktop": "スマートフォンから？QRコードをスキャンしてください",
+    "enterCodeManually": "コードを手動で入力",
+    "scanner": {
+      "cameraDenied": "カメラへのアクセスが拒否されました。コードを手動で入力してください。",
+      "cameraNotFound": "このデバイスにカメラが見つかりません。コードを手動で入力してください。",
+      "cameraFailed": "カメラを起動できませんでした。コードを手動で入力してください。",
+      "notPairingQr": "これは HomeKB のペアリング用QRコードではありません。自宅のパソコンに表示されているものをスキャンしてください。",
+      "pointCamera": "自宅のパソコンの HomeKB に表示されているQRコードにカメラを向けてください。"
+    }
+  },
+  "reader": {},
+  "rebuild": {
+    "title": "インデックス — 埋め込みモデル変更後に再構築してください",
+    "builtWith": "構築時のモデル",
+    "noIndexYet": "インデックスがまだありません — まず compile を実行してください",
+    "size": "サイズ",
+    "docsCount_other": "{{count}} 件のドキュメント",
+    "chunksCount_other": "{{count}} 個のチャンク",
+    "driftWarning": "設定は現在 <b>{{next}}</b> を使用していますが、インデックスは <b>{{built}}</b> で構築されています。再構築して新しいモデルを適用してください。",
+    "bodyWeb": "自宅のパソコン上で実行されます。埋め込みベクトルはモデル固有で再利用できないため、モデルを変更するとすべてのノートを再埋め込みする必要があります。Markdown ファイルはそのまま保持されます。",
+    "estimate_other": "埋め込みの推定コスト：<b>{{cost}}</b>（{{model}} で {{count}} 個のチャンク）。要約も再生成され、Summary プロバイダーの料金で課金されます。",
+    "progressNote": "進行状況はステータスページに表示されます。",
+    "starting": "開始しています…",
+    "action": "再構築して再インデックス",
+    "costLessThanCent": "$0.01 未満",
+    "costApprox": "約 ${{cost}}"
+  },
+  "recall": {
+    "stage": {
+      "searching": "ノートを検索しています…",
+      "thinking": "質問を分析しています…",
+      "answering": "回答を作成しています…"
+    },
+    "note": {
+      "matchingSections_other": "一致セクション {{count}} 件"
+    },
+    "answer": {
+      "writing": "作成中…",
+      "title": "回答",
+      "fromNotes_other": "{{count}} 件のノートから",
+      "fromYourNotes": "あなたのノート {{count}} 件から",
+      "expand": "回答を展開",
+      "showMore": "もっと見る",
+      "basedOnYourNotes": "あなたのノートに基づく",
+      "noAnswerNeeded": "AI の回答は不要です——これらのノートが直接一致しています。",
+      "answerAnyway": "それでも回答する"
+    },
+    "list": {
+      "all": "すべて",
+      "countByRelevance_other": "{{count}} 件のノート · 関連度順"
+    },
+    "noResults": {
+      "title": "一致するノートがありません",
+      "body": "ライブラリに「{{query}}」と一致する内容はありません——別の言葉で試してください。",
+      "bodyWithAsk": "ライブラリに「{{query}}」と一致する内容はありません——別の言葉で試すか、AI に回答させてください。",
+      "answerWithAi": "代わりに AI で回答"
+    },
+    "empty": {
+      "title": "ナレッジベースはまだ空です",
+      "subtitle": "最初のノートを追加する 3 つの方法：",
+      "addFiles": {
+        "title": "Markdown ファイルを追加",
+        "desc": "自宅のパソコンの <dir/> に <md>.md</md> ファイルを置きます。"
+      },
+      "writeHere": {
+        "title": "ここで書く",
+        "desc": "「新規ノート」タブから始めましょう——1 行目がタイトルになります。"
+      },
+      "letClaude": {
+        "title": "Claude に書かせる",
+        "desc": "MCP で Claude と接続すると、一緒に学んだ内容を保存できます。"
+      },
+      "newNote": "新規ノート",
+      "openFolder": "HomeKB フォルダーを開く"
+    },
+    "aiSetup": {
+      "title": "AI キーを追加して始めましょう",
+      "subtitle": "HomeKB は AI でノートを検索可能にします。インデックスを作成するには 2 つのキーが必要です——どちらもこのパソコンにのみ保存されます。",
+      "embeddingKey": {
+        "title": "埋め込みキー",
+        "desc": "ノートを、すべての検索で使われる検索ベクトルに変換します。"
+      },
+      "summaryKey": {
+        "title": "要約キー",
+        "desc": "インデックス作成時に各ノートの要約とカテゴリを書き出します。"
+      },
+      "configured": "設定済み",
+      "required": "必須",
+      "keysNote": "キーはこのパソコンの <code>config.toml</code> に保存されます。キーもノートも、あなたのパソコンの外に出ることはありません。",
+      "setUpInSettings": "設定でセットアップ"
+    },
+    "health": {
+      "docs_other": "<b>{{count}}</b> 件のドキュメント",
+      "chunksVectorized_other": "<b>{{count}}</b> チャンク · <pct>{{pct}}%</pct> ベクトル化済み",
+      "indexed": "{{date}} にインデックス済み",
+      "reindex": "再インデックス"
+    },
+    "entry": {
+      "tryAsking": "質問の例",
+      "recentlyOpened": "最近開いたノート",
+      "recentlyUpdated": "最近更新されたノート"
+    },
+    "clear": "クリア",
+    "composer": {
+      "offlinePlaceholder": "自宅のパソコンがオフラインです——再接続すると質問できます",
+      "emptyPlaceholder": "まずノートをいくつか追加してから、何でも質問してください…"
+    }
+  },
+  "remote": {
+    "title": "リモート",
+    "subtitle": "スマートフォンや Claude をこの自宅に接続します。接続サービスは通信を転送するだけで、ノートを保存することはありません。",
+    "thisDevice": "このデバイス",
+    "disconnect": "接続を解除",
+    "pairing": {
+      "title": "新しいデバイスをペアリング",
+      "qrAlt": "ペアリング用QRコード",
+      "copyCode": "コードをコピー",
+      "expiresIn": "あと {{time}} で失効",
+      "scanHint": "スマートフォンでスキャンするか、接続画面でコードを入力してください",
+      "codeExpired": "コードの有効期限が切れました。",
+      "generateHint": "コードを生成してスマートフォンでQRコードをスキャンするか、HomeKB の接続画面または Claude のコネクター認可画面にコードを入力してください。",
+      "generate": "ペアリングコードを生成",
+      "generateNew": "新しいコードを生成"
+    },
+    "devices": {
+      "title": "ペアリング済みデバイス",
+      "empty": "まだ何もペアリングされていません。上でコードを生成してスマートフォンでスキャンするか、そのコードで Claude のコネクターを認可してください。",
+      "unnamed": "名前のないデバイス",
+      "keep": "残す",
+      "unpair": "ペアリング解除",
+      "pairedOn": "{{date}} にペアリング",
+      "neverUsed": "未使用",
+      "activeJustNow": "たった今アクティブ",
+      "activeMinutesAgo_other": "{{count}} 分前にアクティブ",
+      "activeHoursAgo_other": "{{count}} 時間前にアクティブ",
+      "activeDaysAgo_other": "{{count}} 日前にアクティブ"
+    },
+    "service": {
+      "title": "接続サービス",
+      "defaultIntro": "コードを生成すると、このコンピューターが HomeKB の既定の接続サービスに接続され、スマートフォンや Claude からアクセスできるようになります。サービスは通信を転送するだけで、ノートを保存することはありません。自分でホストしたい、または共有されたサービスを使いたい場合は、別のサービスを選んでください：",
+      "checking": "確認中…",
+      "unreachable": "接続できません",
+      "emptyList": "利用できるサービスはまだありません。自分でホストしている（または共有された）サービスを追加するか、下でこのコンピューター自身のサービスを起動してください。",
+      "builtIn": "組み込み",
+      "thisMachine": "このコンピューター",
+      "inUse": "使用中",
+      "use": "使用",
+      "removeFromList": "リストから削除",
+      "add": "追加",
+      "addressHint": "サービスアドレスは公開の <mono>https://</mono> で到達できる必要があります。スマートフォンの接続先になるアドレスです。",
+      "autoSelect": "最適なサービスを自動選択"
+    },
+    "connection": {
+      "title": "接続",
+      "service": "サービス",
+      "connectedTo": "接続先",
+      "homeFallback": "自宅",
+      "notHttpsWarning": "公開の <mono>https://</mono> アドレスではありません。このコンピューターのネットワーク内でのテストには使えますが、別のネットワークにあるスマートフォンからは届きません。共有する前に https のサービスに切り替えてください。",
+      "keepTunnelAlive": "トンネルを維持",
+      "tunnelRequiredFor": "モバイル / リモート MCP に必要です",
+      "changeService": "サービスを変更…",
+      "hideServiceList": "サービス一覧を隠す",
+      "switchWarning": "サービスを切り替えると、このコンピューターは再登録されます。以前のサービスでペアリングしたデバイスは、再ペアリングが必要です。",
+      "homeReachable": "自宅のパソコンはオンラインです",
+      "connectingToHome": "自宅のパソコンに接続中…",
+      "homeOffline": "自宅のパソコンはオフラインです"
+    },
+    "localService": {
+      "title": "このコンピューター上のサービス",
+      "runHere": "ここで接続サービスを実行",
+      "noThirdParty": "スマートフォンがこのコンピューターに直接接続します。第三者を経由しません",
+      "runningHint": "サービスはポート 8787 で動作しています。使用するには、このコンピューターを指す公開の <mono>https://</mono> ドメインが必要です（リバースプロキシや Cloudflare 系のトンネルなど、設定はお任せします）。そのドメインをここに追加すると、自動選択が優先的に使用します。",
+      "addAsService": "サービスとして追加"
+    },
+    "disconnectCard": {
+      "hint": "接続を解除すると、このデバイスのアクセストークンが削除されます。自宅のパソコン、または他のペアリング済みデバイスで新しいコードを発行すれば、いつでも再ペアリングできます。",
+      "keepConnected": "接続を維持",
+      "disconnectThisDevice": "このデバイスの接続を解除…"
+    }
+  },
+  "schedule": {
+    "unsupported": {
+      "title": "定期コンパイル",
+      "beforeCode": "自宅のパソコンのプラットフォームでは、バックグラウンドのスケジュールをまだリモート管理できません（現在は macOS のみ）。代わりにそのパソコンで ",
+      "afterCode": " を実行してください。"
+    },
+    "compilingEvery": "{{interval}} ごとにコンパイル中",
+    "stalled": "スケジュールはインストール済みですが、実行されていません",
+    "off": "定期コンパイルはオフです",
+    "toggleAria": "バックグラウンドコンパイル",
+    "recompileEvery": "ノートを再コンパイルする間隔",
+    "intervalAria": "コンパイル間隔",
+    "noteAfterCode": " が自宅のパソコンで新規・編集されたノートを定期的にインデックスし、検索を最新に保ちます。オフにしてもノートは保存されますが、次のコンパイルまで検索対象になりません。"
+  },
+  "settingsWeb": {
+    "aiKeyPlaceholder": "API キー — 自宅のパソコンの config.toml に保存されます",
+    "loadingFrom": "{{home}} から設定を読み込んでいます…",
+    "yourHomeComputer": "自宅のパソコン",
+    "unreachable": "自宅のパソコンに接続できませんでした：{{error}}",
+    "homeSection": {
+      "title": "自宅のパソコン — データはそこに残ります",
+      "home": "自宅のパソコン",
+      "notes": "ノート",
+      "dataRoot": "データルート",
+      "config": "設定ファイル",
+      "note": "これらの設定は自宅のパソコンの config.toml にあります。ここでの編集はそちらに適用されます — キーは書き込み専用で、このデバイスに送り返されることはありません。"
+    },
+    "embedding": {
+      "title": "Embedding — ノートを検索ベクトルに変換します（必須）",
+      "note": "プロバイダーやモデルを切り替えるとベクトル空間が変わります — その後、下の「再構築して再インデックス」を実行してください。"
+    },
+    "summary": {
+      "title": "Summary — コンパイル時の要約とカテゴリーを生成します（必須）"
+    },
+    "ask": {
+      "title": "Ask — ノートに基づいて質問に回答します（任意）",
+      "note": "MCP で接続された Agent は独自のモデルを使用します。これは内蔵の Q&A のみに使われます。"
+    },
+    "appearance": {
+      "title": "外観",
+      "theme": "テーマ",
+      "followsSystem": "システムに従う",
+      "note": "ライト / ダークは OS に合わせて自動で切り替わります — 手動の切り替えはありません。"
+    }
+  },
+  "share": {
+    "title": "このノートを共有",
+    "passwordLabel": "パスワード（任意）",
+    "passwordPlaceholder": "空欄の場合はリンクだけでアクセスできます",
+    "expiresLabel": "有効期限",
+    "expiryNever": "無期限",
+    "expiryDays_other": "{{count}}日",
+    "createButton": "共有リンクを作成",
+    "createFailed": "共有リンクを作成できませんでした",
+    "anyoneWithLink": "このリンクを知っている人は誰でもノートを読めます",
+    "createdNote": "自宅のパソコンから直接配信されます。パソコンがオンラインの間はリンクが有効で、「共有」タブで取り消すと即座に無効になります。",
+    "done": "完了",
+    "existingLinks": "このノートの既存リンク",
+    "passwordBadge": "パスワード",
+    "manageHint": "「共有」タブで管理・取り消しができます。"
+  },
+  "shares": {
+    "title": "共有中のノート",
+    "subtitle": "自宅のパソコンから直接配信され、ほかの場所には一切保存されません。",
+    "justNow": "たった今",
+    "minutesAgo_other": "{{count}}分前",
+    "hoursAgo_other": "{{count}}時間前",
+    "daysAgo_other": "{{count}}日前",
+    "createdAgo": "作成: {{ago}}",
+    "expired": "期限切れ",
+    "expiresIn_other": "あと{{count}}日で期限切れ",
+    "passwordBadge": "パスワード",
+    "noLink": "リンクがありません。自宅のパソコンが接続サービスに登録されていません。",
+    "revokeConfirm": "取り消しますか？",
+    "revokeAria": "共有を取り消す",
+    "emptyTitle": "有効な共有はありません",
+    "emptyBody": "ノートを開いて「共有」をタップすると公開リンクを作成できます。パスワードと有効期限も設定できます。"
+  },
+  "shareViewer": {
+    "missingId": "このリンクには共有 ID がありません。",
+    "missingRelay": "このリンクには接続先の接続サービスが指定されていません。",
+    "wrongPassword": "パスワードが違います。もう一度お試しください。",
+    "loadFailedStatus": "共有を読み込めませんでした（{{status}}）。",
+    "relayUnreachable": "接続サービスに接続できませんでした。",
+    "protectedTitle": "このノートは保護されています",
+    "protectedBody": "作成者から受け取ったパスワードを入力してください。",
+    "passwordPlaceholder": "パスワード",
+    "openNote": "ノートを開く",
+    "expiredTitle": "このリンクは期限切れです",
+    "expiredBody": "作成者がこの共有に設定した有効期限が過ぎました。",
+    "notFoundTitle": "何もありません",
+    "notFoundBody": "この共有は存在しないか、作成者によって取り消されました。",
+    "offlineTitle": "作成者のライブラリはオフラインです",
+    "offlineBody": "このノートは作成者自身のパソコンから直接配信されていますが、現在接続されていません。しばらくしてからもう一度お試しください。",
+    "errorTitle": "共有を読み込めません",
+    "footer": "作成者自身のパソコンから直接配信",
+    "tryAgain": "もう一度試す"
+  },
+  "status": {
+    "title": "インデックスの状態",
+    "reindexNow": "今すぐ再インデックス",
+    "meta": {
+      "generation": "世代 {{n}}",
+      "lastIndexed": "最終インデックス {{time}}"
+    },
+    "compiling": {
+      "title": "チャンクをベクトル化中…",
+      "progress": "{{vectorized}}/{{chunks}} · 残り約 {{left}}",
+      "note": "コンパイル中も検索と回答はそのまま使えます。"
+    },
+    "chunks": "チャンク",
+    "vectorizedOf": "/ {{total}} 件中ベクトル化済み",
+    "docs": "文書",
+    "pending": "未処理",
+    "failuresLabel": "失敗",
+    "generation": "世代",
+    "dataFlow": {
+      "title": "データフロー",
+      "note": "ノートは自分のパソコン上で読み取り専用スナップショットにコンパイルされ、検索はローカルで実行されます。何もアップロードされません。"
+    },
+    "paths": {
+      "title": "パス",
+      "notes": "ノート",
+      "dataRoot": "データルート",
+      "config": "設定"
+    },
+    "failures": {
+      "none": "失敗なし · すべてのチャンクをベクトル化済み",
+      "failed_other": "{{count}} 件のチャンクのベクトル化に失敗しました。再インデックスで解消することが多いです。"
+    },
+    "noData": "状態データがありません"
+  }
+}

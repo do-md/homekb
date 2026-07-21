@@ -16,6 +16,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslation } from "react-i18next";
+import i18n from "@/lib/i18n";
 import { hashHref } from "@/lib/client/hash-route";
 import type { ShareMeta } from "../../type";
 import { useKbStore, useKbStoreApi } from "../../store/kb-store";
@@ -23,21 +25,22 @@ import { IconCopy, IconShare, IconX, Spinner } from "../icons";
 
 function agoLabel(ts: number): string {
   const mins = Math.max(0, Math.round((Date.now() - ts) / 60_000));
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins} min ago`;
+  if (mins < 1) return i18n.t("shares.justNow");
+  if (mins < 60) return i18n.t("shares.minutesAgo", { count: mins });
   const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours} h ago`;
-  return `${Math.round(hours / 24)} d ago`;
+  if (hours < 24) return i18n.t("shares.hoursAgo", { count: hours });
+  return i18n.t("shares.daysAgo", { count: Math.round(hours / 24) });
 }
 
 function expiryLabel(expiresAt: number): { text: string; expired: boolean } {
   const ms = expiresAt - Date.now();
-  if (ms <= 0) return { text: "expired", expired: true };
+  if (ms <= 0) return { text: i18n.t("shares.expired"), expired: true };
   const days = Math.ceil(ms / 86_400_000);
-  return { text: days === 1 ? "expires in 1 day" : `expires in ${days} days`, expired: false };
+  return { text: i18n.t("shares.expiresIn", { count: days }), expired: false };
 }
 
 function ShareItem({ share }: { share: ShareMeta }) {
+  const { t } = useTranslation();
   const api = useKbStoreApi();
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
@@ -70,11 +73,11 @@ function ShareItem({ share }: { share: ShareMeta }) {
           {title}
         </button>
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-base-content/35">
-          <span>created {agoLabel(share.createdAt)}</span>
+          <span>{t("shares.createdAgo", { ago: agoLabel(share.createdAt) })}</span>
           {share.hasPassword && (
             <>
               <span className="h-[3px] w-[3px] rounded-full bg-base-content/30" />
-              <span>password</span>
+              <span>{t("shares.passwordBadge")}</span>
             </>
           )}
           {expiry && (
@@ -95,12 +98,12 @@ function ShareItem({ share }: { share: ShareMeta }) {
               className="btn btn-soft btn-xs rounded-md"
               onClick={copy}
             >
-              <IconCopy size={11} /> {copied ? "Copied" : "Copy link"}
+              <IconCopy size={11} /> {copied ? t("common.copied") : t("common.copyLink")}
             </button>
           </div>
         ) : (
           <div className="mt-2 text-[11.5px] text-base-content/45">
-            No link — the home isn&apos;t registered with a connection service.
+            {t("shares.noLink")}
           </div>
         )}
       </div>
@@ -110,13 +113,13 @@ function ShareItem({ share }: { share: ShareMeta }) {
           onClick={() => void api.revokeShare(share.shareId)}
           onBlur={() => setConfirming(false)}
         >
-          Revoke?
+          {t("shares.revokeConfirm")}
         </button>
       ) : (
         <button
           className="btn btn-ghost btn-xs rounded-full"
           onClick={() => setConfirming(true)}
-          aria-label="Revoke share"
+          aria-label={t("shares.revokeAria")}
         >
           <IconX size={14} />
         </button>
@@ -126,6 +129,7 @@ function ShareItem({ share }: { share: ShareMeta }) {
 }
 
 export function SharesView() {
+  const { t } = useTranslation();
   const shares = useKbStore((s) => s.state.shares);
   const loaded = useKbStore((s) => s.state.sharesLoaded);
   const loading = useKbStore((s) => s.state.sharesLoading);
@@ -136,10 +140,10 @@ export function SharesView() {
       <div className="mx-auto w-full max-w-2xl px-4 py-5 pb-[max(env(safe-area-inset-bottom),24px)]">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h1 className="text-[21px] font-bold tracking-tight text-base-content">Shared notes</h1>
-            <p className="mt-1 text-[12.5px] text-base-content/45">
-              Served live from your home machine — nothing is stored anywhere else.
-            </p>
+            <h1 className="text-[21px] font-bold tracking-tight text-base-content">
+              {t("shares.title")}
+            </h1>
+            <p className="mt-1 text-[12.5px] text-base-content/45">{t("shares.subtitle")}</p>
           </div>
           {shares.length > 0 && (
             <span className="mt-1 rounded-full bg-base-300 px-2 py-0.5 text-[11.5px] font-semibold text-base-content/60 tabular-nums">
@@ -161,10 +165,9 @@ export function SharesView() {
             <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-base-200 text-primary">
               <IconShare size={19} strokeWidth={1.5} />
             </span>
-            <p className="text-[14.5px] font-semibold text-base-content">No active shares</p>
+            <p className="text-[14.5px] font-semibold text-base-content">{t("shares.emptyTitle")}</p>
             <p className="max-w-[300px] text-[12.5px] leading-relaxed text-base-content/45">
-              Open a note and tap Share to create a public link — with an optional password and
-              expiry.
+              {t("shares.emptyBody")}
             </p>
           </div>
         ) : (

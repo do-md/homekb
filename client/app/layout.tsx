@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from "next";
 // blocks) as a separate export; import it before globals so .hk-domd can override.
 import "@do-md/core-react/style.css";
 import "./globals.css";
+import { I18nProvider } from "@/lib/i18n/provider";
 
 export const metadata: Metadata = {
   title: "HomeKB",
@@ -41,7 +42,9 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-title" content="HomeKB" />
         <link rel="apple-touch-icon" href="/icon-192.png" />
       </head>
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">
+        <I18nProvider>{children}</I18nProvider>
+      </body>
     </html>
   );
 }

@@ -1,7 +1,12 @@
+"use client";
+
 /**
  * Inline SVG icon set (design handoff: simple geometric shapes, 1–1.8px strokes,
  * no icon font, no external images). All icons inherit `currentColor`.
+ * Icons are decorative (aria-hidden); only the Spinner speaks to screen readers.
  */
+
+import { useTranslation } from "react-i18next";
 
 interface IconProps {
   size?: number;
@@ -228,11 +233,12 @@ export function IconMore(p: IconProps) {
 
 /** Loading ring (homekb-spin). Primary by default via currentColor. */
 export function Spinner({ size = 16, className = "" }: { size?: number; className?: string }) {
+  const { t } = useTranslation();
   return (
     <span
       className={`hk-spin inline-block rounded-full border-2 border-current border-t-transparent align-middle ${className}`}
       style={{ width: size, height: size }}
-      aria-label="Loading"
+      aria-label={t("common.loading")}
     />
   );
 }

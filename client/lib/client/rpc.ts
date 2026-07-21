@@ -8,6 +8,7 @@
  * UI is written once; only the base URL and auth method differ (engine-first principle).
  */
 
+import i18n from "../i18n";
 import { getConnection, type Connection } from "./connection";
 import { isDesktop } from "./desktop";
 
@@ -36,9 +37,9 @@ let consecutive401 = 0;
 function unauthorized(): RelayError {
   consecutive401 += 1;
   if (consecutive401 >= 2) {
-    return new RelayError("unauthorized", "Not authorized — please pair again");
+    return new RelayError("unauthorized", i18n.t("net.notAuthorized"));
   }
-  return new RelayError("unauthorized_transient", "Authorization hiccup — retrying");
+  return new RelayError("unauthorized_transient", i18n.t("net.authRetrying"));
 }
 
 function resetAuthStreak(): void {
@@ -69,7 +70,7 @@ function endpoint(): Endpoint {
     };
   }
   const conn = getConnection();
-  if (!conn) throw new RelayError("unauthorized", "Not paired");
+  if (!conn) throw new RelayError("unauthorized", i18n.t("net.notPaired"));
   return endpointFor(conn);
 }
 
@@ -98,7 +99,7 @@ async function rpcAt<T>(
       body: JSON.stringify({ method, params }),
     });
   } catch {
-    throw new RelayError("unreachable", "Server is not responding");
+    throw new RelayError("unreachable", i18n.t("net.serverNotResponding"));
   }
   const data = await res.json().catch(() => ({}));
   if (res.status === 401) {
@@ -191,7 +192,7 @@ export async function rpcAskStream(
       signal: opts.signal,
     });
   } catch {
-    throw new RelayError("unreachable", "Server is not responding");
+    throw new RelayError("unreachable", i18n.t("net.serverNotResponding"));
   }
   if (res.status === 401) {
     throw unauthorized();
@@ -252,7 +253,7 @@ export async function rpcAskStream(
   }
   if (buf.trim()) handleFrame(buf);
 
-  if (!done) throw new RelayError("stream_incomplete", "Answer stream ended early");
+  if (!done) throw new RelayError("stream_incomplete", i18n.t("net.streamEndedEarly"));
   return done;
 }
 
@@ -292,7 +293,7 @@ export async function fetchAssetUrl(path: string): Promise<string> {
       headers: { Accept: "image/webp,image/*;q=0.8,*/*;q=0.5", ...ep.headers },
     });
   } catch {
-    throw new RelayError("unreachable", "Server is not responding");
+    throw new RelayError("unreachable", i18n.t("net.serverNotResponding"));
   }
   if (res.status === 401) throw unauthorized();
   resetAuthStreak();
@@ -324,7 +325,7 @@ export async function uploadAsset(suggestedPath: string, blob: Blob): Promise<st
       body: blob,
     });
   } catch {
-    throw new RelayError("unreachable", "Server is not responding");
+    throw new RelayError("unreachable", i18n.t("net.serverNotResponding"));
   }
   if (res.status === 401) throw unauthorized();
   resetAuthStreak();

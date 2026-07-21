@@ -9,6 +9,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslation } from "react-i18next";
 import { closeHashOverlay, hashHref } from "@/lib/client/hash-route";
 import { useKbStore } from "../../store/kb-store";
 import { KbMarkdown } from "../domd";
@@ -16,6 +17,7 @@ import { IconChevronLeft, IconPencil, IconShare, Spinner } from "../icons";
 import { SharePanel } from "../share-panel";
 
 export function ReaderView() {
+  const { t } = useTranslation();
   const router = useRouter();
   const path = useKbStore((s) => s.state.readerPath);
   const content = useKbStore((s) => s.state.readerContent);
@@ -32,7 +34,7 @@ export function ReaderView() {
             className="-ml-2 flex items-center gap-0.5 rounded-lg p-1.5 pr-2.5 text-[13.5px] font-medium text-base-content/60 transition-colors hover:text-base-content"
             onClick={() => closeHashOverlay()}
           >
-            <IconChevronLeft size={16} /> Back
+            <IconChevronLeft size={16} /> {t("common.back")}
           </button>
           <div className="flex items-center gap-2">
             <button
@@ -40,14 +42,14 @@ export function ReaderView() {
               onClick={() => setShareOpen(true)}
               disabled={loading || !!error}
             >
-              <IconShare size={13} /> Share
+              <IconShare size={13} /> {t("common.share")}
             </button>
             <button
               className="btn btn-sm rounded-xl btn-soft"
               onClick={() => path && router.push(`/new${hashHref("note", path)}`)}
               disabled={loading || !!error}
             >
-              <IconPencil size={13} /> Edit
+              <IconPencil size={13} /> {t("common.edit")}
             </button>
           </div>
         </div>

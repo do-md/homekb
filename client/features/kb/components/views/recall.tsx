@@ -16,6 +16,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Trans, useTranslation } from "react-i18next";
 import { type AiStatus, isDesktop } from "@/lib/client/desktop";
 import { closeHashOverlay, pushHash, useHashParam } from "@/lib/client/hash-route";
 import {
@@ -62,6 +63,7 @@ function DocGlyph() {
 
 /** Whole-note result card (design NoteItem): title-forward, document-level. */
 function NoteItem({ hit, maxScore }: { hit: KbHit; maxScore: number }) {
+  const { t } = useTranslation();
   const pct = maxScore > 0 ? Math.round((hit.score / maxScore) * 100) : 0;
   return (
     <button
@@ -91,11 +93,11 @@ function NoteItem({ hit, maxScore }: { hit: KbHit; maxScore: number }) {
         {(hit.matches ?? 0) > 1 && (
           <>
             <span className="h-[3px] w-[3px] rounded-full bg-base-content/30" />
-            <span>{hit.matches} matching sections</span>
+            <span>{t("recall.note.matchingSections", { count: hit.matches })}</span>
           </>
         )}
         <span className="ml-auto flex items-center gap-1 font-medium text-base-content/45">
-          Open <IconArrowRight size={13} />
+          {t("common.open")} <IconArrowRight size={13} />
         </span>
       </div>
     </button>
@@ -120,11 +122,11 @@ function ListSkeleton() {
 /** Plain-text pipeline narration inside the AI slot (docs "First-paint batch"):
  *  the stage a submit is in, told as one quiet line rather than a widget. The
  *  streamed answer overwrites it in place; a list verdict resolves it to the
- *  no-answer line. */
-const STAGE_TEXT: Record<string, string> = {
-  searching: "Searching your notes…",
-  thinking: "Analyzing your question…",
-  answering: "Writing an answer…",
+ *  no-answer line. Maps stage → i18n key; resolved with t() at render time. */
+const STAGE_KEYS: Record<string, string> = {
+  searching: "recall.stage.searching",
+  thinking: "recall.stage.thinking",
+  answering: "recall.stage.answering",
 };
 
 /**
@@ -217,6 +219,7 @@ function useOverflowing(ref: React.RefObject<HTMLDivElement | null>) {
  * overlay. Inline [n] chips (post-stream) open the cited note directly.
  */
 function AnswerPanel() {
+  const { t } = useTranslation();
   const answer = useKbStore((s) => s.state.answer);
   const answerMs = useKbStore((s) => s.state.answerMs);
   const phase = useKbStore((s) => s.state.phase);
@@ -240,22 +243,22 @@ function AnswerPanel() {
         {writing ? (
           <>
             <Spinner size={12} />
-            Writing…
+            {t("recall.answer.writing")}
           </>
         ) : (
           <>
             <IconSpark size={13} strokeWidth={1.5} />
-            Answer
+            {t("recall.answer.title")}
           </>
         )}
         {!writing && secs && (
           <span className="ml-1 font-normal tracking-normal text-base-content/35 normal-case">
-            from {citationCount} {citationCount === 1 ? "note" : "notes"} · {secs}
+            {t("recall.answer.fromNotes", { count: citationCount })} · {secs}
           </span>
         )}
         <button
           onClick={() => pushHash("answer", "1")}
-          aria-label="Expand answer"
+          aria-label={t("recall.answer.expand")}
           className="btn btn-ghost btn-xs ml-auto -mr-2 text-base-content/45 hover:text-base-content"
         >
           <IconExpand size={14} />
@@ -278,7 +281,7 @@ function AnswerPanel() {
               onClick={() => pushHash("answer", "1")}
               className="btn btn-xs pointer-events-auto rounded-full border-base-300 bg-base-100 font-medium text-base-content/70 shadow-sm"
             >
-              Show more
+              {t("recall.answer.showMore")}
             </button>
           </div>
         )}
@@ -295,6 +298,7 @@ function AnswerPanel() {
  * a zero-hit list (NoResults owns that screen, escape hatch included).
  */
 function AskPanel() {
+  const { t } = useTranslation();
   const api = useKbStoreApi();
   const stage = useKbStore((s) => s.state.stage);
   const phase = useKbStore((s) => s.state.phase);
@@ -304,12 +308,12 @@ function AskPanel() {
 
   if (resultKind === "answer" && answer != null) return <AnswerPanel />;
 
-  const statusText = stage ? STAGE_TEXT[stage] : null;
-  if (statusText) {
+  const stageKey = stage ? STAGE_KEYS[stage] : null;
+  if (stageKey) {
     return (
       <div className="flex items-center gap-2.5 rounded-xl border border-base-300 bg-base-200 px-4 py-3 text-[13px] text-base-content/60">
         <Spinner size={13} />
-        {statusText}
+        {t(stageKey)}
       </div>
     );
   }
@@ -318,12 +322,12 @@ function AskPanel() {
     return (
       <div className="flex items-center gap-2.5 rounded-xl border border-base-300 bg-base-200 px-4 py-2.5 text-[13px] text-base-content/60">
         <IconSpark size={13} strokeWidth={1.5} className="shrink-0 text-base-content/35" />
-        <span className="min-w-0 flex-1">No AI answer needed — these notes match directly.</span>
+        <span className="min-w-0 flex-1">{t("recall.answer.noAnswerNeeded")}</span>
         <button
           onClick={() => api.answerInstead()}
           className="btn btn-ghost btn-xs -mr-2 shrink-0 font-semibold text-primary"
         >
-          Answer anyway
+          {t("recall.answer.answerAnyway")}
         </button>
       </div>
     );
@@ -339,6 +343,7 @@ function AskPanel() {
  * Inline [n] chips jump to the citation rows; rows open the cited note.
  */
 function AnswerOverlay() {
+  const { t } = useTranslation();
   const answer = useKbStore((s) => s.state.answer);
   const answerMs = useKbStore((s) => s.state.answerMs);
   const phase = useKbStore((s) => s.state.phase);
@@ -368,7 +373,7 @@ function AnswerOverlay() {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 text-[12px] font-semibold tracking-wide text-primary uppercase">
             {writing ? <Spinner size={12} /> : <IconSpark size={13} strokeWidth={1.5} />}
-            {writing ? "Writing…" : "Answer"}
+            {writing ? t("recall.answer.writing") : t("recall.answer.title")}
           </div>
           <h1 className="mt-1 truncate text-[17px] leading-snug font-bold tracking-tight text-base-content">
             {submittedQuery}
@@ -376,7 +381,7 @@ function AnswerOverlay() {
         </div>
         <button
           onClick={() => closeHashOverlay()}
-          aria-label="Close"
+          aria-label={t("common.close")}
           className="btn btn-ghost btn-sm btn-circle text-base-content/60"
         >
           <IconX size={18} />
@@ -396,13 +401,13 @@ function AnswerOverlay() {
           </div>
           {!writing && (
             <div className="mt-3 border-t border-base-200 pt-2.5 text-xs text-base-content/35">
-              from {citationCount} of your notes
+              {t("recall.answer.fromYourNotes", { count: citationCount })}
               {secs ? ` · ${secs}` : ""}
             </div>
           )}
           {answer && citationCount > 0 && (
             <div className="mt-5 pb-6">
-              <div className="hk-label">Based on your notes</div>
+              <div className="hk-label">{t("recall.answer.basedOnYourNotes")}</div>
               <div className="mt-2 flex flex-col">
                 {answer.citations.map((c, i) => (
                   <button
@@ -440,6 +445,7 @@ function AnswerOverlay() {
  *  don't re-render). The answer-instead escape hatch lives in the AI slot's
  *  no-answer line (AskPanel), not here. */
 function ListResult() {
+  const { t } = useTranslation();
   const api = useKbStoreApi();
   const hits = useKbStore((s) => s.state.hits);
   const filtered = useKbStore((s) => s.filteredHits);
@@ -452,26 +458,26 @@ function ListResult() {
     <div className="flex flex-col gap-3">
       {types.length > 1 && (
         <div className="flex flex-wrap items-center gap-1.5">
-          {[null, ...types].map((t) => {
-            const active = typeFilter === t;
+          {[null, ...types].map((dt) => {
+            const active = typeFilter === dt;
             return (
               <button
-                key={t ?? "__all"}
-                onClick={() => api.setTypeFilter(t)}
+                key={dt ?? "__all"}
+                onClick={() => api.setTypeFilter(dt)}
                 className={`rounded-full px-3 py-1 text-[12.5px] font-medium transition-colors ${
                   active
                     ? "bg-base-300 font-semibold text-base-content"
                     : "border border-base-200 text-base-content/45 hover:text-base-content/60"
                 }`}
               >
-                {t ?? "All"}
+                {dt ?? t("recall.list.all")}
               </button>
             );
           })}
         </div>
       )}
       <div className="text-xs text-base-content/35">
-        {filtered.length} {filtered.length === 1 ? "note" : "notes"} · By relevance
+        {t("recall.list.countByRelevance", { count: filtered.length })}
       </div>
       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
         {filtered.map((h) => (
@@ -485,23 +491,27 @@ function ListResult() {
 /** No search results (design 4a bottom). A list-kind empty offers the answer
  *  escape hatch — the AI reads more widely than the visible match list. */
 function NoResults() {
+  const { t } = useTranslation();
   const api = useKbStoreApi();
   const q = useKbStore((s) => s.state.submittedQuery);
   const resultKind = useKbStore((s) => s.state.resultKind);
   return (
     <div className="flex flex-col items-center py-14 text-center">
       <IconSearch size={26} className="text-base-content/35" />
-      <div className="mt-3 text-[16px] font-semibold text-base-content">No notes matched</div>
+      <div className="mt-3 text-[16px] font-semibold text-base-content">
+        {t("recall.noResults.title")}
+      </div>
       <p className="mt-1.5 max-w-xs text-[13.5px] leading-relaxed text-base-content/60">
-        Nothing in your library matches &ldquo;{q}&rdquo; — try different words
-        {resultKind === "list" ? ", or ask the AI to answer." : "."}
+        {resultKind === "list"
+          ? t("recall.noResults.bodyWithAsk", { query: q })
+          : t("recall.noResults.body", { query: q })}
       </p>
       {resultKind === "list" && (
         <button
           onClick={() => api.answerInstead()}
           className="btn btn-ghost btn-sm mt-4 gap-1.5 font-semibold text-primary"
         >
-          <IconSpark size={14} strokeWidth={1.5} /> Answer with AI instead
+          <IconSpark size={14} strokeWidth={1.5} /> {t("recall.noResults.answerWithAi")}
         </button>
       )}
     </div>
@@ -517,37 +527,42 @@ function DesktopNotesDir() {
 }
 
 function DesktopOpenFolder() {
+  const { t } = useTranslation();
   const api = useDesktopStoreApi();
   return (
     <button
       onClick={() => void api.openNotesDir()}
       className="mt-2.5 w-full rounded-xl border border-base-300 px-4 py-3 text-[15px] font-semibold text-base-content/60 transition-colors hover:bg-base-200"
     >
-      Open HomeKB folder
+      {t("recall.empty.openFolder")}
     </button>
   );
 }
 
 /** Empty knowledge base / new user (design 4a top). */
 function EmptyLibrary() {
+  const { t } = useTranslation();
   const api = useKbStoreApi();
   const router = useRouter();
   const desktop = isDesktop();
   const paths: [string, React.ReactNode][] = [
     [
-      "Add Markdown files",
-      <>
-        Drop <code className="font-mono text-[12px]">.md</code> files into{" "}
-        {desktop ? (
-          <DesktopNotesDir />
-        ) : (
-          <code className="font-mono text-[12px]">~/.homekb/notes</code>
-        )}{" "}
-        on your home computer.
-      </>,
+      t("recall.empty.addFiles.title"),
+      <Trans
+        key="addFiles"
+        i18nKey="recall.empty.addFiles.desc"
+        components={{
+          md: <code className="font-mono text-[12px]" />,
+          dir: desktop ? (
+            <DesktopNotesDir />
+          ) : (
+            <code className="font-mono text-[12px]">~/.homekb/notes</code>
+          ),
+        }}
+      />,
     ],
-    ["Write one here", "Start with the New note tab — the first line becomes the title."],
-    ["Let Claude write", "Connect Claude over MCP and it can save what you learn together."],
+    [t("recall.empty.writeHere.title"), t("recall.empty.writeHere.desc")],
+    [t("recall.empty.letClaude.title"), t("recall.empty.letClaude.desc")],
   ];
   return (
     <div className="mx-auto flex w-full max-w-md flex-col items-center px-2 py-10 text-center">
@@ -555,9 +570,9 @@ function EmptyLibrary() {
         <IconDocPlus size={24} strokeWidth={1.4} />
       </span>
       <h1 className="mt-5 text-[22px] font-bold tracking-tight text-base-content">
-        Your knowledge base is empty
+        {t("recall.empty.title")}
       </h1>
-      <p className="mt-2 text-[14.5px] text-base-content/60">Three ways to add your first notes:</p>
+      <p className="mt-2 text-[14.5px] text-base-content/60">{t("recall.empty.subtitle")}</p>
       <div className="mt-5 w-full rounded-xl border border-base-300 bg-base-200 p-4 text-left">
         <div className="flex flex-col gap-3.5">
           {paths.map(([title, desc], i) => (
@@ -582,7 +597,7 @@ function EmptyLibrary() {
         }}
         className="mt-5 w-full rounded-xl bg-primary px-4 py-3 text-[15px] font-semibold text-primary-content transition-colors hover:bg-primary/90"
       >
-        New note
+        {t("recall.empty.newNote")}
       </button>
       {desktop && <DesktopOpenFolder />}
     </div>
@@ -597,16 +612,17 @@ function EmptyLibrary() {
  * machine (Settings → config.toml), so the guide points straight there.
  */
 function AiSetupGuide({ ai }: { ai: AiStatus }) {
+  const { t } = useTranslation();
   const router = useRouter();
   const items: { title: string; desc: string; ok: boolean }[] = [
     {
-      title: "Embedding key",
-      desc: "Turns your notes into the search vectors every query runs against.",
+      title: t("recall.aiSetup.embeddingKey.title"),
+      desc: t("recall.aiSetup.embeddingKey.desc"),
       ok: ai.embedding.keyPresent,
     },
     {
-      title: "Summary key",
-      desc: "Writes each note's summary and category when the index is built.",
+      title: t("recall.aiSetup.summaryKey.title"),
+      desc: t("recall.aiSetup.summaryKey.desc"),
       ok: ai.summary.keyPresent,
     },
   ];
@@ -616,12 +632,9 @@ function AiSetupGuide({ ai }: { ai: AiStatus }) {
         <IconSpark size={24} strokeWidth={1.5} />
       </span>
       <h1 className="mt-5 text-[22px] font-bold tracking-tight text-base-content">
-        Add your AI keys to get started
+        {t("recall.aiSetup.title")}
       </h1>
-      <p className="mt-2 text-[14.5px] text-base-content/60">
-        HomeKB uses AI to make your notes searchable. It needs two keys before it can index
-        anything — both stay on this computer.
-      </p>
+      <p className="mt-2 text-[14.5px] text-base-content/60">{t("recall.aiSetup.subtitle")}</p>
       <div className="mt-5 w-full rounded-xl border border-base-300 bg-base-200 p-4 text-left">
         <div className="flex flex-col gap-3.5">
           {items.map(({ title, desc, ok }) => (
@@ -639,7 +652,7 @@ function AiSetupGuide({ ai }: { ai: AiStatus }) {
                   <span
                     className={`text-[11px] font-medium ${ok ? "text-success" : "text-base-content/45"}`}
                   >
-                    {ok ? "Configured" : "Required"}
+                    {ok ? t("recall.aiSetup.configured") : t("recall.aiSetup.required")}
                   </span>
                 </span>
                 <span className="mt-0.5 block text-[13px] leading-relaxed text-base-content/60">
@@ -651,14 +664,16 @@ function AiSetupGuide({ ai }: { ai: AiStatus }) {
         </div>
       </div>
       <p className="mt-4 text-[12.5px] leading-relaxed text-base-content/35">
-        Your keys live in <code className="font-mono text-[12px]">config.toml</code> on this
-        machine. Nothing — keys or notes — ever leaves your computer.
+        <Trans
+          i18nKey="recall.aiSetup.keysNote"
+          components={{ code: <code className="font-mono text-[12px]" /> }}
+        />
       </p>
       <button
         onClick={() => router.push("/settings")}
         className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-[15px] font-semibold text-primary-content transition-colors hover:bg-primary/90"
       >
-        <IconGear size={16} strokeWidth={1.8} /> Set up in Settings
+        <IconGear size={16} strokeWidth={1.8} /> {t("recall.aiSetup.setUpInSettings")}
       </button>
     </div>
   );
@@ -689,6 +704,7 @@ function DesktopEmptyState() {
 
 /** Library-health strip on the entry screen (design 2a). */
 function HealthStrip() {
+  const { t } = useTranslation();
   const api = useKbStoreApi();
   const status = useKbStore((s) => s.state.status);
   if (!status || !status.docs) return null;
@@ -698,22 +714,33 @@ function HealthStrip() {
   return (
     <div className="flex items-center gap-4 rounded-xl bg-base-200 px-4 py-3">
       <span className="text-[13px] text-base-content/60">
-        <span className="font-semibold text-base-content tabular-nums">{status.docs}</span> docs
+        <Trans
+          i18nKey="recall.health.docs"
+          count={status.docs}
+          components={{ b: <span className="font-semibold text-base-content tabular-nums" /> }}
+        />
       </span>
       <span className="text-[13px] text-base-content/60">
-        <span className="font-semibold text-base-content tabular-nums">{chunks}</span> chunks ·{" "}
-        <span className="tabular-nums">{pct}%</span> vectorized
+        <Trans
+          i18nKey="recall.health.chunksVectorized"
+          count={chunks}
+          values={{ pct }}
+          components={{
+            b: <span className="font-semibold text-base-content tabular-nums" />,
+            pct: <span className="tabular-nums" />,
+          }}
+        />
       </span>
       {status.lastCompileAt ? (
         <span className="hidden text-[13px] text-base-content/35 sm:inline">
-          indexed {dateLabel(status.lastCompileAt)}
+          {t("recall.health.indexed", { date: dateLabel(status.lastCompileAt) })}
         </span>
       ) : null}
       <button
         onClick={() => void api.reindex()}
         className="ml-auto flex shrink-0 items-center gap-1 text-[12.5px] font-medium text-base-content/45 transition-colors hover:text-base-content/60"
       >
-        <IconRefresh size={12} /> Reindex
+        <IconRefresh size={12} /> {t("recall.health.reindex")}
       </button>
     </div>
   );
@@ -721,6 +748,7 @@ function HealthStrip() {
 
 /** Entry screen body (design 2a): Try asking + health + Recently opened. */
 function EntryBody() {
+  const { t } = useTranslation();
   const api = useKbStoreApi();
   const suggestions = useKbStore((s) => s.state.suggestions);
   const recentDocs = useKbStore((s) => s.state.recentDocs);
@@ -730,7 +758,7 @@ function EntryBody() {
     <div className="flex flex-col gap-6">
       {suggestions.length > 0 && (
         <div>
-          <div className="hk-label">Try asking</div>
+          <div className="hk-label">{t("recall.entry.tryAsking")}</div>
           <div className="mt-2 flex flex-col gap-2">
             {suggestions.map((s) => (
               <button
@@ -761,7 +789,9 @@ function EntryBody() {
       {(openedDocs.length > 0 || recentDocs.length > 0) && (
         <div>
           <div className="hk-label">
-            {openedDocs.length > 0 ? "Recently opened" : "Recently updated"}
+            {openedDocs.length > 0
+              ? t("recall.entry.recentlyOpened")
+              : t("recall.entry.recentlyUpdated")}
           </div>
           <ul className="mt-2 list rounded-xl bg-base-200">
             {(openedDocs.length > 0
@@ -795,6 +825,7 @@ function EntryBody() {
 }
 
 export function RecallView() {
+  const { t } = useTranslation();
   const api = useKbStoreApi();
   const connState = useKbStore((s) => s.connState);
   const resultKind = useKbStore((s) => s.state.resultKind);
@@ -817,7 +848,7 @@ export function RecallView() {
         <Composer
           variant="entry"
           muted
-          mutedPlaceholder="Home is offline — reconnect to ask"
+          mutedPlaceholder={t("recall.composer.offlinePlaceholder")}
         />
       </>
     );
@@ -847,7 +878,7 @@ export function RecallView() {
                   onClick={() => api.clearSearch()}
                   className="mt-1 shrink-0 text-xs font-medium text-base-content/45 transition-colors hover:text-base-content/60"
                 >
-                  Clear
+                  {t("recall.clear")}
                 </button>
               </div>
 
@@ -882,7 +913,7 @@ export function RecallView() {
       <Composer
         variant={submittedQuery ? "followup" : "entry"}
         muted={emptyLibrary}
-        mutedPlaceholder="Add a few notes, then ask anything…"
+        mutedPlaceholder={t("recall.composer.emptyPlaceholder")}
       />
     </>
   );

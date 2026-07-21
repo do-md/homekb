@@ -9,15 +9,17 @@
  * Always rendered inside the app shell's bottom scrim; pads its own safe area.
  */
 
+import { useTranslation } from "react-i18next";
 import { useKbStore, useKbStoreApi } from "../store/kb-store";
 import { IconArrowUp } from "./icons";
 
 function SendButton({ disabled }: { disabled: boolean }) {
+  const { t } = useTranslation();
   return (
     <button
       type="submit"
       disabled={disabled}
-      aria-label="Send"
+      aria-label={t("composer.send")}
       className={`btn btn-soft btn-square rounded-full btn-sm ${
         disabled
           ? "bg-outline"
@@ -39,6 +41,7 @@ export function Composer({
   muted?: boolean;
   mutedPlaceholder?: string;
 }) {
+  const { t } = useTranslation();
   const api = useKbStoreApi();
   const query = useKbStore((s) => s.state.query);
   const phase = useKbStore((s) => s.state.phase);
@@ -46,10 +49,10 @@ export function Composer({
   const disabled = muted || busy;
 
   const placeholder = muted
-    ? (mutedPlaceholder ?? "Not available right now")
+    ? (mutedPlaceholder ?? t("composer.notAvailable"))
     : variant === "entry"
-      ? "Search notes or ask anything — 'trip notes', 'how do I ease back pain?'"
-      : "Ask a follow-up…";
+      ? t("composer.entryPlaceholder")
+      : t("composer.followupPlaceholder");
 
   return (
     <div className="hk-scrim px-4 pt-8 pb-[max(env(safe-area-inset-bottom),12px)]">

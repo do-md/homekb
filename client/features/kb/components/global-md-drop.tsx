@@ -20,6 +20,8 @@
  */
 
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import i18n from "@/lib/i18n";
 import {
   dragLooksImportable,
   isMarkdownFile,
@@ -29,6 +31,7 @@ import { useKbStoreApi } from "../store/kb-store";
 import { IconDocPlus } from "./icons";
 
 export function GlobalMdDrop() {
+  const { t } = useTranslation();
   const api = useKbStoreApi();
   const [active, setActive] = useState(false);
 
@@ -46,10 +49,13 @@ export function GlobalMdDrop() {
       setActive(false);
     };
 
+    // Notices below use i18n.t directly (not the hook's t): they fire at event
+    // time inside this effect closure, so the language resolves on use and the
+    // window listeners never need re-registering on a language switch.
     const importFiles = async (files: File[]) => {
       const oversize = files.filter((f) => f.size > MD_IMPORT_MAX_BYTES);
       if (oversize.length) {
-        api.notify(`Too large to import as a note: ${oversize[0].name}`);
+        api.notify(i18n.t("mdDrop.tooLarge", { name: oversize[0].name }));
       }
       const fit = files.filter((f) => f.size <= MD_IMPORT_MAX_BYTES);
       if (!fit.length) return;
@@ -100,7 +106,7 @@ export function GlobalMdDrop() {
       if (!files.length) return;
       e.preventDefault();
       if (files.some((f) => !f.type.startsWith("image/"))) {
-        api.notify("Only Markdown (.md) files can be imported");
+        api.notify(i18n.t("mdDrop.onlyMarkdown"));
       }
     };
 
@@ -133,10 +139,10 @@ export function GlobalMdDrop() {
           <IconDocPlus size={28} strokeWidth={1.7} />
         </span>
         <div className="text-[15px] font-semibold text-base-content">
-          Drop Markdown file
+          {t("mdDrop.dropTitle")}
         </div>
         <div className="text-[13px] text-base-content/60">
-          Added straight to your library
+          {t("mdDrop.dropSubtitle")}
         </div>
       </div>
     </div>

@@ -14,12 +14,14 @@
 
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslation } from "react-i18next";
 import { hashHref } from "@/lib/client/hash-route";
 import { useKbStore, useKbStoreApi } from "../../store/kb-store";
 import { KbEditor, type KbEditorHandle, titleFromMarkdown } from "../domd";
 import { IconChevronLeft, Spinner, StatusDot } from "../icons";
 
 function ActionButtons({ editorRef }: { editorRef: React.MutableRefObject<KbEditorHandle | null> }) {
+  const { t } = useTranslation();
   const api = useKbStoreApi();
   const busy = useKbStore((s) => s.state.newBusy);
   const connState = useKbStore((s) => s.connState);
@@ -32,15 +34,15 @@ function ActionButtons({ editorRef }: { editorRef: React.MutableRefObject<KbEdit
       <button
         className="btn btn-soft rounded-xl"
         disabled={!online}
-        title={online ? undefined : "Home is offline — text is kept on this device until you reconnect"}
+        title={online ? undefined : t("compose.offlineDraftTooltip")}
         onClick={() => void api.saveDraft(read())}
       >
-        Save draft
+        {t("compose.saveDraft")}
       </button>
       <button
         className="btn btn-primary rounded-xl"
         disabled={busy || !online}
-        title={online ? undefined : "Home is offline — reconnect to save"}
+        title={online ? undefined : t("compose.offlineSaveTooltip")}
         onClick={() => {
           const md = read();
           // On success the store clears the session AND strips a consumed
@@ -49,13 +51,14 @@ function ActionButtons({ editorRef }: { editorRef: React.MutableRefObject<KbEdit
         }}
       >
         {busy && <Spinner size={13} />}
-        Save to library
+        {t("compose.saveToLibrary")}
       </button>
     </>
   );
 }
 
 export function NewNoteView() {
+  const { t } = useTranslation();
   const api = useKbStoreApi();
   const router = useRouter();
   const seed = useKbStore((s) => s.state.editorSeed);
@@ -99,18 +102,18 @@ export function NewNoteView() {
                 editingNotePath ? `/search${hashHref("doc", editingNotePath)}` : "/search",
               )
             }
-            aria-label="Back"
+            aria-label={t("common.back")}
           >
             <IconChevronLeft size={18} />
           </button>
           <span className="text-[15px] font-semibold text-base-content">
-            {editingNotePath ? "Edit note" : "New note"}
+            {editingNotePath ? t("compose.editNote") : t("compose.newNote")}
           </span>
           <button
             className="btn btn-soft rounded-xl btn-sm"
             onClick={() => router.push("/new/drafts")}
           >
-            Drafts
+            {t("drafts.title")}
             {draftCount > 0 && (
               <span className="rounded-full bg-primary/10 px-1.5 text-[11px] font-semibold text-primary tabular-nums">
                 {draftCount}
@@ -137,12 +140,12 @@ export function NewNoteView() {
               <span className="text-success">
                 <StatusDot />
               </span>
-              Saved to your library
+              {t("compose.savedToLibrary")}
               <button
                 className="ml-auto font-semibold text-primary hover:text-primary"
                 onClick={() => router.push(`/search${hashHref("doc", savedPath)}`)}
               >
-                Open
+                {t("common.open")}
               </button>
             </div>
           )}
@@ -155,7 +158,7 @@ export function NewNoteView() {
             key={`compose#${session}`}
             seed={seed}
             notePath={editingNotePath ?? ""}
-            placeholder="Start writing — the first line becomes the title…"
+            placeholder={t("compose.editorPlaceholder")}
             handleRef={editorRef}
             autoFocus
             className="min-h-[50dvh]"

@@ -10,6 +10,8 @@
 
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
+import type { TFunction } from "i18next";
+import { Trans, useTranslation } from "react-i18next";
 import { DesktopNotice } from "@/features/desktop/components/notice";
 import { getConnection } from "@/lib/client/connection";
 import { isDesktop } from "@/lib/client/desktop";
@@ -143,6 +145,7 @@ function PairingCard({
   error: string | null;
   onGenerate: () => void;
 }) {
+  const { t } = useTranslation();
   const [now, setNow] = useState(() => Date.now());
   const [copied, setCopied] = useState(false);
   const qr = useQrDataUrl(pair ? relayPairingLink(pair.relayUrl, pair.code) : null);
@@ -167,14 +170,14 @@ function PairingCard({
   };
 
   return (
-    <Card title="Pair a new device">
+    <Card title={t("remote.pairing.title")}>
       {pair && remain ? (
         <div className="flex flex-col items-center gap-3 py-1">
           {qr ? (
             // White tile keeps the QR scannable in both themes
             <div className="rounded-xl bg-white p-3">
               {/* eslint-disable-next-line @next/next/no-img-element -- generated data URL */}
-              <img src={qr} alt="Pairing QR code" className="h-40 w-40" />
+              <img src={qr} alt={t("remote.pairing.qrAlt")} className="h-40 w-40" />
             </div>
           ) : (
             <div className="flex h-40 w-40 items-center justify-center rounded-xl bg-base-300 text-primary">
@@ -184,7 +187,7 @@ function PairingCard({
           <button
             onClick={copy}
             className="flex items-center gap-2 font-mono text-[26px] font-bold tracking-[0.25em] text-base-content"
-            title="Copy code"
+            title={t("remote.pairing.copyCode")}
           >
             {pair.code}
             <span className="text-base-content/45">
@@ -192,15 +195,14 @@ function PairingCard({
             </span>
           </button>
           <div className="text-xs text-base-content/35">
-            {copied ? "Copied" : `Expires in ${remain}`} · scan with your phone, or enter the
-            code on the connect screen
+            {copied ? t("common.copied") : t("remote.pairing.expiresIn", { time: remain })} ·{" "}
+            {t("remote.pairing.scanHint")}
           </div>
         </div>
       ) : (
         <p className="text-[13px] leading-relaxed text-base-content/60">
-          {pair ? "The code expired. " : ""}
-          Generate a code, then scan the QR with your phone — or type the code into the
-          HomeKB connect screen or Claude&apos;s connector authorization page.
+          {pair ? `${t("remote.pairing.codeExpired")} ` : ""}
+          {t("remote.pairing.generateHint")}
         </p>
       )}
       {error && <p className="mt-2 text-xs text-hk-orange-text">{error}</p>}
@@ -210,7 +212,7 @@ function PairingCard({
         onClick={onGenerate}
       >
         {busy ? <Spinner size={14} /> : <IconRefresh size={14} />}
-        {pair && remain ? "Generate new code" : "Generate pairing code"}
+        {pair && remain ? t("remote.pairing.generateNew") : t("remote.pairing.generate")}
       </button>
     </Card>
   );
@@ -227,14 +229,14 @@ function DesktopPairingCard() {
   );
 }
 
-function agoLabel(ts: number | null): string {
-  if (!ts) return "never used";
+function agoLabel(t: TFunction, ts: number | null): string {
+  if (!ts) return t("remote.devices.neverUsed");
   const mins = Math.max(0, Math.round((Date.now() - ts) / 60_000));
-  if (mins < 1) return "active just now";
-  if (mins < 60) return `active ${mins} min ago`;
+  if (mins < 1) return t("remote.devices.activeJustNow");
+  if (mins < 60) return t("remote.devices.activeMinutesAgo", { count: mins });
   const hours = Math.round(mins / 60);
-  if (hours < 24) return `active ${hours} h ago`;
-  return `active ${Math.round(hours / 24)} d ago`;
+  if (hours < 24) return t("remote.devices.activeHoursAgo", { count: hours });
+  return t("remote.devices.activeDaysAgo", { count: Math.round(hours / 24) });
 }
 
 /** One paired device row: label + activity, with an in-app confirmed Unpair. */
@@ -249,6 +251,7 @@ function DeviceRow({
   busy: boolean;
   onRevoke: () => void;
 }) {
+  const { t } = useTranslation();
   const [confirming, setConfirming] = useState(false);
 
   return (
@@ -257,15 +260,18 @@ function DeviceRow({
     >
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[13.5px] font-medium text-base-content">
-          {grant.label || "Unnamed device"}
+          {grant.label || t("remote.devices.unnamed")}
           {grant.self && (
             <span className="ml-2 rounded-full bg-base-300 px-2 py-0.5 text-[10.5px] font-semibold text-base-content/60">
-              This device
+              {t("remote.thisDevice")}
             </span>
           )}
         </span>
         <span className="block text-xs text-base-content/35">
-          Paired {new Date(grant.createdAt).toLocaleDateString()} · {agoLabel(grant.lastUsedAt)}
+          {t("remote.devices.pairedOn", {
+            date: new Date(grant.createdAt).toLocaleDateString(),
+          })}{" "}
+          · {agoLabel(t, grant.lastUsedAt)}
         </span>
       </span>
       {confirming ? (
@@ -274,7 +280,7 @@ function DeviceRow({
             className="text-[12.5px] font-medium text-base-content/45 transition-colors hover:text-base-content/60"
             onClick={() => setConfirming(false)}
           >
-            Keep
+            {t("remote.devices.keep")}
           </button>
           <button
             className="flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1 text-[12.5px] font-semibold text-primary-content transition-colors hover:bg-primary/90 disabled:opacity-60"
@@ -282,7 +288,7 @@ function DeviceRow({
             onClick={onRevoke}
           >
             {busy && <Spinner size={11} />}
-            {grant.self ? "Disconnect" : "Unpair"}
+            {grant.self ? t("remote.disconnect") : t("remote.devices.unpair")}
           </button>
         </span>
       ) : (
@@ -290,7 +296,7 @@ function DeviceRow({
           className="shrink-0 text-[12.5px] font-medium text-base-content/45 transition-colors hover:text-hk-orange-text"
           onClick={() => setConfirming(true)}
         >
-          {grant.self ? "Disconnect" : "Unpair"}
+          {grant.self ? t("remote.disconnect") : t("remote.devices.unpair")}
         </button>
       )}
     </div>
@@ -317,8 +323,9 @@ function PairedDevicesCard({
   revokingId: string | null;
   onRevoke: (id: string) => void;
 }) {
+  const { t } = useTranslation();
   return (
-    <Card title="Paired devices">
+    <Card title={t("remote.devices.title")}>
       {error ? (
         <p className="text-xs text-hk-orange-text">{error}</p>
       ) : !loaded ? (
@@ -327,8 +334,7 @@ function PairedDevicesCard({
         </div>
       ) : grants.length === 0 ? (
         <p className="text-[13px] leading-relaxed text-base-content/60">
-          Nothing is paired yet — generate a code above and scan it with your phone, or
-          authorize Claude&apos;s connector with it.
+          {t("remote.devices.empty")}
         </p>
       ) : (
         <div className="flex flex-col">
@@ -375,8 +381,11 @@ const addInputCls =
 
 /** Reachability dot + latency for one service entry. */
 function ProbeBadge({ probe }: { probe: { ok: boolean; ms: number | null } | undefined }) {
+  const { t } = useTranslation();
   if (!probe) {
-    return <span className="text-[11.5px] text-base-content/35">checking…</span>;
+    return (
+      <span className="text-[11.5px] text-base-content/35">{t("remote.service.checking")}</span>
+    );
   }
   return probe.ok ? (
     <span className="flex items-center gap-1 text-[11.5px] text-success">
@@ -384,7 +393,7 @@ function ProbeBadge({ probe }: { probe: { ok: boolean; ms: number | null } | und
     </span>
   ) : (
     <span className="flex items-center gap-1 text-[11.5px] text-hk-orange">
-      <StatusDot /> unreachable
+      <StatusDot /> {t("remote.service.unreachable")}
     </span>
   );
 }
@@ -398,6 +407,7 @@ function ProbeBadge({ probe }: { probe: { ok: boolean; ms: number | null } | und
  * official default (the engine owns that default; the client is a thin shell).
  */
 function ServicePicker({ onSelected }: { onSelected?: () => void }) {
+  const { t } = useTranslation();
   const api = useDesktopStoreApi();
   const userServices = useDesktopStore((s) => s.state.userServices);
   const probes = useDesktopStore((s) => s.state.serviceProbes);
@@ -423,8 +433,7 @@ function ServicePicker({ onSelected }: { onSelected?: () => void }) {
     <div className="flex flex-col gap-3">
       {services.length === 0 ? (
         <p className="text-[12.5px] leading-relaxed text-base-content/35">
-          No services available yet. Add one you host (or someone shared with you), or
-          start this machine&apos;s own service below.
+          {t("remote.service.emptyList")}
         </p>
       ) : (
         <div className="flex flex-col">
@@ -438,27 +447,29 @@ function ServicePicker({ onSelected }: { onSelected?: () => void }) {
                   {e.url}
                 </span>
                 <span className="flex items-center gap-2 text-[11px] text-base-content/35">
-                  {e.builtin && <span>Built-in</span>}
-                  {e.thisMachine && <span>This machine</span>}
+                  {e.builtin && <span>{t("remote.service.builtIn")}</span>}
+                  {e.thisMachine && <span>{t("remote.service.thisMachine")}</span>}
                   <ProbeBadge probe={probes[e.url]} />
                 </span>
               </span>
               {e.url === currentUrl ? (
-                <span className="shrink-0 text-[12px] font-medium text-success">In use</span>
+                <span className="shrink-0 text-[12px] font-medium text-success">
+                  {t("remote.service.inUse")}
+                </span>
               ) : (
                 <button
                   className="shrink-0 rounded-lg bg-primary px-2.5 py-1 text-[12.5px] font-semibold text-primary-content transition-colors hover:bg-primary/90 disabled:opacity-60"
                   disabled={registerBusy || !probes[e.url]?.ok}
                   onClick={() => void use(e.url)}
                 >
-                  Use
+                  {t("remote.service.use")}
                 </button>
               )}
               {!e.builtin && e.url !== currentUrl && (
                 <button
                   className="shrink-0 text-[12px] text-base-content/45 transition-colors hover:text-hk-orange-text"
                   onClick={() => api.removeService(e.url)}
-                  title="Remove from the list"
+                  title={t("remote.service.removeFromList")}
                 >
                   ✕
                 </button>
@@ -490,12 +501,14 @@ function ServicePicker({ onSelected }: { onSelected?: () => void }) {
           className="shrink-0 rounded-xl border border-base-300 px-3 py-2 text-[13px] font-semibold text-base-content/60 transition-colors hover:bg-base-200 disabled:opacity-50"
           disabled={!draft.trim()}
         >
-          Add
+          {t("remote.service.add")}
         </button>
       </form>
       <p className="text-[11.5px] leading-relaxed text-base-content/35">
-        A service address must be publicly reachable over{" "}
-        <span className="font-mono">https://</span> — it is what your phone connects to.
+        <Trans
+          i18nKey="remote.service.addressHint"
+          components={{ mono: <span className="font-mono" /> }}
+        />
       </p>
 
       {services.length > 0 && (
@@ -505,7 +518,7 @@ function ServicePicker({ onSelected }: { onSelected?: () => void }) {
           onClick={() => void api.autoSelectService()}
         >
           {(registerBusy || probing) && <Spinner size={14} />}
-          Auto-select the best service
+          {t("remote.service.autoSelect")}
         </button>
       )}
       {registerError && <p className="text-xs text-hk-orange-text">{registerError}</p>}
@@ -521,6 +534,7 @@ function ServicePicker({ onSelected }: { onSelected?: () => void }) {
  * disclosure back into the picker).
  */
 function ServiceCard() {
+  const { t } = useTranslation();
   const api = useDesktopStoreApi();
   const engine = useDesktopStore((s) => s.state.engine);
   const tunnelRunning = useDesktopStore((s) => s.state.tunnelRunning);
@@ -537,12 +551,9 @@ function ServiceCard() {
     return (
       <>
         <DesktopPairingCard />
-        <Card title="Connection service">
+        <Card title={t("remote.service.title")}>
           <p className="text-[13px] leading-relaxed text-base-content/60">
-            Generating a code connects this computer to the default HomeKB service so your
-            phone and Claude can reach it — the service only forwards traffic, it never
-            stores your notes. Prefer to host your own or use one shared with you? Pick a
-            different service:
+            {t("remote.service.defaultIntro")}
           </p>
           <div className="mt-3">
             <ServicePicker />
@@ -560,20 +571,23 @@ function ServiceCard() {
     <>
       {/* The QR is the whole point of this screen — always shown once registered. */}
       <DesktopPairingCard />
-      <Card title="Connection">
-        <Row label="Service" value={engine.relay.url} />
+      <Card title={t("remote.connection.title")}>
+        <Row label={t("remote.connection.service")} value={engine.relay.url} />
         {badServiceUrl && (
           <p className="mt-1 text-[12px] leading-relaxed text-hk-orange-text">
-            Not a public <span className="font-mono">https://</span> address — fine for
-            testing on this machine&apos;s network, but a phone elsewhere can&apos;t reach it.
-            Switch to an https service before sharing.
+            <Trans
+              i18nKey="remote.connection.notHttpsWarning"
+              components={{ mono: <span className="font-mono" /> }}
+            />
           </p>
         )}
-        <Row label="This device" value={engine.relay.name} />
+        <Row label={t("remote.thisDevice")} value={engine.relay.name} />
         <div className="mt-2 flex items-center justify-between gap-4 border-t border-base-200 pt-3">
           <span className="text-[13.5px] text-base-content/60">
-            Keep tunnel alive
-            <span className="block text-xs text-base-content/35">Required for mobile / remote MCP</span>
+            {t("remote.connection.keepTunnelAlive")}
+            <span className="block text-xs text-base-content/35">
+              {t("remote.connection.tunnelRequiredFor")}
+            </span>
           </span>
           <Toggle
             checked={tunnelRunning}
@@ -586,22 +600,23 @@ function ServiceCard() {
             className="text-[12.5px] font-medium text-base-content/45 transition-colors hover:text-base-content/60"
             onClick={() => setChanging((v) => !v)}
           >
-            {changing ? "Hide service list" : "Change service…"}
+            {changing
+              ? t("remote.connection.hideServiceList")
+              : t("remote.connection.changeService")}
           </button>
           <button
             className="text-[12.5px] font-medium text-base-content/45 transition-colors hover:text-hk-orange-text disabled:opacity-50"
             disabled={registerBusy}
             onClick={() => void api.disconnectService()}
           >
-            Disconnect
+            {t("remote.disconnect")}
           </button>
         </div>
         {changing && (
           <div className="mt-3">
             <ServicePicker onSelected={() => setChanging(false)} />
             <p className="mt-2 text-[11.5px] leading-relaxed text-base-content/35">
-              Switching services re-registers this computer — devices paired through the old
-              service will need to pair again.
+              {t("remote.connection.switchWarning")}
             </p>
           </div>
         )}
@@ -617,6 +632,7 @@ function ServiceCard() {
  * once the machine is publicly reachable over HTTPS (docs "Desktop service picker").
  */
 function LocalServiceCard() {
+  const { t } = useTranslation();
   const api = useDesktopStoreApi();
   const localRelay = useDesktopStore((s) => s.state.localRelay);
   const busy = useDesktopStore((s) => s.state.localRelayBusy);
@@ -629,12 +645,12 @@ function LocalServiceCard() {
   const running = localRelay?.running ?? false;
 
   return (
-    <Card title="Service on this machine">
+    <Card title={t("remote.localService.title")}>
       <div className="flex items-center justify-between gap-4">
         <span className="text-[13.5px] text-base-content/60">
-          Run a connection service here
+          {t("remote.localService.runHere")}
           <span className="block text-xs text-base-content/35">
-            Phones connect straight to this computer — no third party
+            {t("remote.localService.noThirdParty")}
           </span>
         </span>
         <Toggle checked={running} disabled={busy} onChange={() => void api.toggleLocalRelay()} />
@@ -642,10 +658,10 @@ function LocalServiceCard() {
       {running && (
         <div className="mt-3 border-t border-base-200 pt-3">
           <p className="text-[12.5px] leading-relaxed text-base-content/60">
-            The service is running on port 8787. To use it, this machine needs a public{" "}
-            <span className="font-mono text-[11.5px]">https://</span> domain pointing at it
-            (reverse proxy or a Cloudflare-style tunnel — your setup). Then add that domain
-            here; auto-select will prefer it.
+            <Trans
+              i18nKey="remote.localService.runningHint"
+              components={{ mono: <span className="font-mono text-[11.5px]" /> }}
+            />
           </p>
           <form
             className="mt-3 flex gap-2"
@@ -669,7 +685,7 @@ function LocalServiceCard() {
               className="shrink-0 rounded-xl border border-base-300 px-3 py-2 text-[13px] font-semibold text-base-content/60 transition-colors hover:bg-base-200 disabled:opacity-50"
               disabled={!domainDraft.trim()}
             >
-              Add as service
+              {t("remote.localService.addAsService")}
             </button>
           </form>
         </div>
@@ -739,6 +755,7 @@ function WebPairedDevicesCard() {
 }
 
 function WebRemote() {
+  const { t } = useTranslation();
   const api = useKbStoreApi();
   const homeName = useKbStore((s) => s.state.homeName);
   const connState = useKbStore((s) => s.connState);
@@ -747,9 +764,12 @@ function WebRemote() {
 
   return (
     <>
-      <Card title="This device">
-        <Row label="Connected to" value={homeName || "Home"} />
-        {conn && <Row label="Service" value={conn.relayUrl} />}
+      <Card title={t("remote.thisDevice")}>
+        <Row
+          label={t("remote.connection.connectedTo")}
+          value={homeName || t("remote.connection.homeFallback")}
+        />
+        {conn && <Row label={t("remote.connection.service")} value={conn.relayUrl} />}
         <div className="mt-2 flex items-center gap-2 border-t border-base-200 pt-3 text-[13px] text-base-content/60">
           <span
             className={
@@ -763,10 +783,10 @@ function WebRemote() {
             <StatusDot />
           </span>
           {connState === "online"
-            ? "Home is reachable"
+            ? t("remote.connection.homeReachable")
             : connState === "connecting"
-              ? "Connecting to home…"
-              : "Home is offline"}
+              ? t("remote.connection.connectingToHome")
+              : t("remote.connection.homeOffline")}
         </div>
       </Card>
 
@@ -776,8 +796,7 @@ function WebRemote() {
 
       <Card>
         <p className="text-[13px] leading-relaxed text-base-content/60">
-          Disconnecting removes this device&apos;s access token. You can pair again anytime
-          with a fresh code from your home computer — or from any other paired device.
+          {t("remote.disconnectCard.hint")}
         </p>
         {confirming ? (
           <div className="mt-3 flex gap-2">
@@ -785,13 +804,13 @@ function WebRemote() {
               className="flex-1 rounded-xl border border-base-300 px-4 py-2.5 text-[14px] font-semibold text-base-content/60 transition-colors hover:bg-base-200"
               onClick={() => setConfirming(false)}
             >
-              Keep connected
+              {t("remote.disconnectCard.keepConnected")}
             </button>
             <button
               className="flex-1 rounded-xl bg-primary px-4 py-2.5 text-[14px] font-semibold text-primary-content transition-colors hover:bg-primary/90"
               onClick={() => api.unpair()}
             >
-              Disconnect
+              {t("remote.disconnect")}
             </button>
           </div>
         ) : (
@@ -799,7 +818,7 @@ function WebRemote() {
             className="mt-3 w-full btn btn-soft btn-outline"
             onClick={() => setConfirming(true)}
           >
-            Disconnect this device…
+            {t("remote.disconnectCard.disconnectThisDevice")}
           </button>
         )}
       </Card>
@@ -808,6 +827,7 @@ function WebRemote() {
 }
 
 export function RemoteView() {
+  const { t } = useTranslation();
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-xl px-4 py-5 pb-[max(env(safe-area-inset-bottom),24px)]">
@@ -815,11 +835,12 @@ export function RemoteView() {
           <span className="text-base-content/45">
             <IconPhoneSignal size={18} strokeWidth={1.5} />
           </span>
-          <h1 className="text-[21px] font-bold tracking-tight text-base-content">Remote</h1>
+          <h1 className="text-[21px] font-bold tracking-tight text-base-content">
+            {t("remote.title")}
+          </h1>
         </div>
         <p className="mt-1.5 text-[13px] leading-relaxed text-base-content/60">
-          Connect your phone or Claude to this home. The connection service only forwards
-          traffic — it never stores your notes.
+          {t("remote.subtitle")}
         </p>
         <div className="mt-4 flex flex-col gap-3">
           {isDesktop() ? (

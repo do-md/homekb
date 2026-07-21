@@ -14,6 +14,7 @@
  */
 
 import { useEffect } from "react";
+import { Trans, useTranslation } from "react-i18next";
 import type { AiSection } from "@/lib/client/desktop";
 import { useKbStore, useKbStoreApi } from "../store/kb-store";
 import {
@@ -26,6 +27,7 @@ import { Spinner } from "./icons";
 
 /** Web binding of the shared editor: KbStore state + `kb.configSetAi` save. */
 function WebAiEndpointEditor({ section, title, note }: { section: AiSection; title: string; note?: string }) {
+  const { t } = useTranslation();
   const api = useKbStoreApi();
   const current = useKbStore((s) => s.state.config?.ai?.[section] ?? null);
   const draft = useKbStore((s) => s.state.aiDrafts[section]);
@@ -39,7 +41,7 @@ function WebAiEndpointEditor({ section, title, note }: { section: AiSection; tit
       current={current}
       draft={draft}
       busy={busy}
-      keyPlaceholder="API key — stored in config.toml on your home computer"
+      keyPlaceholder={t("settingsWeb.aiKeyPlaceholder")}
       onDraft={(patch) => api.setAiDraft(section, patch)}
       onSave={() => void api.saveAiEndpoint(section)}
       onResetAsk={() => void api.resetAsk()}
@@ -53,6 +55,7 @@ function WebAiEndpointEditor({ section, title, note }: { section: AiSection; tit
  * `index_stats` command; the action fires `kb.rebuild` on the home.
  */
 function WebRebuildCard() {
+  const { t } = useTranslation();
   const api = useKbStoreApi();
   const embedding = useKbStore((s) => s.state.config?.ai?.embedding ?? null);
   const status = useKbStore((s) => s.state.status);
@@ -72,29 +75,37 @@ function WebRebuildCard() {
   const cost = available && chunks > 0 ? estimateReindexCost(chunks, docs, embedding.model) : null;
 
   return (
-    <Section title="Index — rebuild after changing the embedding model">
-      <Row label="Built with" value={built ?? "No index yet — run compile first"} />
-      {available && <Row label="Size" value={`${docs} docs · ${chunks} chunks`} />}
+    <Section title={t("rebuild.title")}>
+      <Row label={t("rebuild.builtWith")} value={built ?? t("rebuild.noIndexYet")} />
+      {available && (
+        <Row
+          label={t("rebuild.size")}
+          value={`${t("rebuild.docsCount", { count: docs })} · ${t("rebuild.chunksCount", { count: chunks })}`}
+        />
+      )}
       {drift && (
         <p className="mt-1 rounded-lg bg-primary/10 px-3 py-2 text-xs leading-relaxed text-primary">
-          Config now uses{" "}
-          <b>
-            {embedding.provider} · {embedding.model}
-          </b>
-          , but the index was built with <b>{built}</b>. Rebuild to apply the new model.
+          <Trans
+            i18nKey="rebuild.driftWarning"
+            values={{ next: `${embedding.provider} · ${embedding.model}`, built }}
+            components={{ b: <b /> }}
+          />
         </p>
       )}
       <p className="mt-1 text-xs leading-relaxed text-base-content/35">
-        Runs on your home computer; embedding vectors are model-specific and can’t be reused, so
-        changing the model requires re-embedding every note. Your Markdown files are untouched.
+        {t("rebuild.bodyWeb")}
         {cost && (
           <>
             {" "}
-            Estimated embedding cost: <b>{cost}</b> ({chunks} chunks with {embedding.model}).
-            Summaries are regenerated too, billed at the Summary provider’s rate.
+            <Trans
+              i18nKey="rebuild.estimate"
+              count={chunks}
+              values={{ cost, model: embedding.model }}
+              components={{ b: <b /> }}
+            />
           </>
         )}{" "}
-        Progress shows on the Status page.
+        {t("rebuild.progressNote")}
       </p>
       <div className="mt-2 flex justify-end">
         <button
@@ -103,7 +114,7 @@ function WebRebuildCard() {
           onClick={() => void api.rebuildIndex()}
         >
           {busy && <Spinner size={13} />}
-          {busy ? "Starting…" : "Rebuild & reindex"}
+          {busy ? t("rebuild.starting") : t("rebuild.action")}
         </button>
       </div>
     </Section>
@@ -111,6 +122,7 @@ function WebRebuildCard() {
 }
 
 export function WebSettingsView() {
+  const { t } = useTranslation();
   const api = useKbStoreApi();
   const config = useKbStore((s) => s.state.config);
   const loading = useKbStore((s) => s.state.configLoading);
@@ -126,25 +138,27 @@ export function WebSettingsView() {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto flex w-full max-w-xl flex-col gap-3 px-4 py-5 pb-[max(env(safe-area-inset-bottom),24px)]">
-        <h1 className="text-[21px] font-bold tracking-tight text-base-content">Settings</h1>
+        <h1 className="text-[21px] font-bold tracking-tight text-base-content">
+          {t("common.settings")}
+        </h1>
 
         {!config && loading && (
           <div className="flex items-center gap-2 rounded-xl border border-base-300 bg-base-200 p-4 text-[13.5px] text-base-content/60">
             <Spinner size={14} />
-            Loading settings from {homeName || "your home computer"}…
+            {t("settingsWeb.loadingFrom", { home: homeName || t("settingsWeb.yourHomeComputer") })}
           </div>
         )}
         {!config && !loading && error && (
           <div className="rounded-xl border border-base-300 bg-base-200 p-4">
             <p className="text-[13.5px] text-base-content/60">
-              Couldn’t reach your home computer: {error}
+              {t("settingsWeb.unreachable", { error })}
             </p>
             <div className="mt-2 flex justify-end">
               <button
                 className="rounded-xl bg-primary px-4 py-2 text-[13.5px] font-semibold text-primary-content transition-colors hover:bg-primary/90"
                 onClick={() => void api.loadConfig()}
               >
-                Retry
+                {t("common.retry")}
               </button>
             </div>
           </div>
@@ -152,39 +166,38 @@ export function WebSettingsView() {
 
         {config && (
           <>
-            <Section title="Home computer — your data stays there">
-              <Row label="Home" value={homeName || "–"} />
-              <Row label="Notes" value={config.notesDir} />
-              <Row label="Data root" value={config.root} />
-              <Row label="Config" value={config.configPath} />
+            <Section title={t("settingsWeb.homeSection.title")}>
+              <Row label={t("settingsWeb.homeSection.home")} value={homeName || "–"} />
+              <Row label={t("settingsWeb.homeSection.notes")} value={config.notesDir} />
+              <Row label={t("settingsWeb.homeSection.dataRoot")} value={config.root} />
+              <Row label={t("settingsWeb.homeSection.config")} value={config.configPath} />
               <p className="mt-1 text-xs leading-relaxed text-base-content/35">
-                These settings live in config.toml on your home computer. Edits made here are
-                applied there — keys are write-only and are never sent back to this device.
+                {t("settingsWeb.homeSection.note")}
               </p>
             </Section>
 
             <WebAiEndpointEditor
               section="embedding"
-              title="Embedding — turns notes into search vectors (required)"
-              note="Switching provider or model changes the vector space — run “Rebuild & reindex” below afterwards."
+              title={t("settingsWeb.embedding.title")}
+              note={t("settingsWeb.embedding.note")}
             />
             <WebRebuildCard />
-            <WebAiEndpointEditor
-              section="summary"
-              title="Summary — compile-time summaries and categories (required)"
-            />
+            <WebAiEndpointEditor section="summary" title={t("settingsWeb.summary.title")} />
             <WebAiEndpointEditor
               section="ask"
-              title="Ask — answers questions over your notes (optional)"
-              note="Agents connected over MCP bring their own model; this only powers the built-in Q&A."
+              title={t("settingsWeb.ask.title")}
+              note={t("settingsWeb.ask.note")}
             />
           </>
         )}
 
-        <Section title="Appearance">
-          <Row label="Theme" value="Follows your system" />
+        <Section title={t("settingsWeb.appearance.title")}>
+          <Row
+            label={t("settingsWeb.appearance.theme")}
+            value={t("settingsWeb.appearance.followsSystem")}
+          />
           <p className="text-xs leading-relaxed text-base-content/35">
-            Light and dark switch automatically with the OS — there is no manual toggle.
+            {t("settingsWeb.appearance.note")}
           </p>
         </Section>
       </div>

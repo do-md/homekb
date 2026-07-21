@@ -604,6 +604,28 @@ async fn open_notes_dir() -> Result<(), String> {
     .await
 }
 
+// ---------- i18n channel (docs/ARCHITECTURE.md "UI language (i18n)") ----------
+
+/// UI-resolved locale ("en" / "zh" / "ja"), forwarded by the frontend after it
+/// resolves `navigator.languages`. Nothing native consumes it yet (no menu, no
+/// dialogs by design) — the command exists so a future native surface picks the
+/// language up without a protocol change.
+static UI_LOCALE: Mutex<String> = Mutex::new(String::new());
+
+#[tauri::command]
+fn set_locale(locale: String) -> Result<(), String> {
+    let lower = locale.to_ascii_lowercase();
+    let norm = if lower.starts_with("zh") {
+        "zh"
+    } else if lower.starts_with("ja") {
+        "ja"
+    } else {
+        "en"
+    };
+    *UI_LOCALE.lock().unwrap() = norm.to_string();
+    Ok(())
+}
+
 fn main() {
     tauri::Builder::default()
         // App self-update (docs/ARCHITECTURE.md "App self-update"): manifest from GitHub
@@ -631,6 +653,7 @@ fn main() {
             local_relay_start,
             local_relay_stop,
             open_notes_dir,
+            set_locale,
         ])
         .build(tauri::generate_context!())
         .expect("build tauri app")

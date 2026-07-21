@@ -1,5 +1,6 @@
 "use client";
 import { createMemo, createReactStore, ZenithStore } from "@do-md/zenith";
+import i18n from "@/lib/i18n";
 import {
   type AiSection,
   appVersion,
@@ -205,7 +206,7 @@ export class DesktopStore extends ZenithStore<DesktopState> {
     } catch (e) {
       this.produce((d) => {
         d.phase = "error";
-        d.bootError = invokeErrorMessage(e, "Startup failed");
+        d.bootError = invokeErrorMessage(e, i18n.t("desktop.messages.startupFailed"));
       });
     }
   }
@@ -224,7 +225,7 @@ export class DesktopStore extends ZenithStore<DesktopState> {
         d.indexStats = indexStats;
       });
     } catch (e) {
-      this.flash(invokeErrorMessage(e, "Refresh failed"));
+      this.flash(invokeErrorMessage(e, i18n.t("desktop.messages.refreshFailed")));
     }
   }
 
@@ -261,13 +262,13 @@ export class DesktopStore extends ZenithStore<DesktopState> {
         d.aiBusy = null;
         d.aiDrafts[section] = emptyAiDraft();
       });
-      this.flash(`[${section}] saved to config.toml`);
+      this.flash(i18n.t("desktop.messages.sectionSaved", { section }));
       void this.refreshEngine();
     } catch (e) {
       this.produce((d) => {
         d.aiBusy = null;
       });
-      this.flash(invokeErrorMessage(e, "Save failed"));
+      this.flash(invokeErrorMessage(e, i18n.t("desktop.messages.saveFailed")));
     }
   }
 
@@ -289,13 +290,13 @@ export class DesktopStore extends ZenithStore<DesktopState> {
         d.aiBusy = null;
         d.aiDrafts.ask = emptyAiDraft();
       });
-      this.flash("Ask now uses the Summary endpoint");
+      this.flash(i18n.t("desktop.messages.askUsesSummary"));
       void this.refreshEngine();
     } catch (e) {
       this.produce((d) => {
         d.aiBusy = null;
       });
-      this.flash(invokeErrorMessage(e, "Reset failed"));
+      this.flash(invokeErrorMessage(e, i18n.t("desktop.messages.resetFailed")));
     }
   }
 
@@ -315,13 +316,13 @@ export class DesktopStore extends ZenithStore<DesktopState> {
       this.produce((d) => {
         d.rebuilding = false;
       });
-      this.flash(report || "Reindex complete");
+      this.flash(report || i18n.t("desktop.messages.reindexComplete"));
       void this.refreshEngine();
     } catch (e) {
       this.produce((d) => {
         d.rebuilding = false;
       });
-      this.flash(invokeErrorMessage(e, "Rebuild failed"));
+      this.flash(invokeErrorMessage(e, i18n.t("desktop.messages.rebuildFailed")));
     }
   }
 
@@ -355,7 +356,7 @@ export class DesktopStore extends ZenithStore<DesktopState> {
     const clean = normalizeBaseUrl(url);
     if (!clean) return;
     if (!isAllowedServiceUrl(clean)) {
-      this.flash("A service address must be a public https:// URL");
+      this.flash(i18n.t("desktop.messages.serviceUrlInvalid"));
       return;
     }
     this.produce((d) => {
@@ -400,7 +401,7 @@ export class DesktopStore extends ZenithStore<DesktopState> {
     const pick = pickAutoService(this.services, this.state.serviceProbes);
     if (!pick) {
       this.produce((d) => {
-        d.registerError = "No service is reachable right now";
+        d.registerError = i18n.t("desktop.messages.noServiceReachable");
       });
       return;
     }
@@ -433,12 +434,12 @@ export class DesktopStore extends ZenithStore<DesktopState> {
       this.produce((d) => {
         d.registerBusy = false;
       });
-      this.flash("Connected to the service");
+      this.flash(i18n.t("desktop.messages.connectedToService"));
       void this.refreshEngine();
     } catch (e) {
       this.produce((d) => {
         d.registerBusy = false;
-        d.registerError = invokeErrorMessage(e, "Could not connect to the service");
+        d.registerError = invokeErrorMessage(e, i18n.t("desktop.messages.connectFailed"));
       });
     }
   }
@@ -459,10 +460,10 @@ export class DesktopStore extends ZenithStore<DesktopState> {
         await invoke("tunnel_stop").catch(() => {}); // best-effort; disconnect still proceeds
       }
       await invoke("relay_clear");
-      this.flash("Disconnected — choose a service");
+      this.flash(i18n.t("desktop.messages.disconnected"));
       await this.refreshEngine();
     } catch (e) {
-      this.flash(invokeErrorMessage(e, "Could not disconnect"));
+      this.flash(invokeErrorMessage(e, i18n.t("desktop.messages.disconnectFailed")));
     }
     this.produce((d) => {
       d.registerBusy = false;
@@ -489,9 +490,13 @@ export class DesktopStore extends ZenithStore<DesktopState> {
     });
     try {
       await invoke(running ? "local_relay_stop" : "local_relay_start");
-      this.flash(running ? "Service on this machine stopped" : "Service on this machine started");
+      this.flash(
+        running
+          ? i18n.t("desktop.messages.localServiceStopped")
+          : i18n.t("desktop.messages.localServiceStarted"),
+      );
     } catch (e) {
-      this.flash(invokeErrorMessage(e, "Service operation failed"));
+      this.flash(invokeErrorMessage(e, i18n.t("desktop.messages.serviceOperationFailed")));
     }
     await this.refreshLocalRelay();
     this.produce((d) => {
@@ -527,7 +532,7 @@ export class DesktopStore extends ZenithStore<DesktopState> {
     } catch (e) {
       this.produce((d) => {
         d.pairBusy = false;
-        d.pairError = invokeErrorMessage(e, "Failed to generate pairing code");
+        d.pairError = invokeErrorMessage(e, i18n.t("desktop.messages.pairCodeFailed"));
       });
     }
   }
@@ -550,7 +555,7 @@ export class DesktopStore extends ZenithStore<DesktopState> {
       this.produce((d) => {
         d.tunnelBusy = false;
       });
-      this.flash(invokeErrorMessage(e, "Tunnel operation failed"));
+      this.flash(invokeErrorMessage(e, i18n.t("desktop.messages.tunnelOperationFailed")));
       void this.refreshEngine();
     }
   }
@@ -575,7 +580,7 @@ export class DesktopStore extends ZenithStore<DesktopState> {
     } catch (e) {
       this.produce((d) => {
         d.grantsLoaded = true;
-        d.grantsError = invokeErrorMessage(e, "Failed to load paired devices");
+        d.grantsError = invokeErrorMessage(e, i18n.t("desktop.messages.loadGrantsFailed"));
       });
     }
   }
@@ -593,12 +598,12 @@ export class DesktopStore extends ZenithStore<DesktopState> {
         d.grants = d.grants.filter((g) => g.id !== grantId);
         d.revokingGrantId = null;
       });
-      this.flash("Device unpaired");
+      this.flash(i18n.t("desktop.messages.deviceUnpaired"));
     } catch (e) {
       this.produce((d) => {
         d.revokingGrantId = null;
       });
-      this.flash(invokeErrorMessage(e, "Failed to unpair device"));
+      this.flash(invokeErrorMessage(e, i18n.t("desktop.messages.unpairFailed")));
     }
   }
 
@@ -624,16 +629,16 @@ export class DesktopStore extends ZenithStore<DesktopState> {
       const update = await check();
       markUpdateChecked();
       if (!update) {
-        if (manual) this.flash("You're on the latest version");
+        if (manual) this.flash(i18n.t("desktop.messages.latestVersion"));
         return;
       }
-      if (manual) this.flash(`Downloading v${update.version}…`);
+      if (manual) this.flash(i18n.t("desktop.messages.downloadingVersion", { version: update.version }));
       await update.downloadAndInstall();
       this.produce((d) => {
         d.updateReady = update.version;
       });
     } catch (e) {
-      if (manual) this.flash(invokeErrorMessage(e, "Update check failed"));
+      if (manual) this.flash(invokeErrorMessage(e, i18n.t("desktop.messages.updateCheckFailed")));
       else console.warn("[updater] check/install failed", e);
     } finally {
       this.produce((d) => {
@@ -648,7 +653,7 @@ export class DesktopStore extends ZenithStore<DesktopState> {
       const { relaunch } = await tauriProcess();
       await relaunch();
     } catch (e) {
-      this.flash(invokeErrorMessage(e, "Restart failed — quit and reopen HomeKB"));
+      this.flash(invokeErrorMessage(e, i18n.t("desktop.messages.restartFailed")));
     }
   }
 
@@ -670,9 +675,9 @@ export class DesktopStore extends ZenithStore<DesktopState> {
       this.produce((d) => {
         d.engineLatest = newer ? latest : null;
       });
-      if (!newer) this.flash(`Engine ${current} is up to date`);
+      if (!newer) this.flash(i18n.t("desktop.messages.engineUpToDate", { version: current }));
     } catch (e) {
-      this.flash(invokeErrorMessage(e, "Engine update check failed"));
+      this.flash(invokeErrorMessage(e, i18n.t("desktop.messages.engineUpdateCheckFailed")));
     } finally {
       this.produce((d) => {
         d.engineUpdateBusy = false;
@@ -695,10 +700,10 @@ export class DesktopStore extends ZenithStore<DesktopState> {
       this.produce((d) => {
         d.engineLatest = null;
       });
-      this.flash(`Engine updated to ${version}`);
+      this.flash(i18n.t("desktop.messages.engineUpdated", { version }));
       await this.refreshEngine();
     } catch (e) {
-      this.flash(invokeErrorMessage(e, "Engine update failed"));
+      this.flash(invokeErrorMessage(e, i18n.t("desktop.messages.engineUpdateFailed")));
     } finally {
       this.produce((d) => {
         d.engineUpdateBusy = false;
@@ -712,7 +717,7 @@ export class DesktopStore extends ZenithStore<DesktopState> {
     try {
       await invoke("open_notes_dir");
     } catch (e) {
-      this.flash(invokeErrorMessage(e, "Failed to open folder"));
+      this.flash(invokeErrorMessage(e, i18n.t("desktop.messages.openFolderFailed")));
     }
   }
 

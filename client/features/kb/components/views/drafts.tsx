@@ -9,19 +9,21 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import { hashHref } from "@/lib/client/hash-route";
 import type { Draft } from "../../type";
 import { useKbStore, useKbStoreApi } from "../../store/kb-store";
 import { titleFromMarkdown } from "../domd";
 import { IconChevronLeft, IconChevronRight, IconPencil, IconPlus, IconX } from "../icons";
 
-function agoLabel(ts: number): string {
+function agoLabel(ts: number, t: TFunction): string {
   const mins = Math.max(0, Math.round((Date.now() - ts) / 60_000));
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins} min ago`;
+  if (mins < 1) return t("drafts.time.justNow");
+  if (mins < 60) return t("drafts.time.minutesAgo", { count: mins });
   const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours} h ago`;
-  return `${Math.round(hours / 24)} d ago`;
+  if (hours < 24) return t("drafts.time.hoursAgo", { count: hours });
+  return t("drafts.time.daysAgo", { count: Math.round(hours / 24) });
 }
 
 function wordCount(text: string): number {
@@ -46,10 +48,11 @@ function previewText(text: string): string {
 }
 
 function DraftItem({ draft }: { draft: Draft }) {
+  const { t } = useTranslation();
   const api = useKbStoreApi();
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
-  const title = titleFromMarkdown(draft.text) || "Untitled";
+  const title = titleFromMarkdown(draft.text) || t("drafts.untitled");
   const preview = previewText(draft.text);
 
   return (
@@ -70,11 +73,11 @@ function DraftItem({ draft }: { draft: Draft }) {
           </span>
         )} */}
         <span className="mt-1.5 flex items-center gap-2 text-xs text-base-content/35">
-          <span>edited {agoLabel(draft.editedAt)}</span>
+          <span>{t("drafts.edited", { time: agoLabel(draft.editedAt, t) })}</span>
           <span className="h-[3px] w-[3px] rounded-full bg-base-content/30" />
-          <span>{wordCount(draft.text)} words</span>
+          <span>{t("drafts.words", { count: wordCount(draft.text) })}</span>
           <span className="ml-auto flex items-center gap-0.5 font-semibold text-primary">
-            Resume <IconChevronRight size={13} />
+            {t("drafts.resume")} <IconChevronRight size={13} />
           </span>
         </span>
       </button>
@@ -84,13 +87,13 @@ function DraftItem({ draft }: { draft: Draft }) {
           onClick={() => api.deleteDraft(draft.id)}
           onBlur={() => setConfirming(false)}
         >
-          Delete?
+          {t("drafts.deleteConfirm")}
         </button>
       ) : (
         <button
           className="shrink-0 rounded-lg p-1 text-base-content/35 transition-colors hover:text-base-content/60"
           onClick={() => setConfirming(true)}
-          aria-label="Delete draft"
+          aria-label={t("drafts.deleteDraft")}
         >
           <IconX size={14} />
         </button>
@@ -100,6 +103,7 @@ function DraftItem({ draft }: { draft: Draft }) {
 }
 
 export function DraftsView() {
+  const { t } = useTranslation();
   const api = useKbStoreApi();
   const router = useRouter();
   const drafts = useKbStore((s) => s.state.drafts);
@@ -114,11 +118,11 @@ export function DraftsView() {
               api.composeResume();
               router.push("/new");
             }}
-            aria-label="Back"
+            aria-label={t("common.back")}
           >
             <IconChevronLeft size={18} />
           </button>
-          <span className="text-[15px] font-semibold text-base-content">Drafts</span>
+          <span className="text-[15px] font-semibold text-base-content">{t("drafts.title")}</span>
           {drafts.length > 0 && (
             <span className="rounded-full bg-base-300 px-2 py-0.5 text-[11.5px] font-semibold text-base-content/60 tabular-nums">
               {drafts.length}
@@ -131,24 +135,19 @@ export function DraftsView() {
               router.push("/new");
             }}
           >
-            <IconPlus size={13} strokeWidth={2} /> New note
+            <IconPlus size={13} strokeWidth={2} /> {t("compose.newNote")}
           </button>
         </div>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-xl px-4 py-4 pb-[max(env(safe-area-inset-bottom),24px)]">
-          <p className="text-[12.5px] text-base-content/45">
-            Kept on your computer and shared across your devices until you save
-            them to your library.
-          </p>
+          <p className="text-[12.5px] text-base-content/45">{t("drafts.description")}</p>
           {drafts.length === 0 ? (
             <div className="flex flex-col items-center py-14 text-center">
               <IconPencil size={22} className="text-base-content/35" />
-              <p className="mt-3 text-[14px] text-base-content/60">No drafts yet</p>
-              <p className="mt-1 text-[12.5px] text-base-content/35">
-                Anything you write but don&apos;t save shows up here.
-              </p>
+              <p className="mt-3 text-[14px] text-base-content/60">{t("drafts.emptyTitle")}</p>
+              <p className="mt-1 text-[12.5px] text-base-content/35">{t("drafts.emptyHint")}</p>
             </div>
           ) : (
             <div className="mt-3 flex flex-col gap-2.5">

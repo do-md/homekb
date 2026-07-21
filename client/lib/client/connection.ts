@@ -13,6 +13,8 @@
  * frontend (Vercel); which backend it talks to is entirely client-side state.
  */
 
+import i18n from "../i18n";
+
 export interface PairedHome {
   homeId: string;
   homeName: string;
@@ -101,5 +103,5 @@ export function parsePairingLink(text: string): PairingLink | null {
 
 /** Human-readable label for the connected target (header/status display). */
 export function connectionLabel(conn: Connection): string {
-  return conn.home.homeName || "Home";
+  return conn.home.homeName || i18n.t("kb.homeFallback");
 }

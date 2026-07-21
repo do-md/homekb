@@ -13,18 +13,20 @@
  */
 
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { CreatedShare } from "../type";
 import { useKbStore, useKbStoreApi } from "../store/kb-store";
 import { IconCopy, IconX, Spinner } from "./icons";
 
-const EXPIRY_CHOICES: { label: string; days: number | null }[] = [
-  { label: "Never", days: null },
-  { label: "1 day", days: 1 },
-  { label: "7 days", days: 7 },
-  { label: "30 days", days: 30 },
+const EXPIRY_CHOICES: { days: number | null }[] = [
+  { days: null },
+  { days: 1 },
+  { days: 7 },
+  { days: 30 },
 ];
 
 function CopyLinkButton({ url }: { url: string }) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     try {
@@ -40,12 +42,13 @@ function CopyLinkButton({ url }: { url: string }) {
       className="flex shrink-0 items-center gap-1.5 rounded-xl bg-primary px-3 py-1.5 text-[12.5px] font-semibold text-primary-content transition-colors hover:bg-primary/90"
       onClick={copy}
     >
-      <IconCopy size={12} /> {copied ? "Copied" : "Copy link"}
+      <IconCopy size={12} /> {copied ? t("common.copied") : t("common.copyLink")}
     </button>
   );
 }
 
 export function SharePanel({ path, onClose }: { path: string; onClose: () => void }) {
+  const { t } = useTranslation();
   const api = useKbStoreApi();
   const shares = useKbStore((s) => s.state.shares);
 
@@ -73,7 +76,7 @@ export function SharePanel({ path, onClose }: { path: string; onClose: () => voi
       });
       setCreated(res);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to create the share link");
+      setError(e instanceof Error ? e.message : t("share.createFailed"));
     } finally {
       setBusy(false);
     }
@@ -82,19 +85,19 @@ export function SharePanel({ path, onClose }: { path: string; onClose: () => voi
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
       {/* Backdrop click closes — same dismissal contract as the system back gesture. */}
-      <button className="absolute inset-0 bg-black/30" aria-label="Close" onClick={onClose} />
+      <button className="absolute inset-0 bg-black/30" aria-label={t("common.close")} onClick={onClose} />
       <div className="relative w-full max-w-md rounded-t-3xl border border-base-300 bg-base-100 p-5 pb-[max(env(safe-area-inset-bottom),20px)] sm:rounded-3xl sm:pb-5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h2 className="text-[17px] font-bold tracking-tight text-base-content">
-              Share this note
+              {t("share.title")}
             </h2>
             <p className="mt-0.5 truncate font-mono text-[11px] text-base-content/35">{path}</p>
           </div>
           <button
             className="rounded-lg p-1 text-base-content/35 transition-colors hover:text-base-content/60"
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t("common.close")}
           >
             <IconX size={16} />
           </button>
@@ -103,7 +106,7 @@ export function SharePanel({ path, onClose }: { path: string; onClose: () => voi
         {created ? (
           <div className="mt-4">
             <div className="rounded-xl border border-base-300 bg-base-200 p-4">
-              <div className="hk-label">Anyone with this link can read the note</div>
+              <div className="hk-label">{t("share.anyoneWithLink")}</div>
               <div className="mt-2 flex items-center gap-2">
                 <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-base-content">
                   {created.url}
@@ -112,33 +115,32 @@ export function SharePanel({ path, onClose }: { path: string; onClose: () => voi
               </div>
             </div>
             <p className="mt-3 text-[12px] leading-relaxed text-base-content/45">
-              Served live from your home machine — the link works while it&apos;s online, and
-              revoking it (Shares tab) kills it instantly.
+              {t("share.createdNote")}
             </p>
             <button
               className="mt-4 w-full rounded-xl border border-base-300 px-3.5 py-2 text-[13.5px] font-semibold text-base-content/60 transition-colors hover:bg-base-200"
               onClick={onClose}
             >
-              Done
+              {t("share.done")}
             </button>
           </div>
         ) : (
           <div className="mt-4">
-            <label className="hk-label block">Password (optional)</label>
+            <label className="hk-label block">{t("share.passwordLabel")}</label>
             <input
               type="text"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Leave empty for link-only access"
+              placeholder={t("share.passwordPlaceholder")}
               autoComplete="off"
               className="mt-1.5 w-full rounded-xl border border-base-300 bg-base-200 px-3 py-2 text-[13.5px] text-base-content placeholder:text-base-content/35 focus:outline-none focus:ring-2 focus:ring-primary/40"
             />
 
-            <div className="mt-3.5 hk-label">Expires</div>
+            <div className="mt-3.5 hk-label">{t("share.expiresLabel")}</div>
             <div className="mt-1.5 flex items-center gap-1.5">
               {EXPIRY_CHOICES.map((c, i) => (
                 <button
-                  key={c.label}
+                  key={c.days ?? "never"}
                   onClick={() => setExpiryIdx(i)}
                   className={`rounded-full px-3 py-1.5 text-[12.5px] font-semibold transition-colors ${
                     i === expiryIdx
@@ -146,7 +148,9 @@ export function SharePanel({ path, onClose }: { path: string; onClose: () => voi
                       : "bg-base-300 text-base-content/60 hover:text-base-content"
                   }`}
                 >
-                  {c.label}
+                  {c.days === null
+                    ? t("share.expiryNever")
+                    : t("share.expiryDays", { count: c.days })}
                 </button>
               ))}
             </div>
@@ -163,12 +167,12 @@ export function SharePanel({ path, onClose }: { path: string; onClose: () => voi
               disabled={busy}
             >
               {busy && <Spinner size={13} />}
-              Create share link
+              {t("share.createButton")}
             </button>
 
             {existing.length > 0 && (
               <div className="mt-4 border-t border-base-200 pt-3.5">
-                <div className="hk-label">Existing links for this note</div>
+                <div className="hk-label">{t("share.existingLinks")}</div>
                 <div className="mt-2 flex flex-col gap-2">
                   {existing.map((s) => (
                     <div key={s.shareId} className="flex items-center gap-2">
@@ -177,7 +181,7 @@ export function SharePanel({ path, onClose }: { path: string; onClose: () => voi
                       </span>
                       {s.hasPassword && (
                         <span className="shrink-0 rounded-full bg-base-300 px-1.5 py-0.5 text-[10.5px] font-semibold text-base-content/60">
-                          password
+                          {t("share.passwordBadge")}
                         </span>
                       )}
                       {s.url && <CopyLinkButton url={s.url} />}
@@ -185,7 +189,7 @@ export function SharePanel({ path, onClose }: { path: string; onClose: () => voi
                   ))}
                 </div>
                 <p className="mt-2 text-[11.5px] text-base-content/35">
-                  Manage or revoke them in the Shares tab.
+                  {t("share.manageHint")}
                 </p>
               </div>
             )}

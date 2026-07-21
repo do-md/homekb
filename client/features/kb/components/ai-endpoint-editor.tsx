@@ -8,6 +8,7 @@
  * Purely presentational: state and persistence come in via props.
  */
 
+import { useTranslation } from "react-i18next";
 import { Spinner, StatusDot } from "./icons";
 import type { AiSection } from "@/lib/client/desktop";
 
@@ -89,6 +90,7 @@ export function AiEndpointEditor({
   /** Delete [ask] — back to the summary fallback (ask section only). */
   onResetAsk?: () => void;
 }) {
+  const { t } = useTranslation();
   const isAsk = section === "ask";
   const providers = section === "embedding" ? EMBEDDING_PROVIDERS : CHAT_PROVIDERS;
   // "" on ask = summary fallback (deletes the section on save)
@@ -104,10 +106,10 @@ export function AiEndpointEditor({
   return (
     <SettingsSection title={title}>
       <SettingsRow
-        label="Current"
+        label={t("aiEndpoint.current")}
         value={
           fallbackActive ? (
-            "Uses the Summary endpoint"
+            t("aiEndpoint.usesSummary")
           ) : current?.keyPresent ? (
             <span className="inline-flex items-center gap-1.5">
               <span className="text-success">
@@ -116,7 +118,7 @@ export function AiEndpointEditor({
               {current.provider} · {current.model}
             </span>
           ) : (
-            `${current?.provider ?? "openai"} · key missing`
+            t("aiEndpoint.keyMissing", { provider: current?.provider ?? "openai" })
           )
         }
       />
@@ -126,7 +128,7 @@ export function AiEndpointEditor({
           value={provider}
           onChange={(e) => onDraft({ provider: e.target.value })}
         >
-          {isAsk && <option value="">Same as Summary (default)</option>}
+          {isAsk && <option value="">{t("aiEndpoint.sameAsSummary")}</option>}
           {providers.map((p) => (
             <option key={p} value={p}>
               {p}
@@ -140,8 +142,8 @@ export function AiEndpointEditor({
               className={settingsInputCls}
               placeholder={
                 current?.configured && draft.provider === ""
-                  ? "API key — blank keeps the stored key"
-                  : (keyPlaceholder ?? "API key — stored locally in config.toml")
+                  ? t("aiEndpoint.keyKeepPlaceholder")
+                  : (keyPlaceholder ?? t("aiEndpoint.keyDefaultPlaceholder"))
               }
               value={draft.apiKey}
               onChange={(e) => onDraft({ apiKey: e.target.value })}
@@ -150,7 +152,11 @@ export function AiEndpointEditor({
             <input
               type="text"
               className={settingsInputCls}
-              placeholder={`Model — blank = ${provider === "custom" ? "required" : "provider default"}`}
+              placeholder={
+                provider === "custom"
+                  ? t("aiEndpoint.modelPlaceholderCustom")
+                  : t("aiEndpoint.modelPlaceholderDefault")
+              }
               value={draft.model}
               onChange={(e) => onDraft({ model: e.target.value })}
               autoComplete="off"
@@ -159,7 +165,7 @@ export function AiEndpointEditor({
               <input
                 type="text"
                 className={settingsInputCls}
-                placeholder="Base URL — any OpenAI-compatible endpoint"
+                placeholder={t("aiEndpoint.baseUrlPlaceholder")}
                 value={draft.baseUrl}
                 onChange={(e) => onDraft({ baseUrl: e.target.value })}
                 autoComplete="off"
@@ -170,7 +176,7 @@ export function AiEndpointEditor({
                 type="text"
                 inputMode="numeric"
                 className={settingsInputCls}
-                placeholder="Vector dimension (e.g. 1024)"
+                placeholder={t("aiEndpoint.dimPlaceholder")}
                 value={draft.dim}
                 onChange={(e) => onDraft({ dim: e.target.value })}
                 autoComplete="off"
@@ -186,7 +192,7 @@ export function AiEndpointEditor({
             onClick={() => void (fallbackActive ? onResetAsk?.() : onSave())}
           >
             {busy && <Spinner size={13} />}
-            Save
+            {t("aiEndpoint.save")}
           </button>
         </div>
       </div>

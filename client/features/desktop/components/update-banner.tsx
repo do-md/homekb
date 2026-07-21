@@ -1,4 +1,5 @@
 "use client";
+import { useTranslation } from "react-i18next";
 import { useDesktopStore, useDesktopStoreApi } from "../store/desktop-store";
 
 /**
@@ -8,6 +9,7 @@ import { useDesktopStore, useDesktopStoreApi } from "../store/desktop-store";
  * dialogs, ever (the HomeKB divergence from DoMD's updater UX).
  */
 export function UpdateBanner() {
+  const { t } = useTranslation();
   const api = useDesktopStoreApi();
   const version = useDesktopStore((s) => s.state.updateReady);
   if (!version) return null;
@@ -17,13 +19,13 @@ export function UpdateBanner() {
       style={{ boxShadow: "0 4px 16px rgba(0,0,0,0.25)" }}
     >
       <span className="text-[13px] text-base-content">
-        HomeKB {version} is ready
+        {t("desktop.updater.bannerReady", { version })}
       </span>
       <button
         className="rounded-xl bg-primary px-3 py-1.5 text-[13px] font-semibold text-primary-content transition-colors hover:bg-primary/90"
         onClick={() => void api.restartToUpdate()}
       >
-        Restart
+        {t("desktop.updater.restart")}
       </button>
     </div>
   );

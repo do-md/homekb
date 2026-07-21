@@ -1,6 +1,7 @@
 "use client";
 import { createMemo, createReactStore, ZenithStore } from "@do-md/zenith";
 import type { EditorStoreApi } from "@do-md/core-react";
+import i18n from "@/lib/i18n";
 import { claimPairCode } from "@/lib/client/relay-client";
 import {
   clearConnection,
@@ -127,11 +128,13 @@ function persistCompose(buf: ComposeBuffer | null) {
   }
 }
 
-/** "5 min" / "90 s" / "2 h" — human label for a compile interval in seconds. */
+/** "5 min" / "90 s" / "2 h" — human label for a compile interval in seconds.
+ *  Called at render time (and at flash-message creation), so i18n.t resolves
+ *  against the current language on every call. Not a @memo — safe to translate. */
 export function formatInterval(secs: number): string {
-  if (secs % 3600 === 0) return `${secs / 3600} h`;
-  if (secs % 60 === 0) return `${secs / 60} min`;
-  return `${secs} s`;
+  if (secs % 3600 === 0) return i18n.t("kb.interval.hours", { count: secs / 3600 });
+  if (secs % 60 === 0) return i18n.t("kb.interval.minutes", { count: secs / 60 });
+  return i18n.t("kb.interval.seconds", { count: secs });
 }
 
 function loadLastConnectedAt(): number | null {
@@ -277,7 +280,7 @@ export class KbStore extends ZenithStore<KbState> {
     super({
       desktop,
       paired: desktop || !!conn,
-      homeName: desktop ? "This machine" : conn ? connectionLabel(conn) : "",
+      homeName: desktop ? i18n.t("kb.thisMachine") : conn ? connectionLabel(conn) : "",
       online: null,
       lastConnectedAt: loadLastConnectedAt(),
       pairBusy: false,
@@ -363,7 +366,7 @@ export class KbStore extends ZenithStore<KbState> {
     await this.runPairing(async () => {
       const label = typeof navigator !== "undefined" ? navigator.platform || "web" : "web";
       const home = await claimPairCode(relayUrl, code, `web:${label}`);
-      return home.homeName || "Home";
+      return home.homeName || i18n.t("kb.homeFallback");
     });
   }
 
@@ -383,7 +386,7 @@ export class KbStore extends ZenithStore<KbState> {
     } catch (e) {
       this.produce((d) => {
         d.pairBusy = false;
-        d.pairError = e instanceof Error ? e.message : "Pairing failed";
+        d.pairError = e instanceof Error ? e.message : i18n.t("kb.pairingFailed");
       });
     }
   }
@@ -656,7 +659,7 @@ export class KbStore extends ZenithStore<KbState> {
       this.produce((d) => {
         d.phase = "done";
         d.stage = null;
-        d.searchError = e instanceof Error ? e.message : "Search failed";
+        d.searchError = e instanceof Error ? e.message : i18n.t("kb.searchFailed");
       });
     }
   }
@@ -804,7 +807,7 @@ export class KbStore extends ZenithStore<KbState> {
     } catch (e) {
       this.produce((d) => {
         d.readerLoading = false;
-        d.readerError = e instanceof Error ? e.message : "Failed to load";
+        d.readerError = e instanceof Error ? e.message : i18n.t("kb.reader.loadFailed");
       });
     }
   }
@@ -848,7 +851,7 @@ export class KbStore extends ZenithStore<KbState> {
       this.seedNoteEdit(path, res.content);
     } catch (e) {
       this.produce((d) => {
-        d.newError = e instanceof Error ? e.message : "Failed to load note";
+        d.newError = e instanceof Error ? e.message : i18n.t("kb.reader.loadNoteFailed");
       });
     }
   }
@@ -942,7 +945,7 @@ export class KbStore extends ZenithStore<KbState> {
         // edit. Keep the session open — clearing would orphan the note
         // association (drafts don't carry a target path), so a later "Save to
         // library" would create a duplicate instead of updating the note.
-        this.flash("Draft saved");
+        this.flash(i18n.t("kb.draft.saved"));
         return false;
       }
       // Clear the workspace. The remount auto-stash must not resurrect the
@@ -959,10 +962,10 @@ export class KbStore extends ZenithStore<KbState> {
       // Same reasoning as saveToLibrary: a surviving #draft hash would make
       // the /new page effect instantly re-resume the just-saved draft.
       stripHash();
-      this.flash("Draft saved");
+      this.flash(i18n.t("kb.draft.saved"));
       return true;
     } catch {
-      this.flash("Home offline — draft kept here until you reconnect");
+      this.flash(i18n.t("kb.draft.keptOffline"));
       return false;
     }
   }
@@ -1070,7 +1073,7 @@ export class KbStore extends ZenithStore<KbState> {
     try {
       await rpc("kb.draftDelete", { id });
     } catch {
-      this.flash("Home offline — couldn't delete draft");
+      this.flash(i18n.t("kb.draft.deleteOffline"));
       void this.loadDrafts(); // resync so the draft reappears if it wasn't removed
     }
   }
@@ -1135,7 +1138,7 @@ export class KbStore extends ZenithStore<KbState> {
     } catch (e) {
       this.produce((d) => {
         d.newBusy = false;
-        d.newError = e instanceof Error ? e.message : "Failed to save note";
+        d.newError = e instanceof Error ? e.message : i18n.t("kb.note.saveFailed");
       });
       return false;
     }
@@ -1154,7 +1157,7 @@ export class KbStore extends ZenithStore<KbState> {
       .map((f) => ({ title: importTitleFromFilename(f.name), content: f.text.trim() }))
       .filter((j) => j.content);
     if (!jobs.length) {
-      this.flash("Nothing to import — the file is empty");
+      this.flash(i18n.t("kb.import.emptyFile"));
       return;
     }
     let created: { path: string; title: string } | null = null;
@@ -1168,16 +1171,16 @@ export class KbStore extends ZenithStore<KbState> {
         });
         ok += 1;
       } catch (e) {
-        failure = e instanceof Error ? e.message : "Import failed";
+        failure = e instanceof Error ? e.message : i18n.t("kb.import.failed");
         break; // one notice, not one per file, when the home is unreachable
       }
     }
     if (failure) {
-      this.flash(ok ? `Imported ${ok}, then failed — ${failure}` : failure);
+      this.flash(ok ? i18n.t("kb.import.partial", { count: ok, error: failure }) : failure);
     } else if (ok === 1 && created) {
-      this.flash(`Added to library: ${created.title}`);
+      this.flash(i18n.t("kb.import.addedOne", { title: created.title }));
     } else {
-      this.flash(`Added ${ok} notes to library`);
+      this.flash(i18n.t("kb.import.addedMany", { count: ok }));
     }
     if (ok) void this.loadRecent();
   }
@@ -1205,7 +1208,7 @@ export class KbStore extends ZenithStore<KbState> {
       this.produce((d) => {
         d.sharesLoading = false;
         if (!opts.silent) {
-          d.sharesError = e instanceof Error ? e.message : "Failed to load shares";
+          d.sharesError = e instanceof Error ? e.message : i18n.t("kb.shares.loadFailed");
         }
       });
     }
@@ -1238,9 +1241,9 @@ export class KbStore extends ZenithStore<KbState> {
     });
     try {
       await rpc("kb.shareRevoke", { shareId });
-      this.flash("Share revoked — the link is dead");
+      this.flash(i18n.t("kb.shares.revoked"));
     } catch {
-      this.flash("Home offline — couldn't revoke the share");
+      this.flash(i18n.t("kb.shares.revokeOffline"));
       void this.loadShares({ silent: true });
     }
   }
@@ -1262,7 +1265,7 @@ export class KbStore extends ZenithStore<KbState> {
       this.produce((d) => {
         d.statusLoading = false;
       });
-      if (!opts.silent) this.flash(e instanceof Error ? e.message : "Failed to load status");
+      if (!opts.silent) this.flash(e instanceof Error ? e.message : i18n.t("kb.status.loadFailed"));
     }
     void this.refreshHealth({ backfill: false });
   }
@@ -1270,11 +1273,11 @@ export class KbStore extends ZenithStore<KbState> {
   public async reindex() {
     try {
       await rpc("kb.reindex", {});
-      this.flash("Reindex started");
+      this.flash(i18n.t("kb.reindex.started"));
       // Reflect the compiling state (6b) shortly after the trigger.
       setTimeout(() => void this.loadStatus({ silent: true }), 1500);
     } catch (e) {
-      this.flash(e instanceof Error ? e.message : "Failed to trigger reindex");
+      this.flash(e instanceof Error ? e.message : i18n.t("kb.reindex.failed"));
     }
   }
 
@@ -1313,14 +1316,14 @@ export class KbStore extends ZenithStore<KbState> {
       });
       this.flash(
         enabled
-          ? `Background compilation on — every ${formatInterval(res.intervalSecs ?? 300)}`
-          : "Background compilation paused",
+          ? i18n.t("kb.schedule.on", { interval: formatInterval(res.intervalSecs ?? 300) })
+          : i18n.t("kb.schedule.paused"),
       );
     } catch (e) {
       this.produce((d) => {
         d.scheduleBusy = false;
       });
-      this.flash(e instanceof Error ? e.message : "Schedule update failed");
+      this.flash(e instanceof Error ? e.message : i18n.t("kb.schedule.updateFailed"));
       void this.loadSchedule();
     }
   }
@@ -1338,7 +1341,7 @@ export class KbStore extends ZenithStore<KbState> {
     });
     try {
       await rpc("kb.rebuild", {});
-      this.flash("Rebuild started on your home computer — progress on the Status page");
+      this.flash(i18n.t("kb.rebuild.started"));
       setTimeout(() => {
         void this.loadStatus({ silent: true });
         this.produce((d) => {
@@ -1349,7 +1352,7 @@ export class KbStore extends ZenithStore<KbState> {
       this.produce((d) => {
         d.rebuildBusy = false;
       });
-      this.flash(e instanceof Error ? e.message : "Rebuild failed to start");
+      this.flash(e instanceof Error ? e.message : i18n.t("kb.rebuild.failed"));
     }
   }
 
@@ -1369,7 +1372,7 @@ export class KbStore extends ZenithStore<KbState> {
     } catch (e) {
       this.produce((d) => {
         d.configLoading = false;
-        d.configError = e instanceof Error ? e.message : "Failed to load settings";
+        d.configError = e instanceof Error ? e.message : i18n.t("kb.settings.loadFailed");
       });
     }
   }
@@ -1408,12 +1411,17 @@ export class KbStore extends ZenithStore<KbState> {
         d.aiDrafts[section] = emptyAiEndpointDraft();
         if (d.config) d.config.ai = res.ai;
       });
-      this.flash(`[${section}] saved on ${this.state.homeName || "your home computer"}`);
+      this.flash(
+        i18n.t("kb.settings.sectionSaved", {
+          section,
+          home: this.state.homeName || i18n.t("kb.yourHomeComputer"),
+        }),
+      );
     } catch (e) {
       this.produce((d) => {
         d.aiBusy = null;
       });
-      this.flash(e instanceof Error ? e.message : "Save failed");
+      this.flash(e instanceof Error ? e.message : i18n.t("kb.settings.saveFailed"));
     }
   }
 
@@ -1432,12 +1440,12 @@ export class KbStore extends ZenithStore<KbState> {
         d.aiDrafts.ask = emptyAiEndpointDraft();
         if (d.config) d.config.ai = res.ai;
       });
-      this.flash("Ask now uses the Summary endpoint");
+      this.flash(i18n.t("kb.settings.askUsesSummary"));
     } catch (e) {
       this.produce((d) => {
         d.aiBusy = null;
       });
-      this.flash(e instanceof Error ? e.message : "Reset failed");
+      this.flash(e instanceof Error ? e.message : i18n.t("kb.settings.resetFailed"));
     }
   }
 
@@ -1459,7 +1467,7 @@ export class KbStore extends ZenithStore<KbState> {
     } catch (e) {
       this.produce((d) => {
         d.mintBusy = false;
-        d.mintError = e instanceof Error ? e.message : "Failed to generate a pairing code";
+        d.mintError = e instanceof Error ? e.message : i18n.t("kb.devices.mintFailed");
       });
     }
   }
@@ -1478,7 +1486,7 @@ export class KbStore extends ZenithStore<KbState> {
     } catch (e) {
       this.produce((d) => {
         d.grantsLoaded = true;
-        d.grantsError = e instanceof Error ? e.message : "Failed to load devices";
+        d.grantsError = e instanceof Error ? e.message : i18n.t("kb.devices.loadFailed");
       });
     }
   }
@@ -1502,12 +1510,12 @@ export class KbStore extends ZenithStore<KbState> {
         d.grants = d.grants.filter((g) => g.id !== grantId);
         d.revokingGrantId = null;
       });
-      this.flash("Device unpaired");
+      this.flash(i18n.t("kb.devices.unpaired"));
     } catch (e) {
       this.produce((d) => {
         d.revokingGrantId = null;
       });
-      this.flash(e instanceof Error ? e.message : "Failed to unpair");
+      this.flash(e instanceof Error ? e.message : i18n.t("kb.devices.unpairFailed"));
     }
   }
 

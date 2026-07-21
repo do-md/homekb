@@ -12,6 +12,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { formatInterval, useKbStore, useKbStoreApi } from "../store/kb-store";
 import { Spinner, StatusDot } from "./icons";
 
@@ -19,6 +20,7 @@ import { Spinner, StatusDot } from "./icons";
 const INTERVAL_CHOICES = [60, 300, 900, 1800, 3600];
 
 export function ScheduleCard() {
+  const { t } = useTranslation();
   const api = useKbStoreApi();
   const schedule = useKbStore((s) => s.state.schedule);
   const busy = useKbStore((s) => s.state.scheduleBusy);
@@ -41,10 +43,13 @@ export function ScheduleCard() {
   if (!schedule.supported) {
     return (
       <div className="rounded-xl border border-base-300 bg-base-200 p-4">
-        <div className="text-[14px] font-semibold text-base-content">Scheduled compilation</div>
+        <div className="text-[14px] font-semibold text-base-content">
+          {t("schedule.unsupported.title")}
+        </div>
         <p className="mt-2 text-xs leading-relaxed text-base-content/35">
-          Your home computer&rsquo;s platform can&rsquo;t manage a background schedule remotely yet
-          (macOS only for now) — run <code className="font-mono">homekb watch</code> there instead.
+          {t("schedule.unsupported.beforeCode")}
+          <code className="font-mono">homekb watch</code>
+          {t("schedule.unsupported.afterCode")}
         </p>
       </div>
     );
@@ -64,10 +69,12 @@ export function ScheduleCard() {
             <StatusDot />
           </span>
           {active
-            ? `Compiling every ${formatInterval(schedule.intervalSecs ?? pendingInterval)}`
+            ? t("schedule.compilingEvery", {
+                interval: formatInterval(schedule.intervalSecs ?? pendingInterval),
+              })
             : stalled
-              ? "Schedule installed, not running"
-              : "Scheduled compilation off"}
+              ? t("schedule.stalled")
+              : t("schedule.off")}
         </span>
         <span className="flex items-center gap-2">
           {busy && <Spinner size={13} />}
@@ -76,7 +83,7 @@ export function ScheduleCard() {
             className="toggle toggle-primary toggle-sm"
             checked={schedule.installed}
             disabled={busy}
-            aria-label="Background compilation"
+            aria-label={t("schedule.toggleAria")}
             onChange={(e) =>
               void api.setSchedule(e.target.checked, e.target.checked ? pendingInterval : undefined)
             }
@@ -85,12 +92,12 @@ export function ScheduleCard() {
       </div>
 
       <div className="mt-3 flex items-center justify-between gap-3">
-        <span className="text-[13px] text-base-content/60">Recompile notes every</span>
+        <span className="text-[13px] text-base-content/60">{t("schedule.recompileEvery")}</span>
         <select
           className="select select-sm w-auto"
           value={pendingInterval}
           disabled={busy}
-          aria-label="Compile interval"
+          aria-label={t("schedule.intervalAria")}
           onChange={(e) => {
             const v = Number(e.target.value);
             setPendingInterval(v);
@@ -108,9 +115,8 @@ export function ScheduleCard() {
       </div>
 
       <p className="mt-2 text-xs leading-relaxed text-base-content/35">
-        <code className="font-mono">com.homekb.compile</code> on your home computer — indexes new
-        and edited notes on a schedule so search stays fresh. Off = notes still save, but they
-        aren&rsquo;t searchable until the next compile.
+        <code className="font-mono">com.homekb.compile</code>
+        {t("schedule.noteAfterCode")}
       </p>
     </div>
   );

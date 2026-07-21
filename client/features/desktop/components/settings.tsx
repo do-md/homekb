@@ -8,6 +8,7 @@
  */
 
 import { useEffect } from "react";
+import { Trans, useTranslation } from "react-i18next";
 import { Spinner, StatusDot } from "@/features/kb/components/icons";
 import {
   AiEndpointEditor,
@@ -43,6 +44,7 @@ function DesktopAiEndpointEditor({ section, title, note }: { section: AiSection;
 
 /** Rebuild card: drift warning + cost estimate + one-click rebuild → reindex. */
 function RebuildIndexCard() {
+  const { t } = useTranslation();
   const api = useDesktopStoreApi();
   const embedding = useDesktopStore((s) => s.state.engine?.ai?.embedding ?? null);
   const stats = useDesktopStore((s) => s.state.indexStats);
@@ -62,28 +64,34 @@ function RebuildIndexCard() {
       : null;
 
   return (
-    <Section title="Index — rebuild after changing the embedding model">
-      <Row label="Built with" value={built ?? "No index yet — run compile first"} />
+    <Section title={t("desktop.settings.index.title")}>
+      <Row label={t("desktop.settings.index.builtWith")} value={built ?? t("desktop.settings.index.noIndex")} />
       {stats?.available && (
-        <Row label="Size" value={`${stats.docs} docs · ${stats.chunks} chunks`} />
+        <Row
+          label={t("desktop.settings.index.size")}
+          value={`${t("desktop.settings.index.docsCount", { count: stats.docs })} · ${t("desktop.settings.index.chunksCount", { count: stats.chunks })}`}
+        />
       )}
       {drift && (
         <p className="mt-1 rounded-lg bg-primary/10 px-3 py-2 text-xs leading-relaxed text-primary">
-          Config now uses{" "}
-          <b>
-            {embedding.provider} · {embedding.model}
-          </b>
-          , but the index was built with <b>{built}</b>. Rebuild to apply the new model.
+          <Trans
+            i18nKey="desktop.settings.index.drift"
+            values={{ config: `${embedding.provider} · ${embedding.model}`, built }}
+            components={{ b: <b /> }}
+          />
         </p>
       )}
       <p className="mt-1 text-xs leading-relaxed text-base-content/35">
-        Embedding vectors are model-specific and can’t be reused — changing the model requires
-        re-embedding every note. Your Markdown files are untouched.
+        {t("desktop.settings.index.explain")}
         {cost && (
           <>
             {" "}
-            Estimated embedding cost: <b>{cost}</b> ({stats!.chunks} chunks with {embedding.model}).
-            Summaries are regenerated too, billed at the Summary provider’s rate.
+            <Trans
+              i18nKey="desktop.settings.index.costNote"
+              count={stats!.chunks}
+              values={{ cost, model: embedding.model }}
+              components={{ b: <b /> }}
+            />
           </>
         )}
       </p>
@@ -94,7 +102,7 @@ function RebuildIndexCard() {
           onClick={() => void api.rebuildReindex()}
         >
           {rebuilding && <Spinner size={13} />}
-          {rebuilding ? "Reindexing… (a few minutes)" : "Rebuild & reindex"}
+          {rebuilding ? t("desktop.settings.index.reindexing") : t("desktop.settings.index.rebuildButton")}
         </button>
       </div>
     </Section>
@@ -108,18 +116,23 @@ function RebuildIndexCard() {
  * notice pill — never a system dialog.
  */
 function AppUpdatesCard() {
+  const { t } = useTranslation();
   const api = useDesktopStoreApi();
   const appVersion = useDesktopStore((s) => s.state.appVersion);
   const updateReady = useDesktopStore((s) => s.state.updateReady);
   const busy = useDesktopStore((s) => s.state.updateBusy);
 
   return (
-    <Section title="App updates">
-      <Row label="Version" value={appVersion ?? "–"} />
-      {updateReady && <Row label="Ready" value={`${updateReady} — restart to apply`} />}
+    <Section title={t("desktop.updater.title")}>
+      <Row label={t("desktop.settings.version")} value={appVersion ?? "–"} />
+      {updateReady && (
+        <Row
+          label={t("desktop.updater.ready")}
+          value={t("desktop.updater.readyValue", { version: updateReady })}
+        />
+      )}
       <p className="mt-1 text-xs leading-relaxed text-base-content/35">
-        Updates download and install in the background; HomeKB switches to the new
-        version the next time it starts.
+        {t("desktop.updater.note")}
       </p>
       <div className="mt-2 flex justify-end">
         <button
@@ -128,7 +141,11 @@ function AppUpdatesCard() {
           onClick={() => void (updateReady ? api.restartToUpdate() : api.checkForUpdate(true))}
         >
           {busy && <Spinner size={13} />}
-          {updateReady ? "Restart to update" : busy ? "Checking…" : "Check for updates"}
+          {updateReady
+            ? t("desktop.updater.restartToUpdate")
+            : busy
+              ? t("desktop.settings.checking")
+              : t("desktop.updater.checkForUpdates")}
         </button>
       </div>
     </Section>
@@ -141,31 +158,32 @@ function AppUpdatesCard() {
  * engine-v* GitHub release — the same `engine_install` command as first run.
  */
 function EngineCard() {
+  const { t } = useTranslation();
   const api = useDesktopStoreApi();
   const engine = useDesktopStore((s) => s.state.engine);
   const engineLatest = useDesktopStore((s) => s.state.engineLatest);
   const busy = useDesktopStore((s) => s.state.engineUpdateBusy);
 
   return (
-    <Section title="Engine">
-      <Row label="Version" value={engine?.version ?? "Unknown"} />
-      <Row label="Binary" value={engine?.path ?? "Not installed"} />
+    <Section title={t("desktop.settings.engine.title")}>
+      <Row label={t("desktop.settings.version")} value={engine?.version ?? t("desktop.settings.engine.unknown")} />
+      <Row label={t("desktop.settings.engine.binary")} value={engine?.path ?? t("desktop.settings.engine.notInstalled")} />
       <Row
-        label="Local service"
+        label={t("desktop.settings.engine.localService")}
         value={
           engine?.serveRunning ? (
             <span className="inline-flex items-center gap-1.5">
               <span className="text-success">
                 <StatusDot className="h-1.5! w-1.5!" />
               </span>
-              Running · 127.0.0.1:8765
+              {t("desktop.settings.engine.running")}
             </span>
           ) : (
-            "Not running"
+            t("desktop.settings.engine.notRunning")
           )
         }
       />
-      {engineLatest && <Row label="Available" value={engineLatest} />}
+      {engineLatest && <Row label={t("desktop.settings.engine.available")} value={engineLatest} />}
       <div className="mt-2 flex justify-end">
         <button
           className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-[13.5px] font-semibold text-primary-content transition-colors hover:bg-primary/90 disabled:opacity-50"
@@ -175,11 +193,11 @@ function EngineCard() {
           {busy && <Spinner size={13} />}
           {engineLatest
             ? busy
-              ? "Updating…"
-              : `Update to ${engineLatest}`
+              ? t("desktop.settings.engine.updating")
+              : t("desktop.settings.engine.updateTo", { version: engineLatest })
             : busy
-              ? "Checking…"
-              : "Check for engine updates"}
+              ? t("desktop.settings.checking")
+              : t("desktop.settings.engine.checkUpdates")}
         </button>
       </div>
     </Section>
@@ -188,6 +206,7 @@ function EngineCard() {
 
 /** Desktop-only Settings view: engine + directories + AI providers + appearance. */
 export function SettingsView() {
+  const { t } = useTranslation();
   const api = useDesktopStoreApi();
   const engine = useDesktopStore((s) => s.state.engine);
 
@@ -198,38 +217,38 @@ export function SettingsView() {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto flex w-full max-w-xl flex-col gap-3 px-4 py-5 pb-[max(env(safe-area-inset-bottom),24px)]">
-        <h1 className="text-[21px] font-bold tracking-tight text-base-content">Settings</h1>
+        <h1 className="text-[21px] font-bold tracking-tight text-base-content">{t("common.settings")}</h1>
 
         <EngineCard />
 
         <AppUpdatesCard />
 
-        <Section title="Data directory — your data stays on this machine">
-          <Row label="Notes" value={engine?.notesDir ?? "–"} />
-          <Row label="Data root" value={engine?.root ?? "–"} />
-          <Row label="Config" value={engine?.configPath ?? "–"} />
+        <Section title={t("desktop.settings.data.title")}>
+          <Row label={t("desktop.settings.data.notes")} value={engine?.notesDir ?? "–"} />
+          <Row label={t("desktop.settings.data.root")} value={engine?.root ?? "–"} />
+          <Row label={t("desktop.settings.data.config")} value={engine?.configPath ?? "–"} />
         </Section>
 
         <DesktopAiEndpointEditor
           section="embedding"
-          title="Embedding — turns notes into search vectors (required)"
-          note="Switching provider or model changes the vector space — a full reindex (rebuild) is required afterwards."
+          title={t("desktop.settings.ai.embeddingTitle")}
+          note={t("desktop.settings.ai.embeddingNote")}
         />
         <RebuildIndexCard />
         <DesktopAiEndpointEditor
           section="summary"
-          title="Summary — compile-time summaries and categories (required)"
+          title={t("desktop.settings.ai.summaryTitle")}
         />
         <DesktopAiEndpointEditor
           section="ask"
-          title="Ask — answers questions over your notes (optional)"
-          note="Agents connected over MCP bring their own model; this only powers the built-in Q&A."
+          title={t("desktop.settings.ai.askTitle")}
+          note={t("desktop.settings.ai.askNote")}
         />
 
-        <Section title="Appearance">
-          <Row label="Theme" value="Follows your system" />
+        <Section title={t("desktop.settings.appearance.title")}>
+          <Row label={t("desktop.settings.appearance.theme")} value={t("desktop.settings.appearance.followsSystem")} />
           <p className="text-xs leading-relaxed text-base-content/35">
-            Light and dark switch automatically with the OS — there is no manual toggle.
+            {t("desktop.settings.appearance.note")}
           </p>
         </Section>
       </div>

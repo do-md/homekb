@@ -7,58 +7,57 @@
  */
 
 import { useState } from "react";
+import type { TFunction } from "i18next";
+import { Trans, useTranslation } from "react-i18next";
 import { useKbStore, useKbStoreApi } from "../store/kb-store";
 import { Spinner, StatusDot } from "./icons";
 
-function agoLabel(ts: number | null): string | null {
+function agoLabel(t: TFunction, ts: number | null): string | null {
   if (!ts) return null;
   const mins = Math.max(0, Math.round((Date.now() - ts) / 60_000));
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins} min ago`;
+  if (mins < 1) return t("offline.time.justNow");
+  if (mins < 60) return t("offline.time.minutesAgo", { count: mins });
   const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours} h ago`;
-  return `${Math.round(hours / 24)} d ago`;
+  if (hours < 24) return t("offline.time.hoursAgo", { count: hours });
+  return t("offline.time.daysAgo", { count: Math.round(hours / 24) });
 }
-
-const WAKE_STEPS = [
-  "Make sure your home computer is awake and connected to the internet.",
-  "Check that HomeKB (or `homekb tunnel`) is running on it.",
-  "Then retry the connection here.",
-];
 
 /** Deeper checklist behind the "Connection help" link (design 4b). */
 function ConnectionHelp() {
+  const { t } = useTranslation();
   return (
     <div className="mt-4 w-full rounded-xl border border-base-300 bg-base-200 p-4 text-left">
-      <div className="hk-label">Connection help</div>
+      <div className="hk-label">{t("offline.help.title")}</div>
       <ul className="mt-3 flex flex-col gap-2.5 text-[13px] leading-relaxed text-base-content/60">
         <li>
-          On your home computer, run{" "}
-          <code className="font-mono text-[12px]">homekb tunnel --status</code> — it
-          should say <span className="font-medium">running</span>. If not,{" "}
-          <code className="font-mono text-[12px]">homekb tunnel --install</code>{" "}
-          (or turn on “Keep tunnel alive” in the HomeKB app’s Remote tab).
+          <Trans
+            i18nKey="offline.help.checkTunnel"
+            components={{
+              code: <code className="font-mono text-[12px]" />,
+              strong: <span className="font-medium" />,
+            }}
+          />
         </li>
-        <li>
-          The tunnel reconnects on its own after sleep or a network change — give it a
-          minute after the computer wakes.
-        </li>
-        <li>
-          Still stuck? Disconnect on the Remote tab and pair again with a fresh code from
-          your home computer.
-        </li>
+        <li>{t("offline.help.reconnects")}</li>
+        <li>{t("offline.help.repair")}</li>
       </ul>
     </div>
   );
 }
 
 export function OfflineScreen() {
+  const { t } = useTranslation();
   const api = useKbStoreApi();
   const connState = useKbStore((s) => s.connState);
   const lastConnectedAt = useKbStore((s) => s.state.lastConnectedAt);
   const [helpOpen, setHelpOpen] = useState(false);
   const retrying = connState === "connecting";
-  const ago = agoLabel(lastConnectedAt);
+  const ago = agoLabel(t, lastConnectedAt);
+  const wakeSteps = [
+    t("offline.steps.wake"),
+    t("offline.steps.running"),
+    t("offline.steps.retry"),
+  ];
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-col items-center px-4 py-12 text-center">
@@ -66,17 +65,16 @@ export function OfflineScreen() {
         <StatusDot className="h-3.5! w-3.5!" />
       </span>
       <h1 className="mt-5 text-[22px] font-bold tracking-tight text-base-content">
-        Home is offline
+        {t("offline.title")}
       </h1>
       <p className="mt-2 text-[15px] leading-relaxed text-base-content/60">
-        Your home computer isn&apos;t reachable right now. Your notes are safe on it —
-        they just can&apos;t be searched from here until it comes back.
+        {t("offline.subtitle")}
       </p>
 
       <div className="mt-6 w-full rounded-xl border border-base-300 bg-base-200 p-4 text-left">
-        <div className="hk-label">How to wake it up</div>
+        <div className="hk-label">{t("offline.steps.title")}</div>
         <ol className="mt-3 flex flex-col gap-2.5">
-          {WAKE_STEPS.map((step, i) => (
+          {wakeSteps.map((step, i) => (
             <li key={i} className="flex items-start gap-3">
               <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-semibold text-primary">
                 {i + 1}
@@ -93,14 +91,14 @@ export function OfflineScreen() {
         className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-[15px] font-semibold text-primary-content transition-colors hover:bg-primary/90 disabled:opacity-60"
       >
         {retrying && <Spinner size={15} />}
-        {retrying ? "Retrying…" : "Retry connection"}
+        {retrying ? t("offline.retrying") : t("offline.retryConnection")}
       </button>
 
       <button
         onClick={() => setHelpOpen((v) => !v)}
         className="mt-4 text-[13.5px] font-semibold text-primary transition-colors hover:text-primary"
       >
-        Connection help
+        {t("offline.help.title")}
       </button>
       {helpOpen && <ConnectionHelp />}
 
@@ -110,10 +108,14 @@ export function OfflineScreen() {
         onClick={() => api.unpair()}
         className="mt-5 text-[13px] font-medium text-base-content/45 transition-colors hover:text-base-content/60"
       >
-        Disconnect &amp; pair again with a new code
+        {t("offline.disconnectAndRepair")}
       </button>
 
-      {ago && <p className="mt-4 text-xs text-base-content/35">Last connected · {ago}</p>}
+      {ago && (
+        <p className="mt-4 text-xs text-base-content/35">
+          {t("offline.lastConnected", { time: ago })}
+        </p>
+      )}
     </div>
   );
 }
