@@ -53,7 +53,7 @@ function DraftItem({ draft }: { draft: Draft }) {
   const preview = previewText(draft.text);
 
   return (
-    <div className="flex items-start gap-3 rounded-xl border border-base-300 bg-base-200 p-4">
+    <div className="flex items-start gap-3 rounded-xl border-base-300 bg-base-200 p-4">
       <span className="mt-0.5 flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[9px] bg-base-200 text-primary">
         <IconPencil size={15} strokeWidth={1.5} />
       </span>
@@ -64,11 +64,11 @@ function DraftItem({ draft }: { draft: Draft }) {
         <span className="block truncate text-[15px] font-semibold tracking-tight text-base-content">
           {title}
         </span>
-        {preview && (
+        {/* {preview && (
           <span className="mt-1 line-clamp-2 block text-[13px] leading-relaxed text-base-content/60">
             {preview}
           </span>
-        )}
+        )} */}
         <span className="mt-1.5 flex items-center gap-2 text-xs text-base-content/35">
           <span>edited {agoLabel(draft.editedAt)}</span>
           <span className="h-[3px] w-[3px] rounded-full bg-base-content/30" />

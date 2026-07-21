@@ -30,7 +30,7 @@ function ActionButtons({ editorRef }: { editorRef: React.MutableRefObject<KbEdit
   return (
     <>
       <button
-        className="rounded-xl border border-base-300 px-3.5 py-2 text-[13.5px] font-semibold text-base-content/60 transition-colors hover:bg-base-200 disabled:opacity-50"
+        className="btn btn-soft rounded-xl"
         disabled={!online}
         title={online ? undefined : "Home is offline — text is kept on this device until you reconnect"}
         onClick={() => void api.saveDraft(read())}
@@ -38,7 +38,7 @@ function ActionButtons({ editorRef }: { editorRef: React.MutableRefObject<KbEdit
         Save draft
       </button>
       <button
-        className="flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-[13.5px] font-semibold text-primary-content transition-colors hover:bg-primary/90 disabled:opacity-50"
+        className="btn btn-primary rounded-xl"
         disabled={busy || !online}
         title={online ? undefined : "Home is offline — reconnect to save"}
         onClick={() => {
@@ -107,7 +107,7 @@ export function NewNoteView() {
             {editingNotePath ? "Edit note" : "New note"}
           </span>
           <button
-            className="ml-1 flex items-center gap-1.5 rounded-full border border-base-200 px-2.5 py-1 text-[12.5px] font-medium text-base-content/60 transition-colors hover:bg-base-200"
+            className="btn btn-soft rounded-xl btn-sm"
             onClick={() => router.push("/new/drafts")}
           >
             Drafts
@@ -164,7 +164,7 @@ export function NewNoteView() {
       </div>
 
       {/* Phone: actions live in a bottom bar (thumb zone); pads its own safe area */}
-      <footer className="border-t border-base-200 bg-base-100 px-4 pt-2.5 pb-[max(env(safe-area-inset-bottom),10px)] sm:hidden">
+      <footer className="border-t border-base-content/10 bg-base-100 px-4 pt-2.5 pb-[max(env(safe-area-inset-bottom),10px)] sm:hidden">
         <div className="flex items-center justify-end gap-2">
           <ActionButtons editorRef={editorRef} />
         </div>
