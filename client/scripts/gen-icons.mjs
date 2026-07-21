@@ -2,19 +2,21 @@
 /**
  * HomeKB icon generator — single source of truth for the app mark.
  *
- * The mark: a bold coral open book — the knowledge base. Two pages splay from a
+ * The mark: a bold orange open book — the knowledge base. Two pages splay from a
  * central spine gutter, with a few short "text" lines carved out in negative
- * space. Coral is the brand accent; the tile is the near-black canvas from the
- * design system (--hk-bg #0c0d10).
+ * space. Orange (#ff8000, the brand primary) is the accent; the tile is the
+ * near-black canvas from the design system (--hk-bg #0c0d10).
  *
- * Two variants are emitted from the same geometry:
+ * Variants emitted from the same geometry:
  *   - rounded squircle tile (transparent corners) for the desktop app icon,
  *     consumed by `tauri icon` to regenerate every platform size + .icns/.ico.
  *   - full-bleed square, logo inside the ~80% maskable safe zone, for the PWA
  *     icons declared `purpose: "any maskable"` in the web manifest.
+ *   - browser-tab favicon: the same rounded tile as app/icon.svg (crisp at any
+ *     size) plus app/icon.png (raster fallback). Next App Router auto-links both.
  *
  * Usage:
- *   node scripts/gen-icons.mjs            # regenerate PWA + master PNGs
+ *   node scripts/gen-icons.mjs            # regenerate PWA + master PNGs + favicon
  *   node scripts/gen-icons.mjs && npx tauri icon <master.png>  # desktop icons
  */
 import sharp from "sharp";
@@ -25,10 +27,10 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CLIENT = resolve(HERE, "..");
 
-// Brand tokens (icons are static, so the light-theme coral is fixed here).
+// Brand tokens (icons are static, so the brand orange is fixed here).
 const CANVAS = 1024;
 
-/** Build the coral home + bookmark mark as an SVG string. */
+/** Build the orange open-book mark as an SVG string. */
 function buildSvg({ rounded, logoScale }) {
     const cx = CANVAS / 2;
 
@@ -71,17 +73,17 @@ function buildSvg({ rounded, logoScale }) {
       <stop offset="60%" stop-color="#101116"/>
       <stop offset="100%" stop-color="#0a0b0e"/>
     </radialGradient>
-    <linearGradient id="coral" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#f56b7c"/>
-      <stop offset="55%" stop-color="#ee5064"/>
-      <stop offset="100%" stop-color="#e23e54"/>
+    <linearGradient id="brand" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffa53d"/>
+      <stop offset="55%" stop-color="#ff8000"/>
+      <stop offset="100%" stop-color="#ec6600"/>
     </linearGradient>
   </defs>
   <rect x="0" y="0" width="${CANVAS}" height="${CANVAS}" rx="${rx}" fill="url(#bg)"/>
   ${rim}
   <g transform="${t}">
     <path d="${leftPage} ${rightPage}" fill-rule="evenodd"
-          fill="url(#coral)" stroke="url(#coral)" stroke-width="36"
+          fill="url(#brand)" stroke="url(#brand)" stroke-width="36"
           stroke-linejoin="round" stroke-linecap="round"/>
     ${lines}
   </g>
@@ -107,6 +109,12 @@ async function main() {
     // PWA maskable icons (full-bleed square, safe-zone logo).
     await render(maskableSvg, 512, resolve(CLIENT, "public/icon-512.png"));
     await render(maskableSvg, 192, resolve(CLIENT, "public/icon-192.png"));
+
+    // Browser-tab favicon (Next App Router file convention: app/icon.{svg,png}).
+    // SVG stays crisp at any tab size; PNG is the fallback for browsers without
+    // SVG-favicon support. The rounded tile matches the desktop app mark.
+    await writeFile(resolve(CLIENT, "app/icon.svg"), roundedSvg);
+    await render(roundedSvg, 512, resolve(CLIENT, "app/icon.png"));
 }
 
 main().catch((e) => {
