@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { DEFAULT_RELAY_URL } from "./connection";
 import {
   allServices,
+  builtinServices,
   isAllowedServiceUrl,
   pickAutoService,
   type ServiceEntry,
@@ -67,13 +69,32 @@ describe("isAllowedServiceUrl", () => {
   });
 });
 
+describe("builtinServices", () => {
+  it("falls back to the official default relay when NEXT_PUBLIC_BUILTIN_SERVICES is unset", () => {
+    const builtins = builtinServices();
+    expect(builtins).toHaveLength(1);
+    expect(builtins[0].url).toBe(DEFAULT_RELAY_URL);
+    expect(builtins[0].builtin).toBe(true);
+  });
+});
+
 describe("allServices", () => {
-  it("dedupes user entries against built-ins by URL (no built-ins configured in tests)", () => {
+  it("includes the built-in default and dedupes user entries by URL", () => {
     const merged = allServices([
       { url: "https://x.example" },
       { url: "https://x.example", thisMachine: true },
     ]);
+    // Built-in default relay + the single deduped user entry.
+    expect(merged).toHaveLength(2);
+    expect(merged.some((e) => e.url === DEFAULT_RELAY_URL && e.builtin)).toBe(true);
+    const x = merged.find((e) => e.url === "https://x.example");
+    expect(x?.thisMachine).toBe(true);
+  });
+
+  it("merges a user entry's flags onto a matching built-in without duplicating it", () => {
+    const merged = allServices([{ url: DEFAULT_RELAY_URL, thisMachine: true }]);
     expect(merged).toHaveLength(1);
+    expect(merged[0].builtin).toBe(true);
     expect(merged[0].thisMachine).toBe(true);
   });
 });

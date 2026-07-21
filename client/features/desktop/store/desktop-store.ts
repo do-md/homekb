@@ -500,7 +500,16 @@ export class DesktopStore extends ZenithStore<DesktopState> {
   }
 
   // ---------- Pairing code ----------
+  /**
+   * Generate a pairing code. The engine owns first-run setup: `homekb pair --json`
+   * bootstraps — enrols with the built-in official default + installs the tunnel/
+   * compile agents when this machine isn't registered yet (docs "Desktop service
+   * picker"). So a fresh machine can pair straight from this call with no explicit
+   * register step. Refresh engine state afterwards so a bootstrap registration
+   * surfaces the connection + paired-devices cards.
+   */
   public async newPairCode() {
+    const wasRegistered = !!this.state.engine?.relay;
     this.produce((d) => {
       d.pairBusy = true;
       d.pairError = null;
@@ -512,6 +521,9 @@ export class DesktopStore extends ZenithStore<DesktopState> {
         d.pairBusy = false;
         d.pair = pair;
       });
+      // First pairing on a fresh machine just bootstrapped a registration + tunnel
+      // in the engine — reflect it (Connection card, tunnel toggle, devices).
+      if (!wasRegistered) void this.refreshEngine();
     } catch (e) {
       this.produce((d) => {
         d.pairBusy = false;

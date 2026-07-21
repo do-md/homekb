@@ -5,7 +5,9 @@
  *
  * The home machine picks ONE connection service to register with. Candidates:
  * - built-ins baked at build time (`NEXT_PUBLIC_BUILTIN_SERVICES`, comma-separated
- *   URLs — currently empty until official services ship),
+ *   URLs; when unset it falls back to the one official hosted relay
+ *   `DEFAULT_RELAY_URL` — mirrors `defaultRelayUrl()`, so a fresh home lands on a
+ *   ready-to-use service instead of an empty list),
  * - user-added URLs (their own deployment, a shared one, or this machine's own
  *   service — flagged `thisMachine`, which auto-select prefers).
  *
@@ -13,7 +15,7 @@
  * cares about is only the final `homekb register --relay <url>` result.
  */
 
-import { normalizeBaseUrl } from "./connection";
+import { DEFAULT_RELAY_URL, normalizeBaseUrl } from "./connection";
 
 export interface ServiceEntry {
   url: string;
@@ -46,9 +48,15 @@ export function isAllowedServiceUrl(url: string): boolean {
   }
 }
 
-/** Official services baked at build time (comma-separated URLs; currently empty). */
+/**
+ * Official services baked at build time. `NEXT_PUBLIC_BUILTIN_SERVICES` (comma-
+ * separated URLs) overrides the default; when unset it falls back to the one
+ * official hosted relay (`DEFAULT_RELAY_URL`) — mirrors `defaultRelayUrl()` so the
+ * home-side picker is pre-populated with a ready-to-use service, matching what the
+ * pairing screen prefills and what `homekb register` bakes in.
+ */
 export function builtinServices(): ServiceEntry[] {
-  const raw = process.env.NEXT_PUBLIC_BUILTIN_SERVICES || "";
+  const raw = process.env.NEXT_PUBLIC_BUILTIN_SERVICES || DEFAULT_RELAY_URL;
   return raw
     .split(",")
     .map((s) => s.trim())

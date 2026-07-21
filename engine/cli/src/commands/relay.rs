@@ -50,13 +50,26 @@ async fn retire_registration(old: &RelayConfig) {
 /// `homekb register [--relay URL] [--name NAME]` — `--relay` defaults to the
 /// official hosted relay (`DEFAULT_RELAY_URL`).
 pub fn run_register(relay: Option<String>, name: Option<String>) -> Result<()> {
-    register_at(relay, name, true)
+    register_at(relay, name, true, false)
 }
 
 /// Register with a connection service. `print_next_steps` gates the trailing
 /// "Next steps" guidance — `homekb pair`'s first-run bootstrap registers as a
 /// sub-step and handles the follow-up itself, so the guidance would mislead.
-fn register_at(relay: Option<String>, name: Option<String>, print_next_steps: bool) -> Result<()> {
+/// `quiet` routes all human-readable progress to **stderr** instead of stdout —
+/// used when this runs as a bootstrap sub-step of `homekb pair --json`, whose
+/// stdout must stay a single machine-readable JSON line.
+fn register_at(
+    relay: Option<String>,
+    name: Option<String>,
+    print_next_steps: bool,
+    quiet: bool,
+) -> Result<()> {
+    // stdout normally, but stderr in quiet (JSON-bootstrap) mode so the caller's
+    // stdout carries only the final JSON result.
+    macro_rules! say {
+        ($($a:tt)*) => { if quiet { eprintln!($($a)*) } else { println!($($a)*) } };
+    }
     let relay = relay.unwrap_or_else(|| DEFAULT_RELAY_URL.to_string());
     let url = normalize_url(&relay);
     let name = name.unwrap_or_else(|| {
@@ -99,8 +112,8 @@ fn register_at(relay: Option<String>, name: Option<String>, print_next_steps: bo
     });
     let path = config.save()?;
 
-    println!("registered home device \"{}\" ({}) -> {}", name, home_id, url);
-    println!("credentials written to {}", path.display());
+    say!("registered home device \"{}\" ({}) -> {}", name, home_id, url);
+    say!("credentials written to {}", path.display());
 
     // Routing follows the registration (docs/ARCHITECTURE.md "Switching
     // connection services"): existing shares live in shares.json on this
@@ -111,7 +124,7 @@ fn register_at(relay: Option<String>, name: Option<String>, print_next_steps: bo
     match rt.block_on(homekb_core::reregister_routes(&config)) {
         Ok((0, 0)) => {}
         Ok((registered, 0)) => {
-            println!("re-registered {registered} share route(s) at the new service");
+            say!("re-registered {registered} share route(s) at the new service");
         }
         Ok((registered, failed)) => eprintln!(
             "warning: re-registered {registered} share route(s), {failed} failed — those shares stay unreachable until the next `homekb register`"
@@ -127,7 +140,7 @@ fn register_at(relay: Option<String>, name: Option<String>, print_next_steps: bo
         use super::launchd;
         match launchd::restart_if_loaded(launchd::TUNNEL_LABEL) {
             Ok(true) => {
-                println!("tunnel restarted with the new credentials");
+                say!("tunnel restarted with the new credentials");
                 return Ok(());
             }
             Ok(false) => {} // not installed — fall through to the guidance below
@@ -149,17 +162,19 @@ fn register_at(relay: Option<String>, name: Option<String>, print_next_steps: bo
 
 /// `homekb pair [--json]`
 ///
-/// `--json`: stdout single-line `{"code","expiresAt","relayUrl","homeName"}`
-/// (epoch milliseconds), parsed by the desktop client (docs/ARCHITECTURE.md).
+/// `--json`: the pairing result `{"code","expiresAt","relayUrl","homeName"}`
+/// (epoch milliseconds) is the **final** stdout line, parsed by the desktop
+/// client (docs/ARCHITECTURE.md); any bootstrap progress is emitted to stderr.
 ///
-/// Human mode **bootstraps on first run** (docs/ARCHITECTURE.md "CLI"): with
-/// no registration it first registers against the official hosted relay, and
-/// on that fresh-registration path also installs the tunnel (`--interval 0`)
-/// + compile (default interval) agents on macOS — so "install the engine →
-/// `homekb pair` → enter the code on the web" is the complete minimal path.
-/// Already registered → mints a code only, never (re)installs agents.
-/// `--json` keeps the strict pre-bootstrap behavior: the desktop client
-/// registers explicitly and must never trigger an implicit registration.
+/// **Bootstraps on first run** (docs/ARCHITECTURE.md "CLI") — for BOTH human and
+/// `--json` mode, because the engine owns the official-relay default and the
+/// desktop is only a thin shell: with no registration it first enrols against
+/// the official hosted relay, and on that fresh-registration path also installs
+/// the tunnel (`--interval 0`) + compile (default interval) agents on macOS — so
+/// "install the engine → `homekb pair` (or the desktop's Generate) → enter the
+/// code on the web" is the complete minimal path, client optional. Already
+/// registered → mints a code only, never (re)installs agents. In `--json` mode
+/// the enrolment runs quietly (stderr), keeping the JSON result on stdout.
 pub fn run_pair(json: bool) -> Result<()> {
     let mut config = Config::load()?;
     let mut fresh_registration = false;
@@ -168,12 +183,18 @@ pub fn run_pair(json: bool) -> Result<()> {
         .as_ref()
         .map(|r| !r.url.is_empty() && !r.home_secret.is_empty())
         .unwrap_or(false);
-    if !has_registration && !json {
-        println!("not connected to a connection service yet — setting this machine up first\n");
-        register_at(None, None, false)?;
+    if !has_registration {
+        if json {
+            eprintln!("not connected to a connection service yet — setting up the default service");
+        } else {
+            println!("not connected to a connection service yet — setting this machine up first\n");
+        }
+        register_at(None, None, false, json)?;
         config = Config::load()?;
         fresh_registration = true;
-        println!();
+        if !json {
+            println!();
+        }
     }
     let relay = relay_config(&config)?;
 
@@ -182,19 +203,25 @@ pub fn run_pair(json: bool) -> Result<()> {
     // usable library needs scheduled compilation. Only the fresh-registration
     // path installs anything — an existing setup is never touched (a
     // deliberately uninstalled agent must not come back on the next `pair`).
+    // Runs for `--json` too: the desktop shell relies on the engine to set this
+    // up (install chatter lands on stdout but never as the final JSON line).
     #[cfg(target_os = "macos")]
-    if !json {
+    {
         use super::launchd;
         if fresh_registration {
             if !launchd::status(launchd::TUNNEL_LABEL)?.installed {
                 super::tunnel::run_install(0)?;
-                println!();
+                if !json {
+                    println!();
+                }
             }
             if !launchd::status(launchd::COMPILE_LABEL)?.installed {
                 super::watch::run_install(homekb_core::DEFAULT_COMPILE_INTERVAL_SECS)?;
-                println!();
+                if !json {
+                    println!();
+                }
             }
-        } else if !launchd::status(launchd::TUNNEL_LABEL)?.running {
+        } else if !json && !launchd::status(launchd::TUNNEL_LABEL)?.running {
             eprintln!(
                 "note: the tunnel is not running — the code below can be claimed, but this machine will look offline until it is (install: homekb tunnel --install, or run `homekb tunnel` in the foreground)\n"
             );

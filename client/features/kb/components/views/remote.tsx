@@ -390,9 +390,12 @@ function ProbeBadge({ probe }: { probe: { ok: boolean; ms: number | null } | und
 }
 
 /**
- * The service picker (docs "Desktop service picker"): built-ins (baked at build;
- * currently none) + user-added entries, each probed for reachability/latency;
- * auto-select prefers a reachable this-machine entry, else the nearest.
+ * The service picker (docs "Desktop service picker"): built-ins (the official
+ * hosted relay by default) + user-added entries, each probed for reachability/
+ * latency; auto-select prefers a reachable this-machine entry, else the nearest.
+ * This is the **"use a different service"** path — the primary zero-config route
+ * is just "Generate pairing code", which lets the engine bootstrap onto the
+ * official default (the engine owns that default; the client is a thin shell).
  */
 function ServicePicker({ onSelected }: { onSelected?: () => void }) {
   const api = useDesktopStoreApi();
@@ -420,9 +423,8 @@ function ServicePicker({ onSelected }: { onSelected?: () => void }) {
     <div className="flex flex-col gap-3">
       {services.length === 0 ? (
         <p className="text-[12.5px] leading-relaxed text-base-content/35">
-          No services available yet — official ones will appear here in a future update.
-          Add one you host (or someone shared with you), or start this machine&apos;s own
-          service below.
+          No services available yet. Add one you host (or someone shared with you), or
+          start this machine&apos;s own service below.
         </p>
       ) : (
         <div className="flex flex-col">
@@ -513,31 +515,43 @@ function ServicePicker({ onSelected }: { onSelected?: () => void }) {
 
 /**
  * The single remote concept: a connection service (docs "One remote concept").
- * Unregistered → the picker; registered → pairing QR + connection + devices
- * (with a "Change service" disclosure back into the picker).
+ * Unregistered → the pairing card up front (Generate lets the engine bootstrap
+ * onto the official default) with the picker as a "use a different service" path;
+ * registered → pairing QR + connection + devices (with a "Change service"
+ * disclosure back into the picker).
  */
 function ServiceCard() {
   const api = useDesktopStoreApi();
   const engine = useDesktopStore((s) => s.state.engine);
   const tunnelRunning = useDesktopStore((s) => s.state.tunnelRunning);
   const tunnelBusy = useDesktopStore((s) => s.state.tunnelBusy);
+  const registerBusy = useDesktopStore((s) => s.state.registerBusy);
   const [changing, setChanging] = useState(false);
 
+  // Not connected yet. The engine owns first-run setup — "Generate pairing code"
+  // (pair_new → homekb pair --json) bootstraps a registration with the official
+  // default relay + starts the tunnel, so we surface the pairing card directly
+  // instead of gating behind the picker (docs "Desktop service picker"). The
+  // picker below stays for anyone who wants a different service.
   if (!engine?.relay) {
     return (
-      <Card title="Connection service">
-        <p className="text-[13px] leading-relaxed text-base-content/60">
-          Connect this computer to a service so your phone and Claude can reach it from
-          anywhere. The service only forwards traffic — it never stores your notes.
-        </p>
-        <div className="mt-3">
-          <ServicePicker />
-        </div>
-      </Card>
+      <>
+        <DesktopPairingCard />
+        <Card title="Connection service">
+          <p className="text-[13px] leading-relaxed text-base-content/60">
+            Generating a code connects this computer to the default HomeKB service so your
+            phone and Claude can reach it — the service only forwards traffic, it never
+            stores your notes. Prefer to host your own or use one shared with you? Pick a
+            different service:
+          </p>
+          <div className="mt-3">
+            <ServicePicker />
+          </div>
+        </Card>
+      </>
     );
   }
 
-  const registerBusy = useDesktopStore((s) => s.state.registerBusy);
   // Non-https registration works for testing on this machine's network, but a real
   // phone on another network can't reach it — warn, but never hide the QR.
   const badServiceUrl = !isAllowedServiceUrl(engine.relay.url);
