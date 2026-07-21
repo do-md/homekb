@@ -1,6 +1,6 @@
 [package]
 name = "homekb-desktop"
-version = "0.1.0"
+version = "0.1.1"
 description = "HomeKB desktop client — pure renderer: detect/install engine → connect to homekb serve"
 edition = "2021"
 license = "MIT"
