@@ -81,8 +81,8 @@ pub fn run(yes: bool) -> Result<()> {
     if cfg!(target_os = "macos") {
         println!("  - stop + remove launchd services (com.homekb.tunnel, com.homekb.compile)");
     }
-    if super::mcp::any_agent_cli_on_path() {
-        println!("  - remove the `homekb` MCP registration from agent CLIs (claude, codex)");
+    if super::mcp::any_agent_detected() {
+        println!("  - remove the `homekb` MCP registration from agents (claude, codex, cursor)");
     }
     for f in &working_files {
         println!("  - delete {}", f.display());

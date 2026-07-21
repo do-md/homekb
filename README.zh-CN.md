@@ -149,13 +149,13 @@ HomeKB 向所有 MCP 客户端暴露同一组工具：
 
 `kb_search` · `kb_read` · `kb_create` · `kb_update` · `kb_list` · `kb_status` · `kb_share`
 
-一条命令即可注册到 Claude Code 和 Codex（自动识别已安装的）：
+一条命令即可注册到 Claude Code、Codex 和 Cursor（自动识别已安装的）：
 
 ```bash
 homekb mcp --install
 ```
 
-带上参数可只注册到某一个（`homekb mcp --install claude` / `codex`）；`homekb mcp --uninstall` 撤销注册。引擎会用自己的绝对路径完成注册，因此即使 agent 的 PATH 里没有 `~/.local/bin` 也能正常连接——手动用裸命令 `homekb` 注册正是「Failed to connect」这类问题的典型来源。
+带上参数可只注册到某一个（`homekb mcp --install claude` / `codex` / `cursor`）；`homekb mcp --uninstall` 撤销注册。引擎会用自己的绝对路径完成注册，因此即使 agent 的 PATH 里没有 `~/.local/bin` 也能正常连接——手动用裸命令 `homekb` 注册正是「Failed to connect」这类问题的典型来源。
 
 这个本地 MCP server 通过 stdio 运行并直接调用引擎，不经过任何连接服务。
 

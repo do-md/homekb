@@ -29,6 +29,8 @@ pub enum McpAgent {
     Claude,
     /// Codex CLI (`codex mcp add`).
     Codex,
+    /// Cursor (writes the `mcpServers.homekb` entry in ~/.cursor/mcp.json).
+    Cursor,
 }
 
 /// `homekb mcp --install [AGENT]` — register this binary as an MCP server.
@@ -65,14 +67,22 @@ pub fn run_install(agent: McpAgent) -> Result<()> {
                 println!("Codex: registered `homekb` -> {exe} mcp");
                 installed += 1;
             }
+            McpAgent::Cursor => {
+                // Cursor has no MCP CLI — edit the global mcp.json directly
+                // (only our entry; never clobber a file we cannot parse).
+                let path = cursor_install(&exe)?;
+                println!("Cursor: registered `homekb` in {} -> {exe} mcp", path.display());
+                installed += 1;
+            }
             McpAgent::Auto => unreachable!("resolve_targets never yields Auto"),
         }
     }
     if installed == 0 {
         bail!(
-            "no supported agent CLI (claude, codex) found on PATH. Register manually:\n  {}\n  {}",
+            "no supported agent found (claude/codex CLI on PATH, or ~/.cursor). Register manually:\n  {}\n  {}\n  {}",
             manual_claude(&exe),
-            manual_codex(&exe)
+            manual_codex(&exe),
+            manual_cursor(&exe)
         );
     }
     Ok(())
@@ -82,10 +92,20 @@ pub fn run_install(agent: McpAgent) -> Result<()> {
 pub fn run_uninstall(agent: McpAgent) -> Result<()> {
     let mut removed = 0;
     for target in resolve_targets(agent)? {
+        if target == McpAgent::Cursor {
+            match cursor_uninstall()? {
+                true => {
+                    println!("Cursor: removed the `homekb` MCP registration");
+                    removed += 1;
+                }
+                false => println!("Cursor: no `homekb` MCP registration found"),
+            }
+            continue;
+        }
         let (name, args): (&str, &[&str]) = match target {
             McpAgent::Claude => ("claude", &["mcp", "remove", "homekb", "-s", "user"]),
             McpAgent::Codex => ("codex", &["mcp", "remove", "homekb"]),
-            McpAgent::Auto => unreachable!("resolve_targets never yields Auto"),
+            _ => unreachable!("handled above / never yielded"),
         };
         let manual = format!("{name} mcp remove homekb");
         let Some(cli) = require_cli(name, agent, &manual)? else { continue };
@@ -104,7 +124,7 @@ pub fn run_uninstall(agent: McpAgent) -> Result<()> {
     Ok(())
 }
 
-/// Best-effort removal from every agent CLI on PATH — used by `homekb uninstall`
+/// Best-effort removal from every detected agent — used by `homekb uninstall`
 /// so no dangling dead MCP server outlives the binary. Never fails.
 pub fn deregister_all_quiet() {
     for (name, args) in [
@@ -115,17 +135,19 @@ pub fn deregister_all_quiet() {
             let _ = run_cli(&cli, args);
         }
     }
+    let _ = cursor_uninstall();
 }
 
-/// True when at least one supported agent CLI is on PATH (for uninstall's plan).
-pub fn any_agent_cli_on_path() -> bool {
-    find_on_path("claude").is_some() || find_on_path("codex").is_some()
+/// True when at least one supported agent is detected (for uninstall's plan).
+pub fn any_agent_detected() -> bool {
+    find_on_path("claude").is_some() || find_on_path("codex").is_some() || cursor_detected()
 }
 
 fn agent_label(a: McpAgent) -> &'static str {
     match a {
         McpAgent::Claude => "Claude Code",
         McpAgent::Codex => "Codex",
+        McpAgent::Cursor => "Cursor",
         McpAgent::Auto => "auto",
     }
 }
@@ -138,27 +160,90 @@ fn manual_codex(exe: &str) -> String {
     format!("codex mcp add homekb -- {exe} mcp")
 }
 
+fn manual_cursor(exe: &str) -> String {
+    format!(
+        r#"Cursor: add {{"mcpServers":{{"homekb":{{"command":"{exe}","args":["mcp"]}}}}}} to ~/.cursor/mcp.json"#
+    )
+}
+
 fn current_exe_str() -> Result<String> {
     let exe = std::env::current_exe().context("cannot resolve the engine's own path")?;
     Ok(exe.to_string_lossy().into_owned())
 }
 
-/// Explicit agent -> just that one; Auto -> every agent whose CLI is on PATH.
+/// Explicit agent -> just that one; Auto -> every agent detected on this
+/// machine (claude/codex CLIs on PATH, Cursor when ~/.cursor exists).
 fn resolve_targets(agent: McpAgent) -> Result<Vec<McpAgent>> {
     Ok(match agent {
         McpAgent::Claude => vec![McpAgent::Claude],
         McpAgent::Codex => vec![McpAgent::Codex],
-        McpAgent::Auto => [McpAgent::Claude, McpAgent::Codex]
+        McpAgent::Cursor => vec![McpAgent::Cursor],
+        McpAgent::Auto => [McpAgent::Claude, McpAgent::Codex, McpAgent::Cursor]
             .into_iter()
-            .filter(|a| {
-                let name = match a {
-                    McpAgent::Claude => "claude",
-                    _ => "codex",
-                };
-                find_on_path(name).is_some()
+            .filter(|a| match a {
+                McpAgent::Claude => find_on_path("claude").is_some(),
+                McpAgent::Codex => find_on_path("codex").is_some(),
+                McpAgent::Cursor => cursor_detected(),
+                McpAgent::Auto => false,
             })
             .collect(),
     })
+}
+
+// ---------- Cursor (no MCP CLI — direct, surgical ~/.cursor/mcp.json edits) ----------
+
+fn cursor_mcp_json() -> Result<PathBuf> {
+    let home = dirs::home_dir().context("cannot resolve the home directory")?;
+    Ok(home.join(".cursor").join("mcp.json"))
+}
+
+/// Cursor is "installed" when ~/.cursor exists (the app creates it on first run).
+fn cursor_detected() -> bool {
+    dirs::home_dir().map(|h| h.join(".cursor").is_dir()).unwrap_or(false)
+}
+
+/// Upsert `mcpServers.homekb` in ~/.cursor/mcp.json, preserving every other
+/// entry. A file we cannot parse is NEVER clobbered — error out instead.
+fn cursor_install(exe: &str) -> Result<PathBuf> {
+    let path = cursor_mcp_json()?;
+    let mut root: Value = match std::fs::read_to_string(&path) {
+        Ok(s) if !s.trim().is_empty() => serde_json::from_str(&s).with_context(|| {
+            format!("{} is not valid JSON — fix or remove it, then retry", path.display())
+        })?,
+        _ => json!({}),
+    };
+    let obj = root
+        .as_object_mut()
+        .with_context(|| format!("{} is not a JSON object — fix it, then retry", path.display()))?;
+    let servers = obj.entry("mcpServers").or_insert_with(|| json!({}));
+    let servers = servers.as_object_mut().with_context(|| {
+        format!("`mcpServers` in {} is not an object — fix it, then retry", path.display())
+    })?;
+    servers.insert("homekb".into(), json!({ "command": exe, "args": ["mcp"] }));
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(&path, format!("{}\n", serde_json::to_string_pretty(&root)?))
+        .with_context(|| format!("cannot write {}", path.display()))?;
+    Ok(path)
+}
+
+/// Remove `mcpServers.homekb` from ~/.cursor/mcp.json. Ok(false) = nothing to
+/// remove (missing/empty/unparsable file is left untouched).
+fn cursor_uninstall() -> Result<bool> {
+    let path = cursor_mcp_json()?;
+    let Ok(s) = std::fs::read_to_string(&path) else { return Ok(false) };
+    let Ok(mut root) = serde_json::from_str::<Value>(&s) else { return Ok(false) };
+    let removed = root
+        .get_mut("mcpServers")
+        .and_then(|v| v.as_object_mut())
+        .map(|servers| servers.remove("homekb").is_some())
+        .unwrap_or(false);
+    if removed {
+        std::fs::write(&path, format!("{}\n", serde_json::to_string_pretty(&root)?))
+            .with_context(|| format!("cannot write {}", path.display()))?;
+    }
+    Ok(removed)
 }
 
 /// Resolve the agent CLI. Explicit request + missing CLI = hard error with the

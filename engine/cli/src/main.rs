@@ -131,12 +131,12 @@ enum Cmd {
     /// Local MCP server over stdio (for Claude Code / Codex).
     ///
     /// No flag = run the server (this is what the agent launches).
-    /// --install/--uninstall manage the registration in agent CLIs using this
+    /// --install/--uninstall manage the registration in agents using this
     /// binary's ABSOLUTE path (agent MCP launchers don't necessarily share the
     /// shell's PATH; a bare `homekb` registration fails to connect). Omit the
-    /// AGENT value to target every supported agent CLI found on PATH.
+    /// AGENT value to target every agent detected on this machine.
     Mcp {
-        /// Register this engine as an MCP server in an agent CLI (claude, codex).
+        /// Register this engine as an MCP server (claude, codex, cursor).
         #[arg(
             long,
             value_name = "AGENT",
@@ -145,7 +145,7 @@ enum Cmd {
             group = "mcp_mode"
         )]
         install: Option<commands::mcp::McpAgent>,
-        /// Remove the `homekb` MCP registration from an agent CLI (claude, codex).
+        /// Remove the `homekb` MCP registration again (claude, codex, cursor).
         #[arg(
             long,
             value_name = "AGENT",
