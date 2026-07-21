@@ -80,6 +80,8 @@ scoop install homekb
 
 Or download a binary directly from the [latest release](https://github.com/do-md/homekb/releases). Prefer building from source? `cd engine && cargo install --path cli` (needs a recent Rust toolchain).
 
+The install script drops the binary in `~/.local/bin` and adds that directory to your shell's `PATH` automatically (zsh, bash, and fish). Open a new terminal — or `source` your shell rc file — so `homekb` resolves.
+
 ### 2. Pair this computer
 
 ```bash

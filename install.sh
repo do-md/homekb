@@ -58,10 +58,49 @@ chmod +x "$INSTALL_DIR/homekb"
 
 echo "Installed: $INSTALL_DIR/homekb ($("$INSTALL_DIR/homekb" --version))"
 
+# Put INSTALL_DIR on PATH persistently. install.sh targets ~/.local/bin, which is
+# not on the default macOS PATH — so a fresh install would otherwise greet the
+# user with `command not found: homekb`. Detect the login shell, append an
+# idempotent line to its rc file (rustup/uv style), and fall back to a manual
+# hint for shells we don't know how to configure.
+add_to_path() {
+  dir=$1
+  shell_name=$(basename "${SHELL:-sh}")
+  case "$shell_name" in
+    zsh)
+      rc="${ZDOTDIR:-$HOME}/.zshrc"
+      line="export PATH=\"$dir:\$PATH\""
+      ;;
+    bash)
+      # macOS Terminal runs bash as a login shell (.bash_profile); Linux
+      # interactive shells read .bashrc.
+      if [ "$(uname -s)" = "Darwin" ]; then rc="$HOME/.bash_profile"; else rc="$HOME/.bashrc"; fi
+      line="export PATH=\"$dir:\$PATH\""
+      ;;
+    fish)
+      # fish has its own syntax + config location; `export PATH` does not apply.
+      rc="$HOME/.config/fish/config.fish"
+      line="fish_add_path $dir"
+      mkdir -p "$(dirname "$rc")"
+      ;;
+    *)
+      echo "note: $dir is not on your PATH. Add it to your shell profile:"
+      echo "  export PATH=\"$dir:\$PATH\""
+      return 0
+      ;;
+  esac
+  if [ -f "$rc" ] && grep -qs -- "$dir" "$rc"; then
+    echo "PATH: $rc already references $dir — left unchanged."
+  else
+    printf '\n# Added by the HomeKB installer\n%s\n' "$line" >> "$rc"
+    echo "PATH: added $dir to $rc"
+  fi
+  echo "      Open a new terminal (or run: source $rc) to use homekb."
+}
+
 case ":$PATH:" in
-  *":$INSTALL_DIR:"*) ;;
-  *) echo "note: $INSTALL_DIR is not in PATH — add it to your shell profile:"
-     echo "  export PATH=\"$INSTALL_DIR:\$PATH\"" ;;
+  *":$INSTALL_DIR:"*) ;;                # already on PATH — nothing to do
+  *) add_to_path "$INSTALL_DIR" ;;
 esac
 
 echo "Get started:  homekb init && homekb reindex && homekb ask \"hello\""

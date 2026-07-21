@@ -80,6 +80,8 @@ scoop install homekb
 
 也可以从[最新 Release](https://github.com/do-md/homekb/releases)直接下载二进制文件。希望从源码构建时，在仓库中运行 `cd engine && cargo install --path cli`；这需要较新的 Rust 工具链。
 
+安装脚本会把二进制放到 `~/.local/bin`，并自动把该目录加入你 shell 的 `PATH`（支持 zsh、bash、fish）。打开一个新终端——或 `source` 你的 shell 配置文件——`homekb` 就能被识别。
+
 ### 2. 配对这台电脑
 
 ```bash

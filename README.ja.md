@@ -80,6 +80,8 @@ scoop install homekb
 
 [最新の Release](https://github.com/do-md/homekb/releases)からバイナリを直接ダウンロードすることもできます。ソースからビルドする場合は、リポジトリ内で `cd engine && cargo install --path cli` を実行してください。新しい Rust ツールチェーンが必要です。
 
+インストールスクリプトはバイナリを `~/.local/bin` に配置し、そのディレクトリを shell の `PATH` に自動追加します（zsh・bash・fish 対応）。新しいターミナルを開く——または shell の rc ファイルを `source` する——と `homekb` が認識されます。
+
 ### 2. このコンピューターをペアリング
 
 ```bash
