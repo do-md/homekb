@@ -151,6 +151,31 @@ enum Cmd {
     },
     /// Leave the connection service: retire the registration, clear [relay], remove the tunnel.
     Unregister,
+    /// Start the engine on THIS machine: install + start the background compile
+    /// (and, when registered, tunnel) launchd services. The reverse of `homekb stop`.
+    Start {
+        /// Seconds between scheduled compile runs.
+        #[arg(long, default_value_t = 300)]
+        interval: u64,
+    },
+    /// Pause the engine on THIS machine: stop the background tunnel + compile services.
+    ///
+    /// Reversible — keeps the binary, config, data, and the connection-service
+    /// registration; remote devices just see the home go offline. Resume with
+    /// `homekb start` (or `homekb pair` when not connected yet).
+    Stop,
+    /// Remove the engine from THIS machine — never touches your knowledge base (~/.homekb).
+    ///
+    /// Best-effort unregister (retire + clear [relay], AI keys kept) → stop+remove
+    /// the launchd tunnel/compile services → delete the regenerable live.db working
+    /// DB + logs → delete the binary (Homebrew/Scoop installs left for the package
+    /// manager). Prints the plan and aborts without --yes (a built-in dry run).
+    /// For a reversible pause that keeps everything installed, use `homekb stop`.
+    Uninstall {
+        /// Actually perform the removal (without this flag, only the plan is printed).
+        #[arg(long)]
+        yes: bool,
+    },
     /// Generate a pairing code via the connection service (for phone web / Claude mobile).
     ///
     /// First run does the whole setup: not registered yet → registers with the
@@ -272,6 +297,18 @@ fn main() -> Result<()> {
         Cmd::Unregister => {
             init_tracing(true);
             commands::relay::run_unregister()
+        }
+        Cmd::Start { interval } => {
+            init_tracing(true);
+            commands::start::run(interval)
+        }
+        Cmd::Stop => {
+            init_tracing(true);
+            commands::stop::run()
+        }
+        Cmd::Uninstall { yes } => {
+            init_tracing(true);
+            commands::uninstall::run(yes)
         }
         Cmd::Pair { json } => {
             init_tracing(true);

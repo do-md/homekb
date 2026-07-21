@@ -212,11 +212,29 @@ homekb register   Register with a connection service
 homekb pair       Bootstrap the default connection on first run, then generate a one-time code
 homekb share      Create, list, or revoke public note links
 homekb tunnel     Keep the home connected to the relay
+homekb start      Start the background services on this machine
+homekb stop       Pause the background services (reversible; keeps everything)
+homekb uninstall  Remove the engine from this machine — never touches your notes
 ```
 
 Run `homekb <command> --help` for complete options.
 
 On macOS, `homekb watch --install` manages the same scheduled-compilation service exposed on the app's **Status** page; either interface can enable it or change its interval.
+
+### Pause or remove the engine
+
+Three graduated commands manage the engine's footprint on a machine — for example a spare computer or one you're handing on. **None of them ever deletes your knowledge base:** `~/.homekb/` (notes, assets, index, drafts, and `config.toml`) is always left intact.
+
+```bash
+homekb stop          # Pause: stop the background tunnel + compile services. Everything stays installed;
+                     # resume any time with `homekb start`. Remote devices just see the home go offline.
+
+homekb uninstall     # Preview the full removal — prints exactly what it would do and changes nothing.
+homekb uninstall --yes   # Remove the engine: unregister from the connection service (AI keys kept),
+                         # stop the services, delete the regenerable working DB + logs, delete the binary.
+```
+
+`homekb uninstall` never removes anything under `~/.homekb/`, so reinstalling the engine and running `homekb reindex` restores your library exactly where you left off. Homebrew and Scoop installs are left for the package manager (`brew uninstall homekb` / `scoop uninstall homekb`). These service commands are macOS-only for now; on Linux and Windows, stop the foreground `homekb tunnel` / `homekb watch` process through your process manager instead.
 
 ---
 

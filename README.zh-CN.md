@@ -212,11 +212,29 @@ homekb register   注册连接服务
 homekb pair       首次运行时完成默认连接设置，之后生成一次性配对码
 homekb share      新建、列出或撤销公开笔记链接
 homekb tunnel     让家中电脑保持连接中继
+homekb start      在本机启动后台服务
+homekb stop       暂停后台服务（可逆，什么都不删）
+homekb uninstall  从本机移除引擎——永远不动你的笔记
 ```
 
 运行 `homekb <command> --help` 查看完整参数。
 
 在 macOS 上，`homekb watch --install` 管理的就是 App **Status** 页面所显示的定时编译服务；两边都可以开启服务或调整间隔。
+
+### 暂停或移除引擎
+
+三个层层递进的命令用来管理引擎在某台机器上的存在——比如一台备用电脑，或准备转手的机器。**它们都绝不会删除你的知识库：** `~/.homekb/`（笔记、资产、索引、草稿以及 `config.toml`）始终原样保留。
+
+```bash
+homekb stop          # 暂停：停止后台隧道 + 编译服务。一切仍保持安装，
+                     # 随时 `homekb start` 恢复；远端设备只是看到家中电脑离线。
+
+homekb uninstall     # 预览完整卸载——只打印将要做什么，什么都不改。
+homekb uninstall --yes   # 移除引擎：从连接服务退租（保留 AI key）、
+                         # 停止服务、删除可重建的工作库 + 日志、删除二进制。
+```
+
+`homekb uninstall` 绝不删除 `~/.homekb/` 下的任何内容，因此重新安装引擎并运行 `homekb reindex` 即可让知识库恢复到你离开时的状态。通过 Homebrew 或 Scoop 安装的二进制交由包管理器移除（`brew uninstall homekb` / `scoop uninstall homekb`）。这些服务命令目前仅支持 macOS；在 Linux 与 Windows 上，请通过系统进程管理器停止前台的 `homekb tunnel` / `homekb watch` 进程。
 
 ---
 

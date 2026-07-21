@@ -17,7 +17,10 @@ pub mod share;
 pub mod tunnel;
 pub mod rebuild;
 pub mod reindex;
+pub mod start;
 pub mod status;
+pub mod stop;
+pub mod uninstall;
 pub mod watch;
 
 use anyhow::Result;
