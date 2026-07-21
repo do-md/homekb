@@ -13,6 +13,7 @@ mod api;
 mod ask;
 mod assets;
 mod chunker;
+mod compile_queue;
 mod config;
 mod config_edit;
 mod db;
@@ -31,9 +32,10 @@ mod shares;
 mod types;
 
 pub use api::{
-    AppliedRoute, Hit, ReindexReport, SearchOptions, SearchOutput, StatusReport, TypeCount,
-    ensure_dirs, list_types, rebuild, reindex, reindex_opts, search, status,
+    AppliedRoute, CompileLockBusy, Hit, ReindexReport, SearchOptions, SearchOutput, StatusReport,
+    TypeCount, ensure_dirs, list_types, rebuild, reindex, reindex_opts, search, status,
 };
+pub use compile_queue::request_compile;
 pub use ask::{AskOutput, AskStreamEvent, Citation, ask, ask_stream, search_routed};
 pub use assets::{SavedAsset, save_asset};
 pub use config::{

@@ -743,6 +743,40 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn compile_lock_busy_is_typed_and_downcasts() {
+        // The event-driven compile coalescer (compile_queue) tells "someone
+        // else is compiling, retry" apart from a genuine failure by
+        // downcasting to CompileLockBusy. Guard that contract + the historical
+        // Display message (CLI output) + release/re-acquire.
+        let dir = std::env::temp_dir()
+            .join("homekb-lock-test")
+            .join(format!("{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let lock = dir.join("compile.lock");
+
+        let held = acquire_lock(&lock).unwrap();
+
+        // A second acquisition (separate fd, mirrors a second process) fails
+        // fast with the typed error, downcastable on the root error.
+        let err = acquire_lock(&lock).unwrap_err();
+        assert!(
+            err.downcast_ref::<CompileLockBusy>().is_some(),
+            "expected CompileLockBusy, got: {err:#}",
+        );
+        assert!(
+            err.to_string().contains("another homekb compile is running"),
+            "Display should match the historical CLI message: {err}",
+        );
+
+        // Releasing the lock lets a fresh acquisition succeed.
+        drop(held);
+        let _reacquired = acquire_lock(&lock).unwrap();
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -846,6 +880,26 @@ pub fn ensure_dirs(cfg: &Config) -> Result<()> {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// The compile file-lock is already held by another compiler — the periodic
+/// fallback agent (`com.homekb.compile`), a concurrent `homekb reindex`, or
+/// another process (serve/tunnel/MCP). A distinct error type so the
+/// event-driven compile coalescer (`compile_queue`) can tell "someone else is
+/// compiling, retry shortly" apart from a genuine compile failure and keep the
+/// write pending instead of dropping it. Its `Display` matches the historical
+/// message so CLI output is unchanged.
+#[derive(Debug)]
+pub struct CompileLockBusy {
+    pub lock_path: String,
+}
+
+impl std::fmt::Display for CompileLockBusy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "another homekb compile is running ({})", self.lock_path)
+    }
+}
+
+impl std::error::Error for CompileLockBusy {}
+
 fn acquire_lock(path: &Path) -> Result<std::fs::File> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -858,7 +912,12 @@ fn acquire_lock(path: &Path) -> Result<std::fs::File> {
         .open(path)
         .with_context(|| format!("open lock {}", path.display()))?;
     if FileExt::try_lock_exclusive(&f).is_err() {
-        bail!("another homekb compile is running ({})", path.display());
+        // Return the typed error unwrapped (no `.context()`) so callers can
+        // `downcast_ref::<CompileLockBusy>()` on the root error.
+        return Err(CompileLockBusy {
+            lock_path: path.display().to_string(),
+        }
+        .into());
     }
     Ok(f)
 }

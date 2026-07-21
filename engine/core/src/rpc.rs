@@ -128,12 +128,17 @@ pub async fn dispatch(config: &Config, method: &str, params: &Value) -> Result<V
             let content = required(params, "content")?;
             write_note(config, &path, &content)
                 .map_err(|e| RpcFailure::new("write_failed", format!("{e:#}")))?;
+            // App-layer write = exact compile trigger point: kick an immediate
+            // incremental compile instead of waiting for the fallback scan
+            // (docs "Compile trigger model"). Coalesced + fire-and-forget.
+            crate::compile_queue::request_compile(config);
             Ok(json!({ "path": path }))
         }
         "kb.create" => {
             let content = required(params, "content")?;
             let created = create_note(config, &content, s(params, "title"))
                 .map_err(|e| RpcFailure::new("create_failed", format!("{e:#}")))?;
+            crate::compile_queue::request_compile(config);
             to_value(&created)
         }
         "kb.draftList" => {
