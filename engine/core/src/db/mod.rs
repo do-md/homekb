@@ -24,13 +24,34 @@ const SCHEMA_VERSION: &str = "3";
 /// any previously stored values; a mismatch returns an error so the user can
 /// decide whether to `rebuild --force` (switching provider or model changes
 /// the vector space, exactly like a model change always did).
+///
+/// **Empty-index exception** (docs "Compilation pipeline"): when the db has
+/// zero indexed docs there is no vector space to protect, so a coherence
+/// mismatch auto-resets the db to the new config instead of bailing. This
+/// unwedges the fresh-setup trap: the resident compile's first cycle stamps
+/// the brand-new empty db with the *default* (openai) config before the user
+/// has configured anything; without the exception, picking a different
+/// provider in Settings would block every subsequent compile until a manual
+/// `rebuild --force`.
 pub fn open_live(
     path: &Path,
     embedding: &crate::config::EmbeddingEndpoint,
     summarizer_model: &str,
 ) -> Result<Connection> {
-    let conn = open_live_raw(path, embedding.dim)?;
-    verify_or_seed_meta(&conn, embedding, summarizer_model)?;
+    let mut conn = open_live_raw(path, embedding.dim)?;
+    if let Err(err) = verify_or_seed_meta(&conn, embedding, summarizer_model) {
+        if !index_is_empty(&conn)? {
+            return Err(err);
+        }
+        tracing::info!(
+            "index is empty — auto-resetting to the current embedding config \
+             instead of requiring `rebuild --force` ({err:#})"
+        );
+        drop(conn);
+        rebuild_reset(path, embedding, summarizer_model)?;
+        conn = open_live_raw(path, embedding.dim)?;
+        verify_or_seed_meta(&conn, embedding, summarizer_model)?;
+    }
 
     // Indexes that reference columns added by migrations live here,
     // not in schema.sql, so they only run after migration guarantees
@@ -190,6 +211,14 @@ pub fn read_snapshot_meta(conn: &Connection) -> Result<SnapshotMeta> {
         embedding_dim,
         generation,
     })
+}
+
+/// Zero indexed docs = nothing embedded = no vector space worth protecting.
+/// (Orphan vec rows without a doc cannot exist through the pipeline; even if
+/// present from a crash, they are garbage a reset is allowed to drop.)
+fn index_is_empty(conn: &Connection) -> Result<bool> {
+    let docs: i64 = conn.query_row("SELECT COUNT(*) FROM docs", [], |r| r.get(0))?;
+    Ok(docs == 0)
 }
 
 fn verify_or_seed_meta(
@@ -416,6 +445,67 @@ mod tests {
         insert_vec(&conn, "vec_chunks", 1, 3072).unwrap();
         assert!(insert_vec(&conn, "vec_docs", 1, 1536).is_err(), "old dim must be rejected");
         drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn insert_doc(conn: &Connection, path: &str) {
+        conn.execute(
+            "INSERT INTO docs(path, content_hash, size_bytes, mtime, indexed_at)
+             VALUES (?, 'hash', 1, 0, 0)",
+            [path],
+        )
+        .unwrap();
+    }
+
+    // The fresh-setup trap: the resident compile's first cycle stamps the
+    // brand-new EMPTY db with the default (openai) config before the user has
+    // configured any provider. Switching to another provider must then
+    // auto-reset instead of demanding `rebuild --force` — an empty index has
+    // no vector space to protect.
+    #[test]
+    fn empty_index_auto_resets_on_provider_switch() {
+        let dir = std::env::temp_dir().join(format!("homekb-emptyreset-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let live = dir.join("live.db");
+
+        // First open with defaults stamps openai/1536 onto the empty db.
+        let conn =
+            open_live(&live, &ep("openai", "text-embedding-3-small", 1536), "gpt-4o-mini").unwrap();
+        assert_eq!(read_meta(&conn, "embedding_provider").unwrap().as_deref(), Some("openai"));
+        drop(conn);
+
+        // User configures gemini: open must succeed and re-stamp, vec tables
+        // rebuilt at the new dimension.
+        let conn =
+            open_live(&live, &ep("gemini", "gemini-embedding-001", 3072), "gpt-4o-mini").unwrap();
+        assert_eq!(read_meta(&conn, "embedding_provider").unwrap().as_deref(), Some("gemini"));
+        assert_eq!(read_meta(&conn, "embedding_dim").unwrap().as_deref(), Some("3072"));
+        insert_vec(&conn, "vec_chunks", 1, 3072).unwrap();
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // A non-empty index keeps the strict guard: crossing vector spaces still
+    // requires an explicit `rebuild --force`.
+    #[test]
+    fn non_empty_index_still_requires_rebuild_force() {
+        let dir = std::env::temp_dir().join(format!("homekb-nonempty-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let live = dir.join("live.db");
+
+        let conn =
+            open_live(&live, &ep("openai", "text-embedding-3-small", 1536), "gpt-4o-mini").unwrap();
+        insert_doc(&conn, "a.md");
+        drop(conn);
+
+        let err = open_live(&live, &ep("gemini", "gemini-embedding-001", 3072), "gpt-4o-mini")
+            .expect_err("provider switch on a non-empty index must bail");
+        assert!(
+            format!("{err:#}").contains("rebuild --force"),
+            "error should point at rebuild --force, got: {err:#}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
