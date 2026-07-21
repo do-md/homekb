@@ -97,7 +97,8 @@ pub fn import_if_newer(live_path: &Path, snapshot_path: &Path) -> Result<bool> {
         if (l_provider, l_model, l_dim) != (s_provider, s_model, s_dim) {
             tracing::warn!(
                 "snapshot (gen {}) is from a different embedding model than the local db; \
-                 not adopting it (a `rebuild --force` model switch is in progress)",
+                 not adopting it (an embedding switch is in progress — the next compile \
+                 exports a snapshot in the new space)",
                 snap_gen
             );
             return Ok(false);

@@ -275,6 +275,16 @@ pub async fn dispatch(config: &Config, method: &str, params: &Value) -> Result<V
                 dim,
             )
             .map_err(|e| RpcFailure::new("config_set_failed", format!("{e:#}")))?;
+            // A Settings save is followed by a compile within seconds, not the
+            // next scheduled cycle: an embedding-identity change is picked up
+            // by the drift self-heal (docs "Vector-space drift self-heals"),
+            // anything else no-ops cheaply. MUST use a freshly loaded config —
+            // the request-scoped `config` predates the write, and compiling
+            // with it would reset the index back to the OLD endpoint.
+            match crate::config::Config::load() {
+                Ok(fresh) => crate::compile_queue::request_compile(&fresh),
+                Err(e) => tracing::warn!("post-configSetAi compile skipped: config reload failed: {e:#}"),
+            }
             // Echo the fresh masked summary; the write itself takes effect on
             // the next request via the transports' ConfigCell hot reload.
             let summary = crate::config_edit::config_summary()

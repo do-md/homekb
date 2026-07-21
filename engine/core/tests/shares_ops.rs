@@ -27,6 +27,7 @@ fn test_cfg(root: &Path) -> Config {
         drafts_dir: root.join("drafts"),
         snapshot_path: root.join("index").join("index.db"),
         live_db: root.join("live").join("live.db"),
+        embedding_configured: true,
         embedding: EmbeddingEndpoint {
             provider: "openai".into(),
             base_url: "https://api.openai.com/v1".into(),
@@ -34,6 +35,7 @@ fn test_cfg(root: &Path) -> Config {
             model: "text-embedding-3-small".into(),
             dim: 1536,
         },
+        summary_configured: true,
         summary: ChatEndpoint {
             provider: "openai".into(),
             base_url: "https://api.openai.com/v1".into(),

@@ -145,6 +145,10 @@ pub struct StatusReport {
     pub last_compile_host: String,
     pub embedding_model: String,
     pub embedding_provider: String,
+    /// False = no `[embedding]` endpoint configured yet (fresh setup): the
+    /// compile pipeline idles and UIs must render "not configured" — never a
+    /// preset default (docs "Unconfigured means unconfigured").
+    pub ai_configured: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -187,6 +191,20 @@ pub async fn reindex(cfg: &Config, quiet: bool) -> Result<ReindexReport> {
 /// categorizer prefers reusing frequent categories.
 pub async fn reindex_opts(cfg: &Config, quiet: bool, reclassify: bool) -> Result<ReindexReport> {
     let started = std::time::Instant::now();
+
+    // Unconfigured means unconfigured (docs): with no [embedding] endpoint
+    // there is nothing to embed with — no-op cleanly instead of stamping the
+    // live db with default credentials-less endpoints. The resident compile
+    // idles here until Settings provides a provider; never an error.
+    if !cfg.embedding_configured {
+        if !quiet {
+            tracing::info!(
+                "no AI endpoint configured yet — skipping compile (choose an embedding \
+                 provider in Settings, or add [embedding] to config.toml)"
+            );
+        }
+        return Ok(ReindexReport::default());
+    }
 
     // Self-bootstrapping on the DEFAULT layout: `homekb pair` alone must yield
     // a working setup (docs "CLI" first-run bootstrap) — the scheduled compile
@@ -480,7 +498,8 @@ fn query_embedding_endpoint(
     }
     tracing::warn!(
         "config [embedding] provider is \"{}\" but the snapshot was compiled with \"{}\"; \
-         querying with the snapshot's provider (run `homekb rebuild --force` + `reindex` to switch)",
+         querying with the snapshot's provider until the next compile re-embeds into the \
+         new space (automatic — see vector-space drift self-heal)",
         cfg.embedding.provider,
         meta.embedding_provider
     );
@@ -787,7 +806,10 @@ mod tests {
 /// error: it yields `available = false` with empty counters.
 pub fn status(cfg: &Config) -> Result<StatusReport> {
     if !cfg.snapshot_path.is_file() {
-        return Ok(StatusReport::default());
+        return Ok(StatusReport {
+            ai_configured: cfg.embedding_configured,
+            ..StatusReport::default()
+        });
     }
     let conn = db::open_snapshot(&cfg.snapshot_path)?;
 
@@ -810,6 +832,7 @@ pub fn status(cfg: &Config) -> Result<StatusReport> {
         embedding_model: db::read_meta(&conn, "embedding_model")?.unwrap_or_default(),
         embedding_provider: db::read_meta(&conn, "embedding_provider")?
             .unwrap_or_else(|| "openai".into()),
+        ai_configured: cfg.embedding_configured,
     })
 }
 

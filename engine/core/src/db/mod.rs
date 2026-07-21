@@ -20,37 +20,36 @@ const SCHEMA_VERSION: &str = "3";
 /// Open or create the live database, run migrations, ensure vec0 tables
 /// exist at the configured dimension, and verify model coherence.
 ///
-/// The `[embedding]` endpoint's provider / model / dim are checked against
-/// any previously stored values; a mismatch returns an error so the user can
-/// decide whether to `rebuild --force` (switching provider or model changes
-/// the vector space, exactly like a model change always did).
+/// **Vector-space drift self-heals** (docs "Compilation pipeline"): when the
+/// stored embedding identity (provider/model/dim) differs from the current
+/// config, the db is automatically reset to the new config — the same wipe +
+/// re-seed `rebuild --force` performs — and the caller's compile then
+/// re-embeds the corpus from scratch. Switching the embedding endpoint in
+/// Settings therefore just works; no user-facing command is ever required.
+/// The reset is loud (warn log) and safe: `import_if_newer` refuses to
+/// re-adopt an old-space snapshot, and a run that embeds zero vectors skips
+/// the snapshot export, so the last good snapshot stays queryable if the new
+/// endpoint turns out broken.
 ///
-/// **Empty-index exception** (docs "Compilation pipeline"): when the db has
-/// zero indexed docs there is no vector space to protect, so a coherence
-/// mismatch auto-resets the db to the new config instead of bailing. This
-/// unwedges the fresh-setup trap: the resident compile's first cycle stamps
-/// the brand-new empty db with the *default* (openai) config before the user
-/// has configured anything; without the exception, picking a different
-/// provider in Settings would block every subsequent compile until a manual
-/// `rebuild --force`.
+/// A `schema_version` mismatch (binary vs db skew) still errors — that is
+/// version skew, not an endpoint choice, and auto-wiping there would let an
+/// old binary destroy a newer index.
 pub fn open_live(
     path: &Path,
     embedding: &crate::config::EmbeddingEndpoint,
     summarizer_model: &str,
 ) -> Result<Connection> {
     let mut conn = open_live_raw(path, embedding.dim)?;
-    if let Err(err) = verify_or_seed_meta(&conn, embedding, summarizer_model) {
-        if !index_is_empty(&conn)? {
-            return Err(err);
-        }
-        tracing::info!(
-            "index is empty — auto-resetting to the current embedding config \
-             instead of requiring `rebuild --force` ({err:#})"
+    if let Some(drift) = verify_or_seed_meta(&conn, embedding, summarizer_model)? {
+        tracing::warn!(
+            "embedding endpoint changed ({drift}); resetting the index and re-embedding \
+             from scratch into the new vector space"
         );
         drop(conn);
         rebuild_reset(path, embedding, summarizer_model)?;
         conn = open_live_raw(path, embedding.dim)?;
-        verify_or_seed_meta(&conn, embedding, summarizer_model)?;
+        let no_drift = verify_or_seed_meta(&conn, embedding, summarizer_model)?;
+        debug_assert!(no_drift.is_none(), "reset db cannot still drift");
     }
 
     // Indexes that reference columns added by migrations live here,
@@ -213,19 +212,16 @@ pub fn read_snapshot_meta(conn: &Connection) -> Result<SnapshotMeta> {
     })
 }
 
-/// Zero indexed docs = nothing embedded = no vector space worth protecting.
-/// (Orphan vec rows without a doc cannot exist through the pipeline; even if
-/// present from a crash, they are garbage a reset is allowed to drop.)
-fn index_is_empty(conn: &Connection) -> Result<bool> {
-    let docs: i64 = conn.query_row("SELECT COUNT(*) FROM docs", [], |r| r.get(0))?;
-    Ok(docs == 0)
-}
-
+/// Verify (or seed, on a fresh db) the stored meta against the current
+/// config. Returns `Ok(Some(description))` when the stored embedding identity
+/// (provider/model/dim) differs from the config — **vector-space drift**,
+/// which `open_live` resolves by resetting the db (see its docs). Only a
+/// `schema_version` the binary cannot handle is a hard error.
 fn verify_or_seed_meta(
     conn: &Connection,
     embedding: &crate::config::EmbeddingEndpoint,
     summarizer_model: &str,
-) -> Result<()> {
+) -> Result<Option<String>> {
     let embedding_model = &embedding.model;
     let embedding_dim = embedding.dim;
     let stored_version = read_meta(conn, "schema_version")?;
@@ -251,40 +247,38 @@ fn verify_or_seed_meta(
         ),
     }
 
-    // Provider participates in vector-space identity exactly like the model:
-    // a pre-provider db (no key stored) is treated as "openai".
+    // Vector-space identity = provider + model + dim. Any difference from the
+    // stored values is drift, reported to the caller (which resets the db) —
+    // never a user-facing error. A pre-provider db (no key stored) is treated
+    // as "openai".
     let prev_provider = read_meta(conn, "embedding_provider")?.unwrap_or_else(|| "openai".into());
     if read_meta(conn, "embedding_model")?.is_some() && prev_provider != embedding.provider {
-        bail!(
-            "embedding provider changed (db: {prev_provider}, config: {}). \
-             Run `homekb rebuild --force` to reindex with the new provider.",
+        return Ok(Some(format!(
+            "provider: {prev_provider} → {}",
             embedding.provider
-        );
+        )));
     }
-    write_meta(conn, "embedding_provider", &embedding.provider)?;
-    // Base URL is informational (needed at query time for custom providers).
-    write_meta(conn, "embedding_base_url", &embedding.base_url)?;
-
     if let Some(prev) = read_meta(conn, "embedding_model")? {
         if &prev != embedding_model {
-            bail!(
-                "embedding_model changed (db: {prev}, config: {embedding_model}). \
-                 Run `homekb rebuild --force` to reindex with the new model."
-            );
+            return Ok(Some(format!("model: {prev} → {embedding_model}")));
         }
-    } else {
-        write_meta(conn, "embedding_model", embedding_model)?;
     }
-
     if let Some(prev) = read_meta(conn, "embedding_dim")? {
         let prev_n: usize = prev.parse().unwrap_or(0);
         if prev_n != embedding_dim {
-            bail!(
-                "embedding_dim changed (db: {prev_n}, config: {embedding_dim}). \
-                 Run `homekb rebuild --force`."
-            );
+            return Ok(Some(format!("dim: {prev_n} → {embedding_dim}")));
         }
-    } else {
+    }
+
+    // No drift: seed anything missing (fresh db) and refresh informational
+    // fields.
+    write_meta(conn, "embedding_provider", &embedding.provider)?;
+    // Base URL is informational (needed at query time for custom providers).
+    write_meta(conn, "embedding_base_url", &embedding.base_url)?;
+    if read_meta(conn, "embedding_model")?.is_none() {
+        write_meta(conn, "embedding_model", embedding_model)?;
+    }
+    if read_meta(conn, "embedding_dim")?.is_none() {
         write_meta(conn, "embedding_dim", &embedding_dim.to_string())?;
     }
 
@@ -295,7 +289,7 @@ fn verify_or_seed_meta(
     if read_meta(conn, "generation")?.is_none() {
         write_meta(conn, "generation", "0")?;
     }
-    Ok(())
+    Ok(None)
 }
 
 pub fn read_meta(conn: &Connection, key: &str) -> Result<Option<String>> {
@@ -486,11 +480,13 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // A non-empty index keeps the strict guard: crossing vector spaces still
-    // requires an explicit `rebuild --force`.
+    // A NON-empty index also self-heals: the drift reset wipes the old-space
+    // rows and re-stamps, and the caller's compile re-embeds from scratch. No
+    // user-facing `rebuild --force` on any path (docs "Vector-space drift
+    // self-heals").
     #[test]
-    fn non_empty_index_still_requires_rebuild_force() {
-        let dir = std::env::temp_dir().join(format!("homekb-nonempty-{}", std::process::id()));
+    fn non_empty_index_drift_auto_resets() {
+        let dir = std::env::temp_dir().join(format!("homekb-driftheal-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let live = dir.join("live.db");
@@ -498,13 +494,42 @@ mod tests {
         let conn =
             open_live(&live, &ep("openai", "text-embedding-3-small", 1536), "gpt-4o-mini").unwrap();
         insert_doc(&conn, "a.md");
+        insert_vec(&conn, "vec_chunks", 1, 1536).unwrap();
         drop(conn);
 
-        let err = open_live(&live, &ep("gemini", "gemini-embedding-001", 3072), "gpt-4o-mini")
-            .expect_err("provider switch on a non-empty index must bail");
+        let conn =
+            open_live(&live, &ep("gemini", "gemini-embedding-001", 3072), "gpt-4o-mini").unwrap();
+        assert_eq!(read_meta(&conn, "embedding_provider").unwrap().as_deref(), Some("gemini"));
+        assert_eq!(read_meta(&conn, "embedding_dim").unwrap().as_deref(), Some("3072"));
+        let docs: i64 = conn.query_row("SELECT COUNT(*) FROM docs", [], |r| r.get(0)).unwrap();
+        let vecs: i64 =
+            conn.query_row("SELECT COUNT(*) FROM vec_chunks", [], |r| r.get(0)).unwrap();
+        assert_eq!((docs, vecs), (0, 0), "old-space rows must be wiped for the re-embed");
+        insert_vec(&conn, "vec_chunks", 1, 3072).unwrap();
+        drop(conn);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Version skew is NOT drift: an old binary must never auto-wipe a newer
+    // index. schema_version ahead of the binary stays a hard error.
+    #[test]
+    fn schema_version_skew_still_bails() {
+        let dir = std::env::temp_dir().join(format!("homekb-schemaskew-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let live = dir.join("live.db");
+
+        let conn =
+            open_live(&live, &ep("openai", "text-embedding-3-small", 1536), "gpt-4o-mini").unwrap();
+        insert_doc(&conn, "a.md");
+        write_meta(&conn, "schema_version", "99").unwrap();
+        drop(conn);
+
+        let err = open_live(&live, &ep("openai", "text-embedding-3-small", 1536), "gpt-4o-mini")
+            .expect_err("future schema_version must bail");
         assert!(
-            format!("{err:#}").contains("rebuild --force"),
-            "error should point at rebuild --force, got: {err:#}"
+            format!("{err:#}").contains("schema_version"),
+            "got: {err:#}"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }

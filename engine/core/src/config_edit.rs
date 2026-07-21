@@ -360,6 +360,34 @@ mod tests {
             .map(str::to_string)
     }
 
+    // Unconfigured means unconfigured (docs): `Config::save()` must NOT
+    // materialize the default openai fill-ins into [embedding]/[summary] —
+    // `register`/`init` save config long before the user picks a provider,
+    // and a phantom section would flip `*_configured` to true on the next
+    // load (the fresh-setup trap: the resident compile then stamps/embeds
+    // with a credentials-less default).
+    #[test]
+    fn save_does_not_materialize_unconfigured_ai_sections() {
+        let (_g, _dir) = with_temp_config("");
+
+        let cfg = crate::config::Config::load().unwrap();
+        assert!(!cfg.embedding_configured);
+        assert!(!cfg.summary_configured);
+        cfg.save().unwrap();
+
+        let raw =
+            std::fs::read_to_string(std::env::var("HOMEKB_CONFIG").unwrap()).unwrap();
+        assert!(
+            !raw.contains("[embedding]") && !raw.contains("[summary]"),
+            "unconfigured AI sections must not be written, got:\n{raw}"
+        );
+
+        // Round-trip: still unconfigured after the save.
+        let cfg2 = crate::config::Config::load().unwrap();
+        assert!(!cfg2.embedding_configured);
+        assert!(!cfg2.summary_configured);
+    }
+
     #[test]
     fn same_endpoint_write_keeps_stored_key() {
         let (_g, _dir) = with_temp_config(

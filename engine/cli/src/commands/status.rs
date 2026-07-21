@@ -13,10 +13,18 @@ pub fn run(json: bool) -> Result<()> {
     }
 
     if !report.available {
-        println!(
-            "no snapshot at {} — run `homekb reindex` first",
-            cfg.snapshot_path.display()
-        );
+        if report.ai_configured {
+            println!(
+                "no snapshot at {} — run `homekb reindex` first",
+                cfg.snapshot_path.display()
+            );
+        } else {
+            println!(
+                "no AI endpoint configured — choose an embedding provider in Settings \
+                 (or add [embedding] to config.toml); the knowledge base compiles \
+                 automatically once configured"
+            );
+        }
         return Ok(());
     }
 

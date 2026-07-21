@@ -293,8 +293,17 @@ pub struct Config {
 
     /// `[embedding]` — required for compile & retrieval.
     pub embedding: EmbeddingEndpoint,
+    /// Whether the user actually configured an embedding endpoint (an
+    /// `[embedding]` section, or the legacy top-level openai key). `false` =
+    /// `embedding` holds unconfigured *defaults*: the compile pipeline must
+    /// no-op instead of stamping/embedding with them, `save()` must not
+    /// materialize the section into the file, and status surfaces report
+    /// "not configured" (docs "Unconfigured means unconfigured").
+    pub embedding_configured: bool,
     /// `[summary]` — required for compile (summaries, doc_type, question).
     pub summary: ChatEndpoint,
+    /// Same contract as `embedding_configured`, for `[summary]`.
+    pub summary_configured: bool,
     /// `[ask]` — optional override; `ask_endpoint()` falls back to summary.
     pub ask: Option<ChatEndpoint>,
 
@@ -383,6 +392,12 @@ impl Config {
 
         let legacy_key = ov.openai_api_key.clone().or(file.openai_api_key.clone());
 
+        // Explicitly configured = the file has the section (or the legacy
+        // top-level openai key). Absent both, the resolved endpoint below is a
+        // pure default fill-in and must never be treated as an active choice.
+        let embedding_configured = file.embedding.is_some() || legacy_key.is_some();
+        let summary_configured = file.summary.is_some() || legacy_key.is_some();
+
         let embedding = resolve_embedding_section(
             file.embedding.as_ref(),
             legacy_key.as_deref(),
@@ -408,7 +423,9 @@ impl Config {
             snapshot_path,
             live_db,
             embedding,
+            embedding_configured,
             summary,
+            summary_configured,
             ask,
             chunk_target_tokens: file.chunk_target_tokens.unwrap_or(800),
             chunk_hard_max: file.chunk_hard_max.unwrap_or(2000),
@@ -458,7 +475,12 @@ impl Config {
             embed_concurrency: Some(self.embed_concurrency),
             embed_batch_size: Some(self.embed_batch_size),
             share_web_base: Some(self.share_web_base.clone()),
-            embedding: Some(AiSectionFile {
+            // Only materialize sections the user actually configured —
+            // writing the default fill-ins would turn "unconfigured" into a
+            // phantom openai configuration on the next load (docs
+            // "Unconfigured means unconfigured"; `register`/`init` call this
+            // long before the user has picked a provider).
+            embedding: self.embedding_configured.then(|| AiSectionFile {
                 provider: Some(self.embedding.provider.clone()),
                 api_key: self.embedding.api_key.clone(),
                 model: Some(self.embedding.model.clone()),
@@ -466,7 +488,7 @@ impl Config {
                 base_url: (self.embedding.provider == "custom")
                     .then(|| self.embedding.base_url.clone()),
             }),
-            summary: Some(AiSectionFile {
+            summary: self.summary_configured.then(|| AiSectionFile {
                 provider: Some(self.summary.provider.clone()),
                 api_key: self.summary.api_key.clone(),
                 model: Some(self.summary.model.clone()),
@@ -832,4 +854,7 @@ mod tests {
         assert_eq!(preset_embedding_batch_cap("cohere"), Some(96));
         assert_eq!(preset_embedding_batch_cap("openai"), None);
     }
+
+    // The save()-does-not-materialize-unconfigured-sections regression lives
+    // in config_edit.rs tests (it needs the HOMEKB_CONFIG env lock there).
 }
